@@ -31,7 +31,7 @@ const Sidebar = () => {
     <aside className="w-64 bg-dark-100 border-r border-white/10 flex flex-col">
       {/* Logo */}
       <div className="p-6 border-b border-white/10">
-        <h1 className="text-2xl font-bold gradient-text">DeciBel</h1>
+        <h1 className="text-2xl font-bold gradient-text">Aura</h1>
         <p className="text-dark-400 text-xs mt-1">Music Streaming</p>
       </div>
 

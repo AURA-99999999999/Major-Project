@@ -63,7 +63,7 @@ const Home = () => {
       >
         <div className="relative z-10">
           <h1 className="text-5xl font-bold mb-4 gradient-text">
-            Welcome to DeciBel
+            Welcome to Aura
           </h1>
           <p className="text-xl text-dark-400 mb-6">
             Discover your next favorite song from millions of tracks

@@ -1,5 +1,5 @@
 """
-Configuration file for DeciBel Music Streaming App
+Configuration file for Aura Music Streaming App
 """
 import os
 

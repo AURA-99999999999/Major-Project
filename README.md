@@ -1,4 +1,4 @@
-# DeciBel - Production-Grade Music Streaming Platform
+# Aura - Production-Grade Music Streaming Platform
 
 A modern, full-stack music streaming application built with Flask (backend) and React (frontend), featuring a premium UI/UX similar to Spotify and Apple Music.
 
@@ -284,7 +284,10 @@ For issues and questions, please open an issue on the repository.
 
 **Built with ❤️ using Flask, React, and modern web technologies**
 
-#   M a j o r - P r o j e c t  
- #   M a j o r - P r o j e c t  
- #   M a j o r - P r o j e c t  
+#   M a j o r - P r o j e c t 
+ 
+ #   M a j o r - P r o j e c t 
+ 
+ #   M a j o r - P r o j e c t 
+ 
  

@@ -36,7 +36,7 @@ const Login = () => {
         className="glass rounded-2xl p-8 max-w-md w-full shadow-2xl"
       >
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-2 gradient-text">DeciBel</h1>
+          <h1 className="text-4xl font-bold mb-2 gradient-text">Aura</h1>
           <p className="text-dark-400">Sign in to your account</p>
         </div>
 

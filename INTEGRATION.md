@@ -6,7 +6,7 @@
 
 #### Initial Setup
 ```bash
-# Navigate to DeciBel directory
+# Navigate to Aura directory
 cd DeciBel
 
 # Activate virtual environment (if not already activated)
@@ -28,7 +28,7 @@ The server should start on `http://localhost:5000`
 
 **Verify Backend:**
 - Open browser: `http://localhost:5000/api/health`
-- Should return: `{"status": "healthy", "service": "DeciBel Music API"}`
+- Should return: `{"status": "healthy", "service": "Aura Music API"}`
 
 ### 2. Frontend Setup
 
@@ -36,6 +36,7 @@ The server should start on `http://localhost:5000`
 ```bash
 # Navigate to frontend directory
 cd frontend
+#retry
 
 # Install dependencies
 npm install
@@ -46,7 +47,7 @@ npm install
 npm run dev
 ```
 
-The app should start on `http://localhost:3000`
+The apppp should start on `http://localhost:3000`
 
 ### 3. Verify Integration
 
@@ -57,7 +58,7 @@ The app should start on `http://localhost:3000`
 
 2. **Check Frontend:**
    - Open `http://localhost:3000`
-   - You should see the DeciBel home page
+   - You should see the Aura home page
 
 3. **Test Search:**
    - Type a song name in the search bar

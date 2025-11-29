@@ -2,7 +2,7 @@
 
 ## Overview
 
-The DeciBel music player uses a centralized state management pattern with React Context API. All player state lives in a single `PlayerContext`, ensuring that all views (mini player, full player, queue, etc.) stay perfectly in sync.
+The Aura music player uses a centralized state management pattern with React Context API. All player state lives in a single `PlayerContext`, ensuring that all views (mini player, full player, queue, etc.) stay perfectly in sync.
 
 ## Core Architecture
 
