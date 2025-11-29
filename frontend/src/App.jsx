@@ -12,12 +12,14 @@ import Profile from './pages/Profile'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import ProtectedRoute from './components/ProtectedRoute'
+import KeyboardShortcutsHandler from './components/KeyboardShortcutsHandler'
 
 function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <PlayerProvider>
+          <KeyboardShortcutsHandler />
           <Router>
             <Layout>
               <Routes>

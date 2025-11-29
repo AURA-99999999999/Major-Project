@@ -1,32 +1,28 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { FaPlay, FaPause, FaStepForward, FaStepBackward, FaVolumeUp } from 'react-icons/fa'
+import { FaVolumeUp } from 'react-icons/fa'
 import { usePlayer } from '../../context/PlayerContext'
 import { useNavigate } from 'react-router-dom'
+import ProgressBar from './ProgressBar'
+import PlayerControls from './PlayerControls'
 
+/**
+ * Mini player component - Sticky bottom player bar
+ * Shows current song, controls, and progress bar
+ * @returns {JSX.Element | null}
+ */
 const MiniPlayer = () => {
   const {
     currentSong,
-    isPlaying,
-    togglePlayPause,
-    playNext,
-    playPrevious,
     volume,
     setVolume,
     currentTime,
     duration,
+    buffered,
+    seekTo,
   } = usePlayer()
   const navigate = useNavigate()
 
   if (!currentSong) return null
-
-  const formatTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return '0:00'
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
-
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0
 
   return (
     <AnimatePresence>
@@ -38,10 +34,14 @@ const MiniPlayer = () => {
       >
         <div className="container mx-auto px-4 py-3">
           {/* Progress bar */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-dark-200">
-            <motion.div
-              className="h-full bg-gradient-to-r from-primary-500 to-purple-500"
-              style={{ width: `${progress}%` }}
+          <div className="absolute top-0 left-0 right-0">
+            <ProgressBar
+              currentTime={currentTime}
+              duration={duration}
+              buffered={buffered}
+              onSeek={seekTo}
+              height="h-1"
+              showTime={false}
             />
           </div>
 
@@ -78,33 +78,7 @@ const MiniPlayer = () => {
             </div>
 
             {/* Controls */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={playPrevious}
-                className="p-2 hover:bg-dark-200 rounded-full transition-colors"
-                aria-label="Previous"
-              >
-                <FaStepBackward className="text-dark-400 hover:text-white" />
-              </button>
-              <button
-                onClick={togglePlayPause}
-                className="p-3 bg-primary-600 hover:bg-primary-700 rounded-full transition-colors"
-                aria-label={isPlaying ? 'Pause' : 'Play'}
-              >
-                {isPlaying ? (
-                  <FaPause className="text-white" />
-                ) : (
-                  <FaPlay className="text-white ml-0.5" />
-                )}
-              </button>
-              <button
-                onClick={playNext}
-                className="p-2 hover:bg-dark-200 rounded-full transition-colors"
-                aria-label="Next"
-              >
-                <FaStepForward className="text-dark-400 hover:text-white" />
-              </button>
-            </div>
+            <PlayerControls variant="mini" />
 
             {/* Volume */}
             <div className="hidden md:flex items-center gap-2 w-32">

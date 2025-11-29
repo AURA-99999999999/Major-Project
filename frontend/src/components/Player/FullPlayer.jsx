@@ -1,38 +1,38 @@
 import { motion } from 'framer-motion'
-import {
-  FaPlay,
-  FaPause,
-  FaStepForward,
-  FaStepBackward,
-  FaRandom,
-  FaRedo,
-  FaVolumeUp,
-  FaVolumeMute,
-} from 'react-icons/fa'
+import { FaVolumeUp, FaVolumeMute, FaEllipsisV } from 'react-icons/fa'
 import { usePlayer } from '../../context/PlayerContext'
 import { useEffect, useState } from 'react'
+import ProgressBar from './ProgressBar'
+import PlayerControls from './PlayerControls'
+import LikeButton from '../Music/LikeButton'
+import AddToPlaylistMenu from '../Music/AddToPlaylistMenu'
 
+/**
+ * Full-screen player component
+ * Displays the full immersive player view with album art, controls, and queue
+ * 
+ * IMPORTANT: All values used in this component MUST be destructured from usePlayer().
+ * Missing destructuring will cause "is not defined" errors.
+ * 
+ * @returns {JSX.Element}
+ */
 const FullPlayer = () => {
+  // Destructure ALL required values from player context
+  // If you use a value (like isPlaying), it MUST be in this list
   const {
     currentSong,
-    isPlaying,
-    togglePlayPause,
-    playNext,
-    playPrevious,
+    isPlaying, // Required for album art rotation animation
     volume,
     setVolume,
     currentTime,
     duration,
+    buffered,
     seekTo,
-    repeatMode,
-    shuffle,
-    toggleRepeat,
-    toggleShuffle,
-    queue,
   } = usePlayer()
 
   const [isMuted, setIsMuted] = useState(false)
   const [previousVolume, setPreviousVolume] = useState(1)
+  const [showPlaylistMenu, setShowPlaylistMenu] = useState(false)
 
   useEffect(() => {
     if (isMuted) {
@@ -51,20 +51,6 @@ const FullPlayer = () => {
     )
   }
 
-  const formatTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return '0:00'
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
-
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0
-
-  const handleProgressClick = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const percent = (e.clientX - rect.left) / rect.width
-    seekTo(percent * duration)
-  }
 
   return (
     <div className="h-full flex flex-col items-center justify-center p-8">
@@ -123,84 +109,39 @@ const FullPlayer = () => {
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.1 }}
-          className="text-dark-400 text-lg"
+          className="text-dark-400 text-lg mb-4"
         >
           {currentSong.artists?.join(', ') || currentSong.artist}
         </motion.p>
+        
+        {/* Actions */}
+        <div className="flex items-center justify-center gap-4">
+          <LikeButton song={currentSong} size="text-2xl" />
+          <button
+            onClick={() => setShowPlaylistMenu(true)}
+            className="p-3 hover:bg-dark-200 rounded-full transition-colors"
+            aria-label="Add to playlist"
+          >
+            <FaEllipsisV className="text-dark-400 hover:text-white text-xl" />
+          </button>
+        </div>
       </div>
 
       {/* Progress Bar */}
       <div className="w-full max-w-2xl mb-6">
-        <div
-          className="h-1 bg-dark-200 rounded-full cursor-pointer relative"
-          onClick={handleProgressClick}
-        >
-          <motion.div
-            className="h-full bg-gradient-to-r from-primary-500 to-purple-500 rounded-full"
-            style={{ width: `${progress}%` }}
-          />
-          <motion.div
-            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg"
-            style={{ left: `${progress}%`, marginLeft: '-8px' }}
-          />
-        </div>
-        <div className="flex justify-between text-sm text-dark-400 mt-2">
-          <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(duration)}</span>
-        </div>
+        <ProgressBar
+          currentTime={currentTime}
+          duration={duration}
+          buffered={buffered}
+          onSeek={seekTo}
+          height="h-2"
+          showTime={true}
+        />
       </div>
 
       {/* Controls */}
-      <div className="flex items-center gap-6 mb-8">
-        <button
-          onClick={toggleShuffle}
-          className={`p-3 rounded-full transition-colors ${
-            shuffle ? 'text-primary-400 bg-primary-400/20' : 'text-dark-400 hover:text-white'
-          }`}
-          aria-label="Shuffle"
-        >
-          <FaRandom className="text-xl" />
-        </button>
-
-        <button
-          onClick={playPrevious}
-          className="p-3 text-white hover:bg-dark-200 rounded-full transition-colors"
-          aria-label="Previous"
-        >
-          <FaStepBackward className="text-2xl" />
-        </button>
-
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={togglePlayPause}
-          className="p-6 bg-primary-600 hover:bg-primary-700 rounded-full transition-colors shadow-lg neon-glow"
-          aria-label={isPlaying ? 'Pause' : 'Play'}
-        >
-          {isPlaying ? (
-            <FaPause className="text-white text-3xl" />
-          ) : (
-            <FaPlay className="text-white text-3xl ml-1" />
-          )}
-        </motion.button>
-
-        <button
-          onClick={playNext}
-          className="p-3 text-white hover:bg-dark-200 rounded-full transition-colors"
-          aria-label="Next"
-        >
-          <FaStepForward className="text-2xl" />
-        </button>
-
-        <button
-          onClick={toggleRepeat}
-          className={`p-3 rounded-full transition-colors ${
-            repeatMode !== 'off' ? 'text-primary-400 bg-primary-400/20' : 'text-dark-400 hover:text-white'
-          }`}
-          aria-label="Repeat"
-        >
-          <FaRedo className={`text-xl ${repeatMode === 'one' ? 'text-primary-400' : ''}`} />
-        </button>
+      <div className="flex items-center justify-center mb-8">
+        <PlayerControls variant="full" />
       </div>
 
       {/* Volume Control */}
@@ -232,13 +173,13 @@ const FullPlayer = () => {
           {Math.round((isMuted ? 0 : volume) * 100)}%
         </span>
       </div>
-
-      {/* Queue info */}
-      {queue.length > 0 && (
-        <div className="mt-6 text-dark-400 text-sm">
-          {queue.length} {queue.length === 1 ? 'song' : 'songs'} in queue
-        </div>
-      )}
+      
+      {/* Add to Playlist Menu */}
+      <AddToPlaylistMenu
+        song={currentSong}
+        isOpen={showPlaylistMenu}
+        onClose={() => setShowPlaylistMenu(false)}
+      />
     </div>
   )
 }
