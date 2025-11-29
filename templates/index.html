@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeciBel Music Player</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .search-container {
+            margin: 20px 0;
+        }
+        #searchInput {
+            padding: 10px;
+            width: 70%;
+            font-size: 16px;
+        }
+        #searchButton {
+            padding: 10px 20px;
+            font-size: 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .results {
+            margin-bottom: 220px;  /* Make space for player */
+        }
+        .song-cover {
+            width: 100%;
+            max-width: 300px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            margin: 20px auto;
+            display: block;
+        }
+        .song-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: white;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .song-item:hover {
+            transform: translateX(5px);
+        }
+        .song-item img {
+            width: 80px;
+            height: 80px;
+            border-radius: 4px;
+            margin-right: 15px;
+        }
+        .song-item-details {
+            flex-grow: 1;
+        }
+        .player-container {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 20px;
+            background: white;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+        .current-song-cover {
+            width: 120px;
+            height: 120px;
+            border-radius: 6px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        .player-info {
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+    <h1>DeciBel Music Player</h1>
+    
+    <div class="search-container">
+        <input type="text" id="searchInput" placeholder="Search for songs...">
+        <button id="searchButton">Search</button>
+    </div>
+
+    <div id="results" class="results"></div>
+
+    <div class="player-container">
+        <img id="currentCover" class="current-song-cover" src="https://via.placeholder.com/120" alt="Album cover">
+        <div class="player-info">
+            <h3 id="currentTitle">No song selected</h3>
+            <p id="currentArtist"></p>
+            <audio id="audioPlayer" controls style="width: 100%"></audio>
+        </div>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const searchButton = document.getElementById('searchButton');
+        const resultsDiv = document.getElementById('results');
+        const audioPlayer = document.getElementById('audioPlayer');
+
+        searchButton.addEventListener('click', performSearch);
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') performSearch();
+        });
+
+        function performSearch() {
+            const query = searchInput.value;
+            if (!query) return;
+
+            fetch(`/search?query=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(data => {
+                    resultsDiv.innerHTML = '';
+                    data.results.forEach(song => {
+                        const thumbnail = song.thumbnails ? 
+                            song.thumbnails[song.thumbnails.length - 1].url : 
+                            'https://via.placeholder.com/80';
+                        
+                        const div = document.createElement('div');
+                        div.className = 'song-item';
+                        div.innerHTML = `
+                            <img src="${thumbnail}" alt="${song.title} cover">
+                            <div class="song-item-details">
+                                <h3>${song.title}</h3>
+                                <p>${song.artists[0].name}</p>
+                            </div>
+                        `;
+                        div.onclick = () => playSong(song.videoId, song);
+                        resultsDiv.appendChild(div);
+                    });
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function playSong(videoId, songData) {
+            fetch(`/get_song/${videoId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    
+                    // Update audio player
+                    audioPlayer.src = data.url || '';
+                    
+                    // Update cover image with fallback
+                    const coverImg = document.getElementById('currentCover');
+                    coverImg.src = data.thumbnail || 'https://via.placeholder.com/120';
+                    coverImg.onerror = () => {
+                        coverImg.src = 'https://via.placeholder.com/120';
+                    };
+                    
+                    // Update metadata
+                    document.getElementById('currentTitle').textContent = data.title || 'Unknown Title';
+                    document.getElementById('currentArtist').textContent = data.artist || 'Unknown Artist';
+                    
+                    // Start playing
+                    audioPlayer.play().catch(e => console.error('Playback failed:', e));
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to load song. Please try again.');
+                });
+        }
+    </script>
+</body>
+</html>
