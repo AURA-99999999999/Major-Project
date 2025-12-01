@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Aura</string>
+    <string name="search_hint">Search for songs, artists, albums...</string>
+    <string name="trending_now">Trending Now</string>
+    <string name="your_library">Your Library</string>
+    <string name="playlists">Playlists</string>
+    <string name="liked_songs">Liked Songs</string>
+    <string name="recently_played">Recently Played</string>
+    <string name="create_playlist">Create Playlist</string>
+    <string name="no_song_playing">No song playing</string>
+</resources>
+
