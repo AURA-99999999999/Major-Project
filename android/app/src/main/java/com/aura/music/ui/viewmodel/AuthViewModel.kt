@@ -1,7 +1,9 @@
 package com.aura.music.ui.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.aura.music.AuraApplication
 import com.aura.music.data.repository.MusicRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,8 +17,9 @@ data class AuthUiState(
 )
 
 class AuthViewModel(
+    application: Application,
     private val repository: MusicRepository
-) : ViewModel() {
+) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
@@ -29,6 +32,7 @@ class AuthViewModel(
                         isLoading = false,
                         isLoggedIn = true
                     )
+                    setLoggedIn(true)
                     onSuccess(user.id)
                 }
                 .onFailure { e ->
@@ -49,6 +53,7 @@ class AuthViewModel(
                         isLoading = false,
                         isLoggedIn = true
                     )
+                    setLoggedIn(true)
                     onSuccess(user.id)
                 }
                 .onFailure { e ->
@@ -62,6 +67,13 @@ class AuthViewModel(
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    private fun setLoggedIn(isLoggedIn: Boolean) {
+        val authPrefs = (getApplication<AuraApplication>()).authPreferences
+        viewModelScope.launch {
+            authPrefs.setLoggedIn(isLoggedIn)
+        }
     }
 }
 

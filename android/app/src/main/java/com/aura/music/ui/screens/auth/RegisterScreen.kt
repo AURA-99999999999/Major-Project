@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
 import com.aura.music.ui.theme.DarkBackground
 import com.aura.music.ui.theme.DarkSurface
 import com.aura.music.ui.theme.Error
@@ -48,7 +49,7 @@ import com.aura.music.ui.viewmodel.ViewModelFactory
 fun RegisterScreen(
     onNavigateToLogin: () -> Unit,
     onRegisterSuccess: () -> Unit,
-    viewModel: AuthViewModel = viewModel(factory = ViewModelFactory.create())
+    viewModel: AuthViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }

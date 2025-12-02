@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
 import com.aura.music.player.MusicService
 import com.aura.music.ui.components.SongItem
 import com.aura.music.ui.theme.DarkBackground
@@ -62,7 +63,7 @@ fun SearchScreen(
     musicService: MusicService?,
     onNavigateToPlayer: () -> Unit,
     onNavigateBack: () -> Unit,
-    viewModel: SearchViewModel = viewModel(factory = ViewModelFactory.create())
+    viewModel: SearchViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }

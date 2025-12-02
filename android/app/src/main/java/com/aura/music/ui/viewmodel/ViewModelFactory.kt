@@ -1,5 +1,6 @@
 package com.aura.music.ui.viewmodel
 
+import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.aura.music.data.repository.MusicRepository
@@ -9,13 +10,14 @@ import com.aura.music.di.ServiceLocator
  * Factory for creating ViewModels with manual dependency injection
  */
 class ViewModelFactory(
+    private val application: Application,
     private val musicRepository: MusicRepository
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
         return when {
             modelClass.isAssignableFrom(AuthViewModel::class.java) -> {
-                AuthViewModel(musicRepository) as T
+                AuthViewModel(application, musicRepository) as T
             }
             modelClass.isAssignableFrom(HomeViewModel::class.java) -> {
                 HomeViewModel(musicRepository) as T
@@ -34,8 +36,8 @@ class ViewModelFactory(
     }
 
     companion object {
-        fun create(): ViewModelFactory {
-            return ViewModelFactory(ServiceLocator.getMusicRepository())
+        fun create(application: Application): ViewModelFactory {
+            return ViewModelFactory(application, ServiceLocator.getMusicRepository())
         }
     }
 }

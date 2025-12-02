@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
 import com.aura.music.player.MusicService
 import com.aura.music.ui.components.SongItem
 import com.aura.music.ui.theme.DarkBackground
@@ -42,7 +43,7 @@ fun HomeScreen(
     onNavigateToPlaylists: () -> Unit,
     onNavigateToProfile: () -> Unit,
     onNavigateToPlaylistDetail: (String) -> Unit,
-    viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create())
+    viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState = viewModel.uiState.collectAsState().value
 

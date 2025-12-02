@@ -15,12 +15,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import com.aura.music.ui.theme.Primary
-import com.aura.music.ui.theme.Secondary
+import com.aura.music.AuraApplication
 import com.aura.music.ui.theme.TextPrimary
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun SplashScreen(
@@ -35,11 +36,17 @@ fun SplashScreen(
         ), label = ""
     )
 
+    val context = LocalContext.current.applicationContext as AuraApplication
+
     LaunchedEffect(key1 = true) {
         startAnimation = true
         delay(2000)
-        // Check if user is logged in (you can add this check)
-        onNavigateToHome()
+        val isLoggedIn = context.authPreferences.isLoggedIn.first()
+        if (isLoggedIn) {
+            onNavigateToHome()
+        } else {
+            onNavigateToLogin()
+        }
     }
 
     Splash(alpha = alphaAnim.value)
