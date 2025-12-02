@@ -11,6 +11,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.aura.music.navigation.NavGraph
@@ -18,8 +21,8 @@ import com.aura.music.player.MusicService
 import com.aura.music.ui.theme.AuraTheme
 
 class MainActivity : ComponentActivity() {
-    private var musicService: MusicService? = null
-    private var isBound = false
+    private var musicService by mutableStateOf<MusicService?>(null)
+    private var isBound by mutableStateOf(false)
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -61,6 +64,7 @@ class MainActivity : ComponentActivity() {
         if (isBound) {
             unbindService(connection)
             isBound = false
+            musicService = null
         }
     }
 

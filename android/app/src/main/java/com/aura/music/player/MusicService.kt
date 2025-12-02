@@ -3,11 +3,11 @@ package com.aura.music.player
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -17,24 +17,32 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.aura.music.MainActivity
+import com.aura.music.data.model.Song
+import com.aura.music.data.model.withFallbackMetadata
+import com.aura.music.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MusicService : MediaSessionService() {
     private val binder = MusicBinder()
     private var exoPlayer: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
-    private val serviceScope = CoroutineScope(Dispatchers.Main)
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
     private var notificationManager: NotificationManager? = null
+    private val repository by lazy { ServiceLocator.getMusicRepository() }
 
     inner class MusicBinder : Binder() {
         fun getService(): MusicService = this@MusicService
@@ -97,15 +105,17 @@ class MusicService : MediaSessionService() {
                 })
 
                 serviceScope.launch {
-                    while (player.isPlaying) {
-                        _playerState.update {
-                            it.copy(
-                                currentPosition = player.currentPosition,
-                                duration = player.duration,
-                                bufferedPosition = player.bufferedPosition
-                            )
+                    while (isActive) {
+                        if (player.playbackState != Player.STATE_IDLE) {
+                            _playerState.update {
+                                it.copy(
+                                    currentPosition = player.currentPosition,
+                                    duration = player.duration,
+                                    bufferedPosition = player.bufferedPosition
+                                )
+                            }
                         }
-                        kotlinx.coroutines.delay(500)
+                        delay(500)
                     }
                 }
             }
@@ -129,7 +139,7 @@ class MusicService : MediaSessionService() {
         }
     }
 
-    fun playSong(song: com.aura.music.data.model.Song, addToQueue: Boolean = false) {
+    fun playSong(song: Song, addToQueue: Boolean = false) {
         serviceScope.launch {
             try {
                 _playerState.update { it.copy(isLoading = true, error = null) }
@@ -141,12 +151,13 @@ class MusicService : MediaSessionService() {
                     }
                 }
 
-                val mediaItem = MediaItem.fromUri(song.url ?: "")
+                val resolvedSong = resolveSong(song)
+                val mediaItem = MediaItem.fromUri(resolvedSong.url!!)
                 exoPlayer?.let { player ->
                     if (addToQueue && currentSong != null) {
                         val queue = _playerState.value.queue
-                        if (!queue.any { it.videoId == song.videoId }) {
-                            _playerState.update { it.copy(queue = queue + song) }
+                        if (!queue.any { it.videoId == resolvedSong.videoId }) {
+                            _playerState.update { it.copy(queue = queue + resolvedSong) }
                         }
                         return@launch
                     }
@@ -157,13 +168,14 @@ class MusicService : MediaSessionService() {
 
                     _playerState.update {
                         it.copy(
-                            currentSong = song,
+                            currentSong = resolvedSong,
                             isPlaying = true,
                             isLoading = false
                         )
                     }
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "playSong() failed", e)
                 _playerState.update {
                     it.copy(
                         isLoading = false,
@@ -243,7 +255,7 @@ class MusicService : MediaSessionService() {
         exoPlayer?.volume = volume
     }
 
-    fun addToQueue(song: com.aura.music.data.model.Song) {
+    fun addToQueue(song: Song) {
         _playerState.update { state ->
             if (!state.queue.any { it.videoId == song.videoId }) {
                 state.copy(queue = state.queue + song)
@@ -261,7 +273,7 @@ class MusicService : MediaSessionService() {
         _playerState.update { it.copy(queue = emptyList()) }
     }
 
-    fun playPlaylist(songs: List<com.aura.music.data.model.Song>) {
+    fun playPlaylist(songs: List<Song>) {
         if (songs.isEmpty()) return
         val first = songs.first()
         val rest = songs.drop(1)
@@ -391,12 +403,28 @@ class MusicService : MediaSessionService() {
         mediaSession = null
     }
 
+    private suspend fun resolveSong(song: Song): Song {
+        if (!song.url.isNullOrBlank()) return song
+        return withContext(Dispatchers.IO) {
+            repository.getSong(song.videoId)
+        }.onFailure { throwable ->
+            throw IllegalStateException(throwable.message ?: "Unable to get stream URL", throwable)
+        }.getOrThrow()
+            .withFallbackMetadata(song)
+            .also { resolved ->
+                if (resolved.url.isNullOrBlank()) {
+                    throw IllegalStateException("Stream URL missing for ${song.title}")
+                }
+            }
+    }
+
     companion object {
         private const val CHANNEL_ID = "music_channel"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_TOGGLE_PLAY_PAUSE = "com.aura.music.TOGGLE_PLAY_PAUSE"
         private const val ACTION_PREVIOUS = "com.aura.music.PREVIOUS"
         private const val ACTION_NEXT = "com.aura.music.NEXT"
+        private const val TAG = "MusicService"
     }
 }
 

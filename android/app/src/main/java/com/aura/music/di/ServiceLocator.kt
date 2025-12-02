@@ -1,8 +1,10 @@
 package com.aura.music.di
 
 import android.content.Context
+import android.util.Log
 import com.aura.music.BuildConfig
 import com.aura.music.data.remote.MusicApi
+import com.aura.music.data.remote.NetworkConfig
 import com.aura.music.data.repository.MusicRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -46,8 +48,11 @@ object ServiceLocator {
                 .build()
 
             // Initialize Retrofit
+            safeLog {
+                Log.i("ServiceLocator", "Retrofit baseUrl -> ${NetworkConfig.description()}")
+            }
             retrofit = Retrofit.Builder()
-                .baseUrl(BuildConfig.API_BASE_URL + "/")
+                .baseUrl(NetworkConfig.activeBaseUrl)
                 .client(okHttpClient!!)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()
@@ -88,6 +93,15 @@ object ServiceLocator {
             musicApi = null
             musicRepository = null
             initialized = false
+        }
+    }
+
+    private inline fun safeLog(block: () -> Unit) {
+        if (!BuildConfig.DEBUG) return
+        try {
+            block()
+        } catch (_: Throwable) {
+            // Ignore logging issues (e.g., running on JVM tests)
         }
     }
 }

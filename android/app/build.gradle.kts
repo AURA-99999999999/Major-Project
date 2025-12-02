@@ -1,7 +1,46 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        load(localPropertiesFile.inputStream())
+    }
+}
+
+fun normalizeBaseUrl(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return trimmed
+    return if (trimmed.endsWith("/")) trimmed else "$trimmed/"
+}
+
+fun propertyOrNull(key: String): String? =
+    localProperties.getProperty(key)?.takeIf { it.isNotBlank() }
+
+fun propertyOrDefault(key: String, fallback: String): String =
+    propertyOrNull(key) ?: fallback
+
+val emulatorBaseUrl = normalizeBaseUrl(
+    propertyOrDefault("API_BASE_URL_EMULATOR", "http://10.0.2.2:5000/api")
+)
+val deviceBaseUrl = normalizeBaseUrl(
+    propertyOrDefault("API_BASE_URL_DEVICE", "http://192.168.0.100:5000/api")
+)
+val customBaseUrl = normalizeBaseUrl(
+    propertyOrDefault("API_BASE_URL_CUSTOM", propertyOrDefault("API_BASE_URL", emulatorBaseUrl))
+)
+val apiEnvironment = propertyOrDefault("API_ENV", "EMULATOR").uppercase()
+val resolvedBaseUrl = when (apiEnvironment) {
+    "DEVICE" -> deviceBaseUrl
+    "CUSTOM" -> customBaseUrl
+    else -> emulatorBaseUrl
+}
+
+println("Aura API environment: $apiEnvironment -> $resolvedBaseUrl")
 
 android {
     namespace = "com.aura.music"
@@ -19,8 +58,12 @@ android {
             useSupportLibrary = true
         }
 
-        // API Base URL
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:5000/api\"")
+        // API base URLs (override via local.properties)
+        buildConfigField("String", "API_ENV", "\"$apiEnvironment\"")
+        buildConfigField("String", "API_BASE_URL", "\"$resolvedBaseUrl\"")
+        buildConfigField("String", "API_BASE_URL_EMULATOR", "\"$emulatorBaseUrl\"")
+        buildConfigField("String", "API_BASE_URL_DEVICE", "\"$deviceBaseUrl\"")
+        buildConfigField("String", "API_BASE_URL_CUSTOM", "\"$customBaseUrl\"")
     }
 
     buildTypes {
@@ -100,6 +143,10 @@ dependencies {
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("io.mockk:mockk:1.13.9")
+    testImplementation("io.mockk:mockk-agent-jvm:1.13.9")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2023.10.01"))
