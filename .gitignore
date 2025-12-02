@@ -16,9 +16,6 @@ instance/
 .webassets-cache
 
 # Data files (contains user data)
-data/
-*.json
-!package.json
 
 # Environment variables
 .env

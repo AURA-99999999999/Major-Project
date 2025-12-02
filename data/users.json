@@ -1,0 +1,41 @@
+{
+  "user_1764396558": {
+    "id": "user_1764396558",
+    "username": "Bharat",
+    "email": "107bharat@gmail.com",
+    "passwordHash": "c13125142f501d4291754f6b73480007bffd9b2b7e9acbb1e7369d9739c34fb4",
+    "createdAt": "2025-11-29T11:39:18.332532",
+    "likedSongs": [
+      {
+        "album": "Monica (From \"Coolie\") (Telugu)",
+        "artists": [
+          "Sublahshini",
+          "Krishna Kanth"
+        ],
+        "duration": "3:09",
+        "thumbnail": "https://lh3.googleusercontent.com/5VGL7V0jyVA4-hm660Yct9sH69xd8xmXi62q82br_s8-f4WjRhX130QIJZoZvZYL4tu46hRcoLD4rKM=w120-h120-l90-rj",
+        "title": "Monica (From \"Coolie\") (Telugu)",
+        "videoId": "yDSnoBS1Xd4",
+        "year": null
+      }
+    ],
+    "recentlyPlayed": [
+      {
+        "album": "Monica (From \"Coolie\") (Telugu)",
+        "artist": "Sublahshini & Krishna Kanth",
+        "artists": [
+          "Sublahshini & Krishna Kanth"
+        ],
+        "duration": 189,
+        "likeCount": "0",
+        "thumbnail": "https://lh3.googleusercontent.com/5VGL7V0jyVA4-hm660Yct9sH69xd8xmXi62q82br_s8-f4WjRhX130QIJZoZvZYL4tu46hRcoLD4rKM=w544-h544-l90-rj",
+        "title": "Monica (From \"Coolie\") (Telugu)",
+        "url": "https://rr5---sn-jugan-itqd.googlevideo.com/videoplayback?expire=1764426676&ei=VK8qaYb2I-KN77APvtCkmAk&ip=103.44.2.218&id=o-AAgU_mF032sCbWRSN7rrSTEiu5_rlxpsNRENo6O6BgtF&itag=251&source=youtube&requiressl=yes&xpc=EgVo2aDSNQ%3D%3D&cps=163&met=1764405076%2C&mh=5N&mm=31%2C29&mn=sn-jugan-itqd%2Csn-cvh76nl6&ms=au%2Crdu&mv=m&mvi=5&pl=24&rms=au%2Cau&gcr=in&initcwndbps=1875000&bui=AdEuB5STTS480Iyx6seQW37fyfMAncP4APjAn1BnVy3-24Aq_olJxwYnridU74aZ7f-Ooua5fLv-Q2r3&spc=6b0G_KhqmvKP&vprv=1&svpuc=1&mime=audio%2Fwebm&rqh=1&gir=yes&clen=3072234&dur=188.521&lmt=1762230624848645&mt=1764404702&fvip=5&keepalive=yes&fexp=51552689%2C51565116%2C51565682%2C51580968&c=ANDROID&txp=5532534&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cxpc%2Cgcr%2Cbui%2Cspc%2Cvprv%2Csvpuc%2Cmime%2Crqh%2Cgir%2Cclen%2Cdur%2Clmt&sig=AJfQdSswRgIhAM8TEo4d93-tzodf2TB_U0c2cAXlQr_XGMdHrKrFCMIzAiEAru6E5ImH2ObjaQ3wPrHQ4pQXlRWVXBtrUJcA2MPxbMs%3D&lsparams=cps%2Cmet%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpl%2Crms%2Cinitcwndbps&lsig=APaTxxMwRAIgLKM737JIYjfq5r3nkX1fBYrH2vDb_3v9gGNaUoSplLICIFzWNKyeXcdYxPXrg-H2ivv5FBST6Wl8eJdzpmIO60fX",
+        "videoId": "yDSnoBS1Xd4",
+        "viewCount": "9964988",
+        "year": 2024
+      }
+    ],
+    "playlists": []
+  }
+}

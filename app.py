@@ -60,6 +60,14 @@ def search_songs():
         
         if not query:
             return jsonify({'error': 'Query parameter is required'}), 400
+
+        logger.info(
+            "Search request | query=%s limit=%s filter=%s remote_ip=%s",
+            query,
+            limit,
+            filter_type,
+            request.remote_addr,
+        )
         
         results = music_service.search_songs(query, limit=limit, filter_type=filter_type)
         return jsonify({
@@ -410,4 +418,8 @@ def add_recently_played(user_id):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # Bind to all interfaces so that physical Android devices on the same LAN
+    # can reach this development server. Never expose this setting directly to
+    # the public internet without proper hardening or a production-ready WSGI
+    # server such as gunicorn/uwsgi sitting behind a reverse proxy.
+    app.run(host='0.0.0.0', port=5000, debug=True)
