@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.aura.music.AuraApplication
 import com.aura.music.ui.theme.TextPrimary
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
@@ -37,15 +38,25 @@ fun SplashScreen(
     )
 
     val context = LocalContext.current.applicationContext as AuraApplication
+    val firebaseAuth = FirebaseAuth.getInstance()
 
     LaunchedEffect(key1 = true) {
         startAnimation = true
         delay(2000)
-        val isLoggedIn = context.authPreferences.isLoggedIn.first()
-        if (isLoggedIn) {
+        
+        // Check Firebase Auth first (primary source of truth)
+        val currentUser = firebaseAuth.currentUser
+        if (currentUser != null) {
+            // User is signed in with Firebase
             onNavigateToHome()
         } else {
-            onNavigateToLogin()
+            // Check local preferences as fallback
+            val isLoggedIn = context.authPreferences.isLoggedIn.first()
+            if (isLoggedIn) {
+                onNavigateToHome()
+            } else {
+                onNavigateToLogin()
+            }
         }
     }
 

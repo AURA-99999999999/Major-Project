@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.aura.music.ui.theme.AuraTheme
 import com.aura.music.R
 import com.aura.music.ui.theme.DarkBackground
@@ -77,9 +83,41 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
     val uiState = viewModel.uiState.value
+    val context = LocalContext.current
 
-    if (uiState.isLoggedIn) {
-        onLoginSuccess()
+    // Initialize Google Sign-In
+    val googleSignInClient = remember {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(context.getString(R.string.default_web_client_id))
+            .requestEmail()
+            .build()
+        GoogleSignIn.getClient(context, gso)
+    }
+
+    // Handle Google Sign-In result
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        viewModel.handleGoogleSignInResult(task)
+    }
+
+    // Function to trigger Google Sign-In
+    val signInWithGoogle = {
+        val signInIntent = googleSignInClient.signInIntent
+        googleSignInLauncher.launch(signInIntent)
+    }
+
+    // Check if user is already signed in when screen loads (auto-login)
+    LaunchedEffect(Unit) {
+        viewModel.checkAuthState()
+    }
+
+    // Navigate to home if logged in
+    LaunchedEffect(uiState.isLoggedIn) {
+        if (uiState.isLoggedIn) {
+            onLoginSuccess()
+        }
     }
 
     Box(
@@ -257,7 +295,9 @@ fun LoginScreen(
 
                     Button(
                         onClick = {
-                            viewModel.login(email, password) { onLoginSuccess() }
+                            // Use Firebase Auth loginOrRegister method
+                            // This will attempt sign in first, and create account if user doesn't exist
+                            viewModel.loginOrRegister(email, password)
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -266,13 +306,13 @@ fun LoginScreen(
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Primary
                         ),
-                        enabled = !uiState.isLoading
+                        enabled = !uiState.isLoading && email.isNotBlank() && password.isNotBlank()
                     ) {
                         if (uiState.isLoading) {
                             CircularProgressIndicator(color = TextPrimary)
                         } else {
                             Text(
-                                text = "Sign In",
+                                text = "Continue",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -318,7 +358,10 @@ fun LoginScreen(
                         .height(48.dp)
                         .fillMaxWidth(0.6f)
                         .clip(RoundedCornerShape(24.dp))
-                        .clickable { /* TODO: Google sign-in */ },
+                        .clickable(
+                            enabled = !uiState.isLoading,
+                            onClick = signInWithGoogle
+                        ),
                     color = androidx.compose.ui.graphics.Color.White
                 ) {
                     Row(
