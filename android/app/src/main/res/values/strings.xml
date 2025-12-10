@@ -9,5 +9,7 @@
     <string name="recently_played">Recently Played</string>
     <string name="create_playlist">Create Playlist</string>
     <string name="no_song_playing">No song playing</string>
+    <string name="default_web_client_id">
+    689428997758-1phja2q2n2qr8d3f2bfrr15cfnngls6s.apps.googleusercontent.com</string>
 </resources>
 

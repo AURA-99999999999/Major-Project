@@ -1,0 +1,76 @@
+{
+  "project_info": {
+    "project_number": "689428997758",
+    "project_id": "aura-music-65802",
+    "storage_bucket": "aura-music-65802.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:689428997758:android:a354886b343929f0221a2f",
+        "android_client_info": {
+          "package_name": "com.aura.music"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "689428997758-ac8oe3qdsj9mpe2ptmkmhqdqlpvkruok.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aura.music",
+            "certificate_hash": "74ca00bc7861921593cf9da01eb41c9f4c4a1e51"
+          }
+        },
+        {
+          "client_id": "689428997758-1phja2q2n2qr8d3f2bfrr15cfnngls6s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDCU7gvZpv--0PzmigpDsMC6NtbRpVmEpg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "689428997758-1phja2q2n2qr8d3f2bfrr15cfnngls6s.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:689428997758:android:5002fada2dab3d27221a2f",
+        "android_client_info": {
+          "package_name": "com.example.musicapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "689428997758-1phja2q2n2qr8d3f2bfrr15cfnngls6s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDCU7gvZpv--0PzmigpDsMC6NtbRpVmEpg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "689428997758-1phja2q2n2qr8d3f2bfrr15cfnngls6s.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
