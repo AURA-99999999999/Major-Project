@@ -17,7 +17,7 @@ class ViewModelFactory(
         @Suppress("UNCHECKED_CAST")
         return when {
             modelClass.isAssignableFrom(AuthViewModel::class.java) -> {
-                AuthViewModel(application, musicRepository) as T
+                AuthViewModel(application) as T
             }
             modelClass.isAssignableFrom(HomeViewModel::class.java) -> {
                 HomeViewModel(musicRepository) as T

@@ -1,6 +1,7 @@
 package com.aura.music.navigation
 
 sealed class Screen(val route: String) {
+    object Auth : Screen("auth")
     object Home : Screen("home")
     object Search : Screen("search")
     object Player : Screen("player")

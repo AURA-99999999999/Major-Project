@@ -20,23 +20,17 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
         
-        <!-- LoginActivity is the launcher activity - checks auth and routes accordingly -->
+        <!-- MainActivity is the launcher - NavGraph handles auth flow internally -->
         <activity
-            android:name=".LoginActivity"
+            android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.Aura">
+            android:theme="@style/Theme.Aura"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- MainActivity is the main app content - only accessible after authentication -->
-        <activity
-            android:name=".MainActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Aura"
-            android:windowSoftInputMode="adjustResize" />
 
         <service
             android:name=".player.MusicService"

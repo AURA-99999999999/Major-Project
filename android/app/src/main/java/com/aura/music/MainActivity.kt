@@ -17,16 +17,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import com.google.firebase.auth.FirebaseAuth
 import com.aura.music.navigation.NavGraph
 import com.aura.music.player.MusicService
 import com.aura.music.ui.theme.AuraTheme
 
 /**
- * MainActivity hosts the main app content (NavGraph with Home, Search, etc.)
+ * MainActivity hosts the main app content (NavGraph with Auth, Home, Search, etc.)
  * 
- * On start, checks if user is authenticated - if not, redirects to LoginActivity.
- * This acts as a safety check in case LoginActivity is bypassed somehow.
+ * The NavGraph handles authentication flow:
+ * - If user is authenticated, shows Home screen
+ * - If user is not authenticated, shows Auth (Google Sign-In) screen
+ * - After successful sign-in, navigates to Home and clears auth screen from back stack
  */
 class MainActivity : ComponentActivity() {
     
@@ -38,31 +39,19 @@ class MainActivity : ComponentActivity() {
             val binder = service as MusicService.MusicBinder
             musicService = binder.getService()
             isBound = true
+            Log.d(TAG, "MusicService connected")
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             musicService = null
             isBound = false
+            Log.d(TAG, "MusicService disconnected")
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-
-        // Check if user is authenticated - if not, redirect to LoginActivity
-        val auth = FirebaseAuth.getInstance()
-        val currentUser = auth.currentUser
-        
-        if (currentUser == null) {
-            Log.d(TAG, "No authenticated user found, redirecting to LoginActivity")
-            val intent = Intent(this, LoginActivity::class.java)
-            startActivity(intent)
-            finish() // Finish MainActivity so user can't go back
-            return
-        }
-
-        Log.d(TAG, "User authenticated: ${currentUser.email}, proceeding to main content")
 
         // Bind to music service
         Intent(this, MusicService::class.java).also { intent ->
@@ -76,6 +65,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    // NavGraph handles auth state and navigation
                     NavGraph(musicService = musicService)
                 }
             }
@@ -97,4 +87,3 @@ class MainActivity : ComponentActivity() {
             private set
     }
 }
-

@@ -2,18 +2,13 @@ package com.aura.music.ui.viewmodel
 
 import android.app.Application
 import android.util.Log
-import android.util.Patterns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aura.music.AuraApplication
-import com.aura.music.data.repository.MusicRepository
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
-import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.auth.FirebaseAuthUserCollisionException
-import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +17,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
+/**
+ * UI state for authentication flow.
+ * 
+ * @property isLoading True when authentication is in progress
+ * @property isLoggedIn True when user is authenticated
+ * @property error Error message to display, null if no error
+ */
 data class AuthUiState(
     val isLoading: Boolean = false,
     val isLoggedIn: Boolean = false,
@@ -30,10 +32,19 @@ data class AuthUiState(
 
 private const val TAG = "AuthViewModel"
 
+/**
+ * ViewModel for handling Firebase Authentication with Google Sign-In.
+ * 
+ * This ViewModel:
+ * - Manages authentication state using StateFlow
+ * - Handles Google Sign-In flow
+ * - Provides single source of truth for auth state
+ * - Follows MVVM architecture best practices
+ */
 class AuthViewModel(
-    application: Application,
-    private val repository: MusicRepository
+    application: Application
 ) : AndroidViewModel(application) {
+    
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
     
@@ -43,53 +54,17 @@ class AuthViewModel(
         // Check if user is already signed in on initialization
         checkAuthState()
     }
-
-    fun login(email: String, password: String, onSuccess: (String) -> Unit) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            repository.login(email, password)
-                .onSuccess { user ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isLoggedIn = true
-                    )
-                    setLoggedIn(true)
-                    onSuccess(user.id)
-                }
-                .onFailure { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = e.message ?: "Login failed"
-                    )
-                }
-        }
-    }
-
-    fun register(username: String, email: String, password: String, onSuccess: (String) -> Unit) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            repository.register(username, email, password)
-                .onSuccess { user ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isLoggedIn = true
-                    )
-                    setLoggedIn(true)
-                    onSuccess(user.id)
-                }
-                .onFailure { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = e.message ?: "Registration failed"
-                    )
-                }
-        }
-    }
-
+    
+    /**
+     * Clear any error message from UI state.
+     */
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
-
+    
+    /**
+     * Persist authentication state to preferences.
+     */
     private fun setLoggedIn(isLoggedIn: Boolean) {
         val authPrefs = (getApplication<AuraApplication>()).authPreferences
         viewModelScope.launch {
@@ -98,7 +73,8 @@ class AuthViewModel(
     }
     
     /**
-     * Check if user is currently signed in with Firebase Auth
+     * Check if user is currently signed in with Firebase Auth.
+     * Updates UI state accordingly.
      */
     fun checkAuthState() {
         val currentUser = firebaseAuth.currentUser
@@ -119,7 +95,9 @@ class AuthViewModel(
      * 1. Extracts the ID token from the GoogleSignInAccount
      * 2. Creates a Firebase credential using GoogleAuthProvider.getCredential()
      * 3. Signs in to Firebase with the credential
-     * 4. Persists the auth state on success
+     * 4. Updates UI state and persists auth state on success
+     * 
+     * @param account The GoogleSignInAccount from Google Sign-In flow
      */
     fun signInWithGoogle(account: GoogleSignInAccount) {
         viewModelScope.launch {
@@ -224,6 +202,8 @@ class AuthViewModel(
     /**
      * Handle Google Sign-In result from Activity Result.
      * This method processes the GoogleSignInAccount and exchanges it for Firebase credentials.
+     * 
+     * @param task The Task containing the GoogleSignInAccount result
      */
     fun handleGoogleSignInResult(task: com.google.android.gms.tasks.Task<GoogleSignInAccount>) {
         try {
@@ -254,7 +234,7 @@ class AuthViewModel(
                 }
                 com.google.android.gms.common.api.CommonStatusCodes.CANCELED -> {
                     Log.d(TAG, "Google Sign-In cancelled by user")
-                    "Sign-in was cancelled."
+                    null // Don't show error for cancellation
                 }
                 com.google.android.gms.common.api.CommonStatusCodes.INTERNAL_ERROR -> {
                     Log.e(TAG, "Google Sign-In failed: Internal error", e)
@@ -274,7 +254,7 @@ class AuthViewModel(
                 }
                 12501 -> { // SIGN_IN_CANCELLED
                     Log.d(TAG, "Google Sign-In cancelled (Status code 12501)")
-                    "Sign-in was cancelled."
+                    null // Don't show error for cancellation
                 }
                 12502 -> { // SIGN_IN_CURRENTLY_IN_PROGRESS
                     Log.w(TAG, "Google Sign-In already in progress (Status code 12502)")
@@ -312,7 +292,8 @@ class AuthViewModel(
     }
     
     /**
-     * Handle Google Sign-In cancellation (user cancelled the sign-in flow)
+     * Handle Google Sign-In cancellation (user cancelled the sign-in flow).
+     * Does not show an error message to the user.
      */
     fun handleGoogleSignInCancellation() {
         Log.d(TAG, "Google Sign-In was cancelled by user")
@@ -323,235 +304,19 @@ class AuthViewModel(
     }
     
     /**
-     * Get current Firebase user
+     * Get current Firebase user.
+     * 
+     * @return The current FirebaseUser if authenticated, null otherwise
      */
     fun getCurrentUser(): FirebaseUser? = firebaseAuth.currentUser
     
     /**
-     * Sign out from Firebase
+     * Sign out from Firebase.
+     * Clears authentication state and updates UI.
      */
     fun signOut() {
         firebaseAuth.signOut()
         _uiState.value = _uiState.value.copy(isLoggedIn = false)
         setLoggedIn(false)
     }
-    
-    /**
-     * Login or Register with email and password using Firebase Auth.
-     * 
-     * This method attempts to sign in first. If the user doesn't exist (ERROR_USER_NOT_FOUND),
-     * it automatically creates a new account. This provides a seamless login/registration experience.
-     * 
-     * @param email User's email address
-     * @param password User's password
-     */
-    fun loginOrRegister(email: String, password: String) {
-        viewModelScope.launch {
-            val trimmedEmail = email.trim()
-            val trimmedPassword = password.trim()
-            
-            // Validate inputs
-            if (trimmedEmail.isEmpty() || trimmedPassword.isEmpty()) {
-                _uiState.value = _uiState.value.copy(
-                    error = "Email and password cannot be empty"
-                )
-                return@launch
-            }
-            
-            // Basic email validation
-            if (!Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
-                _uiState.value = _uiState.value.copy(
-                    error = "Please enter a valid email address"
-                )
-                return@launch
-            }
-            
-            // Password length validation (Firebase requires at least 6 characters)
-            if (trimmedPassword.length < 6) {
-                _uiState.value = _uiState.value.copy(
-                    error = "Password must be at least 6 characters"
-                )
-                return@launch
-            }
-            
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            
-            try {
-                // Step 1: Try to sign in with existing credentials
-                val signInResult = firebaseAuth.signInWithEmailAndPassword(trimmedEmail, trimmedPassword).await()
-                
-                // Sign in successful
-                val user = signInResult.user
-                if (user != null) {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isLoggedIn = true,
-                        error = null
-                    )
-                    setLoggedIn(true)
-                    Log.d(TAG, "Sign in successful: ${user.email}")
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = "Sign in failed: No user returned"
-                    )
-                }
-            } catch (e: FirebaseAuthException) {
-                // Handle Firebase Auth specific errors
-                when (e.errorCode) {
-                    "ERROR_USER_NOT_FOUND" -> {
-                        // User doesn't exist, create new account
-                        Log.d(TAG, "User not found, creating new account...")
-                        registerUserWithFirebase(trimmedEmail, trimmedPassword)
-                    }
-                    "ERROR_WRONG_PASSWORD" -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "Incorrect password. Please try again."
-                        )
-                        Log.e(TAG, "Wrong password", e)
-                    }
-                    "ERROR_INVALID_EMAIL" -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "Invalid email address. Please check and try again."
-                        )
-                        Log.e(TAG, "Invalid email", e)
-                    }
-                    "ERROR_USER_DISABLED" -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "This account has been disabled. Please contact support."
-                        )
-                        Log.e(TAG, "User disabled", e)
-                    }
-                    "ERROR_TOO_MANY_REQUESTS" -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "Too many failed attempts. Please try again later."
-                        )
-                        Log.e(TAG, "Too many requests", e)
-                    }
-                    "ERROR_NETWORK_REQUEST_FAILED" -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "Network error. Please check your connection and try again."
-                        )
-                        Log.e(TAG, "Network error", e)
-                    }
-                    else -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = e.message ?: "Authentication failed. Please try again."
-                        )
-                        Log.e(TAG, "Sign in error: ${e.errorCode}", e)
-                    }
-                }
-            } catch (e: Exception) {
-                // Handle other exceptions
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = e.message ?: "An unexpected error occurred. Please try again."
-                )
-                Log.e(TAG, "Unexpected error during sign in", e)
-            }
-        }
-    }
-    
-    /**
-     * Register a new user with Firebase Auth (called automatically by loginOrRegister when user doesn't exist)
-     */
-    private fun registerUserWithFirebase(email: String, password: String) {
-        viewModelScope.launch {
-            try {
-                val createResult = firebaseAuth.createUserWithEmailAndPassword(email, password).await()
-                
-                val user = createResult.user
-                if (user != null) {
-                    // Account created successfully - user is automatically signed in
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isLoggedIn = true,
-                        error = null
-                    )
-                    setLoggedIn(true)
-                    Log.d(TAG, "Account created and signed in: ${user.email}")
-                    
-                    // TODO: If Firestore is configured, create user document here
-                    // Example:
-                    // val userDoc = mapOf(
-                    //     "uid" to user.uid,
-                    //     "email" to user.email,
-                    //     "createdAt" to FieldValue.serverTimestamp()
-                    // )
-                    // firestore.collection("users").document(user.uid).set(userDoc).await()
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = "Account creation failed: No user returned"
-                    )
-                }
-            } catch (e: FirebaseAuthWeakPasswordException) {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = "Password is too weak. Please use at least 6 characters."
-                )
-                Log.e(TAG, "Weak password", e)
-            } catch (e: FirebaseAuthInvalidCredentialsException) {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = "Invalid email address. Please check and try again."
-                )
-                Log.e(TAG, "Invalid credentials", e)
-            } catch (e: FirebaseAuthUserCollisionException) {
-                // This shouldn't happen since we only create if user doesn't exist, but handle it anyway
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = "An account with this email already exists. Please sign in instead."
-                )
-                Log.e(TAG, "User collision", e)
-            } catch (e: FirebaseAuthException) {
-                when (e.errorCode) {
-                    "ERROR_EMAIL_ALREADY_IN_USE" -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "An account with this email already exists. Please sign in instead."
-                        )
-                    }
-                    "ERROR_INVALID_EMAIL" -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "Invalid email address. Please check and try again."
-                        )
-                    }
-                    "ERROR_OPERATION_NOT_ALLOWED" -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "Email/password accounts are not enabled. Please contact support."
-                        )
-                    }
-                    "ERROR_NETWORK_REQUEST_FAILED" -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = "Network error. Please check your connection and try again."
-                        )
-                    }
-                    else -> {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = e.message ?: "Account creation failed. Please try again."
-                        )
-                    }
-                }
-                Log.e(TAG, "Registration error: ${e.errorCode}", e)
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = e.message ?: "An unexpected error occurred. Please try again."
-                )
-                Log.e(TAG, "Unexpected error during registration", e)
-            }
-        }
-    }
 }
-
