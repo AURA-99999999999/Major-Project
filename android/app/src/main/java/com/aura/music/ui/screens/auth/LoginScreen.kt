@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -82,14 +83,22 @@ fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
-    val uiState = viewModel.uiState.value
+    // Use collectAsState to reactively observe state changes
+    val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    // Initialize Google Sign-In
+    // Initialize Google Sign-In client with Web Client ID from Firebase
+    // IMPORTANT: Must use Web Client ID (client_type 3), not Android Client ID
     val googleSignInClient = remember {
+        val webClientId = context.getString(R.string.default_web_client_id)
+        
+        // Log the client ID being used (for debugging)
+        android.util.Log.d("LoginScreen", "Initializing Google Sign-In with Web Client ID: $webClientId")
+        
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(context.getString(R.string.default_web_client_id))
+            .requestIdToken(webClientId) // Web Client ID from Firebase (client_type 3)
             .requestEmail()
+            .requestProfile() // Request profile information (optional but useful)
             .build()
         GoogleSignIn.getClient(context, gso)
     }
@@ -98,8 +107,15 @@ fun LoginScreen(
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-        viewModel.handleGoogleSignInResult(task)
+        // Check if result was successful and has data
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            viewModel.handleGoogleSignInResult(task)
+        } else {
+            // User cancelled or result failed
+            android.util.Log.d("LoginScreen", "Google Sign-In cancelled or failed. Result code: ${result.resultCode}")
+            viewModel.handleGoogleSignInCancellation()
+        }
     }
 
     // Function to trigger Google Sign-In
@@ -113,9 +129,11 @@ fun LoginScreen(
         viewModel.checkAuthState()
     }
 
-    // Navigate to home if logged in
+    // Navigate to home when login succeeds (using LaunchedEffect to prevent multiple navigations)
     LaunchedEffect(uiState.isLoggedIn) {
         if (uiState.isLoggedIn) {
+            // Small delay to ensure UI state is settled before navigation
+            kotlinx.coroutines.delay(100)
             onLoginSuccess()
         }
     }
@@ -282,10 +300,11 @@ fun LoginScreen(
                         fontSize = 12.sp
                     )
 
-                    if (uiState.error != null) {
+                    val errorMessage = uiState.error
+                    if (errorMessage != null) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = uiState.error,
+                            text = errorMessage,
                             color = Error,
                             fontSize = 12.sp
                         )

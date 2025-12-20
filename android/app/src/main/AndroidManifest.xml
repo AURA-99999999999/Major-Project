@@ -20,16 +20,23 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
         
+        <!-- LoginActivity is the launcher activity - checks auth and routes accordingly -->
         <activity
-            android:name=".MainActivity"
+            android:name=".LoginActivity"
             android:exported="true"
-            android:theme="@style/Theme.Aura"
-            android:windowSoftInputMode="adjustResize">
+            android:theme="@style/Theme.Aura">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- MainActivity is the main app content - only accessible after authentication -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Aura"
+            android:windowSoftInputMode="adjustResize" />
 
         <service
             android:name=".player.MusicService"

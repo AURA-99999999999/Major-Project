@@ -2,6 +2,7 @@ package com.aura.music.ui.viewmodel
 
 import android.app.Application
 import android.util.Log
+import android.util.Patterns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aura.music.AuraApplication
@@ -112,68 +113,213 @@ class AuthViewModel(
     }
     
     /**
-     * Sign in with Google using the ID token from GoogleSignInAccount
+     * Sign in with Google using the ID token from GoogleSignInAccount.
+     * 
+     * This method:
+     * 1. Extracts the ID token from the GoogleSignInAccount
+     * 2. Creates a Firebase credential using GoogleAuthProvider.getCredential()
+     * 3. Signs in to Firebase with the credential
+     * 4. Persists the auth state on success
      */
     fun signInWithGoogle(account: GoogleSignInAccount) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             
             try {
+                // Extract ID token from Google account
                 val idToken = account.idToken
+                
                 if (idToken != null) {
+                    Log.d(TAG, "ID token received, length: ${idToken.length}")
+                    Log.d(TAG, "User email: ${account.email}")
+                    Log.d(TAG, "User display name: ${account.displayName}")
+                    
+                    // Create Firebase credential from Google ID token
                     val credential = GoogleAuthProvider.getCredential(idToken, null)
+                    Log.d(TAG, "Firebase credential created, signing in...")
+                    
+                    // Sign in to Firebase with the credential
                     val result = firebaseAuth.signInWithCredential(credential).await()
                     
-                    if (result.user != null) {
+                    // Check if sign-in was successful
+                    val firebaseUser = result.user
+                    if (firebaseUser != null) {
+                        // Success - update UI state and persist auth state
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            isLoggedIn = true
+                            isLoggedIn = true,
+                            error = null
                         )
                         setLoggedIn(true)
-                        Log.d(TAG, "Google sign-in successful: ${result.user?.email}")
+                        
+                        Log.d(TAG, "Google sign-in to Firebase successful!")
+                        Log.d(TAG, "Firebase user UID: ${firebaseUser.uid}")
+                        Log.d(TAG, "Firebase user email: ${firebaseUser.email}")
+                        Log.d(TAG, "Firebase user display name: ${firebaseUser.displayName}")
                     } else {
+                        // No user returned - this is unexpected
+                        val errorMsg = "Sign-in failed: No user returned from Firebase"
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            error = "Sign-in failed: No user returned"
+                            error = errorMsg
                         )
+                        Log.e(TAG, errorMsg)
                     }
                 } else {
+                    // No ID token - this usually means wrong OAuth client ID or configuration issue
+                    val errorMsg = "Sign-in failed: No ID token received from Google. Check OAuth client ID configuration."
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = "Sign-in failed: No ID token received"
+                        error = errorMsg
                     )
+                    Log.e(TAG, errorMsg)
+                    Log.e(TAG, "Account email: ${account.email}")
+                    Log.e(TAG, "Account ID: ${account.id}")
+                    Log.e(TAG, "This usually means the Web client ID in strings.xml doesn't match Firebase configuration.")
                 }
-            } catch (e: Exception) {
+            } catch (e: FirebaseAuthException) {
+                // Handle Firebase-specific errors
+                val errorMsg = when (e.errorCode) {
+                    "ERROR_INVALID_CREDENTIAL" -> {
+                        Log.e(TAG, "Firebase Auth failed: Invalid credential", e)
+                        "Invalid Google account credential. Please try again."
+                    }
+                    "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL" -> {
+                        Log.e(TAG, "Firebase Auth failed: Account exists with different credential", e)
+                        "An account already exists with this email using a different sign-in method."
+                    }
+                    "ERROR_NETWORK_REQUEST_FAILED" -> {
+                        Log.e(TAG, "Firebase Auth failed: Network error", e)
+                        "Network error. Please check your connection and try again."
+                    }
+                    "ERROR_TOO_MANY_REQUESTS" -> {
+                        Log.e(TAG, "Firebase Auth failed: Too many requests", e)
+                        "Too many sign-in attempts. Please try again later."
+                    }
+                    else -> {
+                        Log.e(TAG, "Firebase Auth failed with error code: ${e.errorCode}", e)
+                        Log.e(TAG, "Error message: ${e.message}")
+                        "Authentication failed. Please try again."
+                    }
+                }
+                
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = e.message ?: "Google sign-in failed"
+                    error = errorMsg
                 )
-                Log.e(TAG, "Google sign-in error", e)
+            } catch (e: Exception) {
+                // Handle any other unexpected errors
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = "An unexpected error occurred during sign-in. Please try again."
+                )
+                Log.e(TAG, "Unexpected error during Google Sign-In to Firebase", e)
+                Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
+                Log.e(TAG, "Exception message: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
     
     /**
-     * Handle Google Sign-In result from Activity Result
+     * Handle Google Sign-In result from Activity Result.
+     * This method processes the GoogleSignInAccount and exchanges it for Firebase credentials.
      */
     fun handleGoogleSignInResult(task: com.google.android.gms.tasks.Task<GoogleSignInAccount>) {
         try {
+            // Get the GoogleSignInAccount from the task
             val account = task.getResult(ApiException::class.java)
+            
             if (account != null) {
+                // Log successful account retrieval (without sensitive data)
+                Log.d(TAG, "Google Sign-In account retrieved: ${account.email}")
+                Log.d(TAG, "ID Token present: ${account.idToken != null}")
+                
+                // Proceed with Firebase authentication
                 signInWithGoogle(account)
+            } else {
+                // Account is null - this shouldn't happen but handle it
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = "Google sign-in failed: No account returned"
+                )
+                Log.e(TAG, "Google Sign-In returned null account")
             }
         } catch (e: ApiException) {
+            // Handle specific error codes with detailed logging
             val errorMessage = when (e.statusCode) {
-                com.google.android.gms.common.api.CommonStatusCodes.NETWORK_ERROR -> "Network error. Please check your connection."
-                com.google.android.gms.common.api.CommonStatusCodes.CANCELED -> "Sign-in was cancelled."
-                else -> "Google sign-in failed. Please try again."
+                com.google.android.gms.common.api.CommonStatusCodes.NETWORK_ERROR -> {
+                    Log.e(TAG, "Google Sign-In failed: Network error", e)
+                    "Network error. Please check your connection and try again."
+                }
+                com.google.android.gms.common.api.CommonStatusCodes.CANCELED -> {
+                    Log.d(TAG, "Google Sign-In cancelled by user")
+                    "Sign-in was cancelled."
+                }
+                com.google.android.gms.common.api.CommonStatusCodes.INTERNAL_ERROR -> {
+                    Log.e(TAG, "Google Sign-In failed: Internal error", e)
+                    "An internal error occurred. Please try again."
+                }
+                com.google.android.gms.common.api.CommonStatusCodes.INVALID_ACCOUNT -> {
+                    Log.e(TAG, "Google Sign-In failed: Invalid account", e)
+                    "Invalid Google account. Please try a different account."
+                }
+                com.google.android.gms.common.api.CommonStatusCodes.SIGN_IN_REQUIRED -> {
+                    Log.e(TAG, "Google Sign-In failed: Sign-in required", e)
+                    "Please sign in to your Google account first."
+                }
+                12500 -> { // SIGN_IN_FAILED
+                    Log.e(TAG, "Google Sign-In failed: Sign-in failed (Status code 12500)", e)
+                    "Google Sign-In failed. Please check your Google account settings."
+                }
+                12501 -> { // SIGN_IN_CANCELLED
+                    Log.d(TAG, "Google Sign-In cancelled (Status code 12501)")
+                    "Sign-in was cancelled."
+                }
+                12502 -> { // SIGN_IN_CURRENTLY_IN_PROGRESS
+                    Log.w(TAG, "Google Sign-In already in progress (Status code 12502)")
+                    "Sign-in is already in progress. Please wait."
+                }
+                12503 -> { // SIGN_IN_FAILED_DURING_SIGN_IN
+                    Log.e(TAG, "Google Sign-In failed during sign-in (Status code 12503)", e)
+                    "Sign-in failed. Please try again."
+                }
+                10 -> { // DEVELOPER_ERROR
+                    Log.e(TAG, "Google Sign-In failed: Developer error (Status code 10). Check OAuth client ID configuration.", e)
+                    "Sign-in configuration error. Please contact support."
+                }
+                else -> {
+                    // Log the unknown error code for debugging
+                    Log.e(TAG, "Google Sign-In failed with unknown error code: ${e.statusCode}", e)
+                    Log.e(TAG, "Error message: ${e.message}")
+                    Log.e(TAG, "Error cause: ${e.cause?.message}")
+                    "Google sign-in failed. Please try again."
+                }
             }
+            
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 error = errorMessage
             )
-            Log.e(TAG, "Google sign-in failed: ${e.statusCode}", e)
+        } catch (e: Exception) {
+            // Handle any other unexpected exceptions
+            Log.e(TAG, "Unexpected error during Google Sign-In", e)
+            _uiState.value = _uiState.value.copy(
+                isLoading = false,
+                error = "An unexpected error occurred. Please try again."
+            )
         }
+    }
+    
+    /**
+     * Handle Google Sign-In cancellation (user cancelled the sign-in flow)
+     */
+    fun handleGoogleSignInCancellation() {
+        Log.d(TAG, "Google Sign-In was cancelled by user")
+        _uiState.value = _uiState.value.copy(
+            isLoading = false,
+            error = null // Don't show error for cancellation
+        )
     }
     
     /**
@@ -208,6 +354,22 @@ class AuthViewModel(
             if (trimmedEmail.isEmpty() || trimmedPassword.isEmpty()) {
                 _uiState.value = _uiState.value.copy(
                     error = "Email and password cannot be empty"
+                )
+                return@launch
+            }
+            
+            // Basic email validation
+            if (!Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
+                _uiState.value = _uiState.value.copy(
+                    error = "Please enter a valid email address"
+                )
+                return@launch
+            }
+            
+            // Password length validation (Firebase requires at least 6 characters)
+            if (trimmedPassword.length < 6) {
+                _uiState.value = _uiState.value.copy(
+                    error = "Password must be at least 6 characters"
                 )
                 return@launch
             }
