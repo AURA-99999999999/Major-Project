@@ -112,14 +112,20 @@ fun LoginScreen(
         googleSignInLauncher.launch(signInIntent)
     }
     
-    // Check if user is already signed in when screen loads
+    // Check if user is already signed in when screen loads (only once)
     LaunchedEffect(Unit) {
-        viewModel.checkAuthState()
+        // Only check if not already logged in to avoid resetting state
+        if (!uiState.isLoggedIn) {
+            viewModel.checkAuthState()
+        }
     }
     
     // Navigate to home when login succeeds
+    // Note: Navigation is handled by NavGraph's LaunchedEffect observing the same ViewModel
     LaunchedEffect(uiState.isLoggedIn) {
         if (uiState.isLoggedIn) {
+            // Small delay to ensure state is fully propagated
+            kotlinx.coroutines.delay(100)
             onSignInSuccess()
         }
     }

@@ -55,14 +55,20 @@ fun NavGraph(
     // Navigate to Home when user successfully signs in
     LaunchedEffect(authState.isLoggedIn) {
         if (authState.isLoggedIn) {
-            // Clear back stack and navigate to Home
-            navController.navigate(Screen.Home.route) {
-                // Clear the entire back stack including Auth screen
-                popUpTo(Screen.Auth.route) {
-                    inclusive = true
+            // Only navigate if we're not already on the Home screen
+            val currentRoute = navController.currentDestination?.route
+            if (currentRoute != Screen.Home.route) {
+                // Clear back stack and navigate to Home
+                navController.navigate(Screen.Home.route) {
+                    // Pop all destinations from back stack
+                    popUpTo(Screen.Auth.route) {
+                        inclusive = true
+                    }
+                    // Prevent multiple instances of Home
+                    launchSingleTop = true
+                    // Clear entire back stack
+                    restoreState = false
                 }
-                // Prevent multiple instances of Home
-                launchSingleTop = true
             }
         }
     }
@@ -72,11 +78,14 @@ fun NavGraph(
         startDestination = initialDestination
     ) {
         composable(Screen.Auth.route) {
+            // Pass the same ViewModel instance to LoginScreen
+            // This ensures state changes are observed by both NavGraph and LoginScreen
             LoginScreen(
                 onSignInSuccess = {
                     // Navigation is handled by LaunchedEffect above
                     // This callback is kept for potential future use
-                }
+                },
+                viewModel = authViewModel
             )
         }
         
