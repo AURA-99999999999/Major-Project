@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -188,7 +189,9 @@ fun LoginScreen(
                 modifier = Modifier.padding(bottom = 64.dp)
             ) {
                 // Error message display
-                if (uiState.error != null) {
+                // Extract to local immutable variable to avoid smart cast issues
+                val errorMessage = uiState.error
+                if (errorMessage != null && errorMessage.isNotEmpty()) {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -196,7 +199,7 @@ fun LoginScreen(
                         color = Error.copy(alpha = 0.1f)
                     ) {
                         Text(
-                            text = uiState.error,
+                            text = errorMessage,
                             color = Error,
                             fontSize = 14.sp,
                             modifier = Modifier
