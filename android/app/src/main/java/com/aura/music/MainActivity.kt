@@ -22,12 +22,10 @@ import com.aura.music.player.MusicService
 import com.aura.music.ui.theme.AuraTheme
 
 /**
- * MainActivity hosts the main app content (NavGraph with Auth, Home, Search, etc.)
+ * MainActivity hosts the main app content (NavGraph with Home, Search, Player, etc.)
  * 
- * The NavGraph handles authentication flow:
- * - If user is authenticated, shows Home screen
- * - If user is not authenticated, shows Auth (Google Sign-In) screen
- * - After successful sign-in, navigates to Home and clears auth screen from back stack
+ * This is the launcher activity that directly shows the music streaming interface.
+ * No authentication is required - users can immediately access and play music.
  */
 class MainActivity : ComponentActivity() {
     
@@ -65,7 +63,6 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // NavGraph handles auth state and navigation
                     NavGraph(musicService = musicService)
                 }
             }

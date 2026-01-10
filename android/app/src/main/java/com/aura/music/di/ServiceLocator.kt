@@ -17,6 +17,8 @@ import java.util.concurrent.TimeUnit
  * Replaces Hilt to avoid kapt compilation issues
  */
 object ServiceLocator {
+    private const val TAG = "ServiceLocator"
+    
     private var okHttpClient: OkHttpClient? = null
     private var retrofit: Retrofit? = null
     private var musicApi: MusicApi? = null
@@ -31,7 +33,7 @@ object ServiceLocator {
         synchronized(this) {
             if (initialized) return
 
-            // Initialize OkHttpClient
+            // Initialize OkHttpClient with logging interceptor
             val loggingInterceptor = HttpLoggingInterceptor().apply {
                 level = if (BuildConfig.DEBUG) {
                     HttpLoggingInterceptor.Level.BODY
@@ -47,15 +49,35 @@ object ServiceLocator {
                 .writeTimeout(30, TimeUnit.SECONDS)
                 .build()
 
-            // Initialize Retrofit
+            // Initialize Retrofit with base URL from BuildConfig
+            val baseUrl = NetworkConfig.activeBaseUrl
             safeLog {
-                Log.i("ServiceLocator", "Retrofit baseUrl -> ${NetworkConfig.description()}")
+                Log.i(TAG, "========================================")
+                Log.i(TAG, "Initializing Network Client")
+                Log.i(TAG, "Base URL: $baseUrl")
+                Log.i(TAG, "Environment: ${BuildConfig.API_ENV}")
+                Log.i(TAG, "========================================")
             }
-            retrofit = Retrofit.Builder()
-                .baseUrl(NetworkConfig.activeBaseUrl)
-                .client(okHttpClient!!)
-                .addConverterFactory(GsonConverterFactory.create())
-                .build()
+            
+            // Validate base URL format
+            require(baseUrl.endsWith("/")) {
+                "Base URL must end with '/': $baseUrl"
+            }
+            
+            try {
+                retrofit = Retrofit.Builder()
+                    .baseUrl(baseUrl)
+                    .client(okHttpClient!!)
+                    .addConverterFactory(GsonConverterFactory.create())
+                    .build()
+                
+                safeLog {
+                    Log.i(TAG, "Retrofit client initialized successfully")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to initialize Retrofit client", e)
+                throw IllegalStateException("Failed to initialize Retrofit: ${e.message}", e)
+            }
 
             // Initialize API
             musicApi = retrofit!!.create(MusicApi::class.java)

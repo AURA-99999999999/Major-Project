@@ -21,8 +21,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# Enable CORS for React frontend
-CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=True)
+# Enable CORS for all origins (development mode)
+# This allows Android app and React frontend to access the API
+# In production, restrict this to specific origins
+CORS(app, origins="*", supports_credentials=True, allow_headers="*", methods="*")
 
 # Initialize services
 music_service = MusicService(Config.YDL_OPTS)
@@ -61,12 +63,29 @@ def search_songs():
         if not query:
             return jsonify({'error': 'Query parameter is required'}), 400
 
+        # Enhanced logging for Android connectivity debugging
+        client_ip = request.remote_addr
+        user_agent = request.headers.get('User-Agent', 'Unknown')
         logger.info(
-            "Search request | query=%s limit=%s filter=%s remote_ip=%s",
-            query,
-            limit,
-            filter_type,
-            request.remote_addr,
+            "========================================"
+        )
+        logger.info(
+            "SEARCH REQUEST RECEIVED"
+        )
+        logger.info(
+            "Query: %s | Limit: %s | Filter: %s",
+            query, limit, filter_type
+        )
+        logger.info(
+            "Client IP: %s | User-Agent: %s",
+            client_ip, user_agent
+        )
+        logger.info(
+            "Request URL: %s",
+            request.url
+        )
+        logger.info(
+            "========================================"
         )
         
         results = music_service.search_songs(query, limit=limit, filter_type=filter_type)
@@ -422,4 +441,10 @@ if __name__ == '__main__':
     # can reach this development server. Never expose this setting directly to
     # the public internet without proper hardening or a production-ready WSGI
     # server such as gunicorn/uwsgi sitting behind a reverse proxy.
+    logger.info("========================================")
+    logger.info("Starting Aura Music API Server")
+    logger.info("Server will be accessible at:")
+    logger.info("  - http://127.0.0.1:5000 (localhost)")
+    logger.info("  - http://192.168.1.3:5000 (LAN IP - for Android devices)")
+    logger.info("========================================")
     app.run(host='0.0.0.0', port=5000, debug=True)

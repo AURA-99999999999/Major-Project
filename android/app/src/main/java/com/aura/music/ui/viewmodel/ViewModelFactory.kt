@@ -16,9 +16,6 @@ class ViewModelFactory(
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
         return when {
-            modelClass.isAssignableFrom(AuthViewModel::class.java) -> {
-                AuthViewModel(application) as T
-            }
             modelClass.isAssignableFrom(HomeViewModel::class.java) -> {
                 HomeViewModel(musicRepository) as T
             }

@@ -17,10 +17,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Aura"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
         
-        <!-- MainActivity is the launcher - NavGraph handles auth flow internally -->
+        <!-- MainActivity is the launcher - directly shows music streaming interface -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -10,6 +10,7 @@ import com.aura.music.data.repository.MusicRepository
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import retrofit2.HttpException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -127,12 +128,42 @@ class SearchViewModel(
         }
     }
 
-    private fun mapNetworkError(throwable: Throwable): String = when (throwable) {
-        is UnknownHostException, is ConnectException ->
-            "Server not reachable. Confirm the Flask API is running at ${BuildConfig.API_BASE_URL}."
-        is SocketTimeoutException ->
-            "The server took too long to respond. Please try again."
-        else -> throwable.message ?: "Unexpected error. Please try again."
+    private fun mapNetworkError(throwable: Throwable): String {
+        val baseUrl = BuildConfig.API_BASE_URL
+        val env = BuildConfig.API_ENV
+        
+        Log.e(TAG, "========================================")
+        Log.e(TAG, "NETWORK ERROR DETAILS")
+        Log.e(TAG, "Exception type: ${throwable.javaClass.simpleName}")
+        Log.e(TAG, "Exception message: ${throwable.message}")
+        Log.e(TAG, "Base URL: $baseUrl")
+        Log.e(TAG, "Environment: $env")
+        Log.e(TAG, "Full stack trace:", throwable)
+        Log.e(TAG, "========================================")
+        
+        return when (throwable) {
+            is UnknownHostException -> {
+                "Cannot resolve host. Check:\n• Flask server is running\n• Correct IP in local.properties\n• Same Wi-Fi network (device)"
+            }
+            is ConnectException -> {
+                "Cannot connect to server at $baseUrl\n\nPlease verify:\n• Flask server running (python app.py)\n• Server accessible from this device\n• Check Logcat for details"
+            }
+            is SocketTimeoutException ->
+                "Connection timeout. Server took too long to respond."
+            is java.net.SocketException -> {
+                "Network error. Check:\n• Device/emulator network connection\n• Server is reachable\n• Check Logcat for details"
+            }
+            is HttpException -> {
+                val code = throwable.code()
+                val message = throwable.message()
+                "HTTP Error $code: $message"
+            }
+            else -> {
+                val errorMsg = throwable.message ?: "Network error occurred"
+                Log.e(TAG, "Unexpected error type: ${throwable.javaClass.simpleName}", throwable)
+                "Error: $errorMsg\n\nCheck Logcat for full details."
+            }
+        }
     }
 
     companion object {

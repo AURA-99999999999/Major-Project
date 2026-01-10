@@ -19,18 +19,41 @@ class MusicRepository(
 ) {
     suspend fun searchSongs(query: String, limit: Int = 20): Result<List<Song>> {
         return try {
-            safeLog { Log.d(TAG, "searchSongs() query=$query, limit=$limit") }
+            safeLog { 
+                Log.d(TAG, "========================================")
+                Log.d(TAG, "searchSongs() called")
+                Log.d(TAG, "Query: $query")
+                Log.d(TAG, "Limit: $limit")
+                Log.d(TAG, "========================================")
+            }
             val response = api.searchSongs(query, limit)
             if (response.success && response.results != null) {
-                safeLog { Log.d(TAG, "searchSongs() success count=${response.results.size}") }
+                safeLog { 
+                    Log.d(TAG, "========================================")
+                    Log.d(TAG, "searchSongs() SUCCESS")
+                    Log.d(TAG, "Results count: ${response.results.size}")
+                    Log.d(TAG, "========================================")
+                }
                 Result.success(response.results.toSongs())
             } else {
                 val error = response.error ?: "Search failed"
-                safeLog { Log.w(TAG, "searchSongs() failed: $error") }
+                safeLog { 
+                    Log.w(TAG, "========================================")
+                    Log.w(TAG, "searchSongs() API ERROR")
+                    Log.w(TAG, "Error: $error")
+                    Log.w(TAG, "========================================")
+                }
                 Result.failure(Exception(error))
             }
         } catch (e: Exception) {
-            safeLog { Log.e(TAG, "searchSongs() exception", e) }
+            safeLog { 
+                Log.e(TAG, "========================================")
+                Log.e(TAG, "searchSongs() EXCEPTION")
+                Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
+                Log.e(TAG, "Exception message: ${e.message}")
+                Log.e(TAG, "Stack trace:", e)
+                Log.e(TAG, "========================================")
+            }
             Result.failure(e)
         }
     }
