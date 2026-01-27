@@ -45,7 +45,7 @@ println("Aura API environment: $apiEnvironment -> $resolvedBaseUrl")
 
 android {
     namespace = "com.aura.music"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.aura.music"
@@ -86,6 +86,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        viewBinding = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
@@ -142,10 +143,16 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // Firebase
+    // Firebase (CLEAN & CORRECT)
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-auth-ktx")
+
+// Google Sign-In (optional but fine to keep)
     implementation("com.google.android.gms:play-services-auth:21.3.0")
+    implementation("androidx.credentials:credentials:1.5.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+
 
     // Testing
     testImplementation("junit:junit:4.13.2")

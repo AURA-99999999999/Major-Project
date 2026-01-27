@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.aura.music.data.model.Playlist
 import com.aura.music.data.model.Song
 import com.aura.music.data.repository.MusicRepository
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
@@ -25,27 +27,27 @@ class HomeViewModel(
 
     fun loadData(userId: String = "default") {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            
-            repository.getTrending(20)
-                .onSuccess { songs ->
-                    _uiState.value = _uiState.value.copy(trendingSongs = songs)
-                }
-                .onFailure { e ->
-                    _uiState.value = _uiState.value.copy(
-                        error = e.message ?: "Failed to load trending songs"
-                    )
-                }
+            _uiState.update { it.copy(isLoading = true, error = null) }
 
-            repository.getPlaylists(userId)
-                .onSuccess { playlists ->
-                    _uiState.value = _uiState.value.copy(playlists = playlists)
-                }
-                .onFailure { e ->
-                    // Don't show error for playlists as they might not exist
-                }
+            val trendingDeferred = async { repository.getTrending(20) }
+            val playlistsDeferred = async { repository.getPlaylists(userId) }
 
-            _uiState.value = _uiState.value.copy(isLoading = false)
+            val trendingResult = trendingDeferred.await()
+            val playlistsResult = playlistsDeferred.await()
+
+            val errorMessage = listOfNotNull(
+                trendingResult.exceptionOrNull()?.message,
+                playlistsResult.exceptionOrNull()?.message
+            ).joinToString(separator = "\n").ifBlank { null }
+
+            _uiState.update {
+                it.copy(
+                    trendingSongs = trendingResult.getOrElse { emptyList() },
+                    playlists = playlistsResult.getOrElse { emptyList() },
+                    isLoading = false,
+                    error = errorMessage
+                )
+            }
         }
     }
 }

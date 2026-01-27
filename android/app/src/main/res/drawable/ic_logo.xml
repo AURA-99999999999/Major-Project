@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <!-- Headphone band -->
+    <path
+        android:fillColor="#D9E1E8"
+        android:pathData="M256,64C150,64 64,150 64,256h48C112,176 176,112 256,112s144,64 144,144h48C448,150 362,64 256,64z"/>
+
+    <!-- Left ear cup -->
+    <path
+        android:fillColor="#5E6A8A"
+        android:pathData="M64,256h96v160H64z"/>
+
+    <!-- Right ear cup -->
+    <path
+        android:fillColor="#2E344D"
+        android:pathData="M352,256h96v160h-96z"/>
+
+    <!-- Lightning bolt -->
+    <path
+        android:fillColor="#FFC933"
+        android:pathData="M256,160l-96,160h80v128l96,-176h-80z"/>
+</vector>

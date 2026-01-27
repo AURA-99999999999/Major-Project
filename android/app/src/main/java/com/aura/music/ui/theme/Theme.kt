@@ -13,7 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val DarkColorScheme = darkColorScheme(
+private val OliveBeigColorScheme = darkColorScheme(
     primary = Primary,
     secondary = Secondary,
     tertiary = Accent,
@@ -40,8 +40,8 @@ fun AuraTheme(
             if (darkTheme) dynamicDarkColorScheme(context)
             else dynamicLightColorScheme(context)
         }
-        darkTheme -> DarkColorScheme
-        else -> DarkColorScheme
+        darkTheme -> OliveBeigColorScheme
+        else -> OliveBeigColorScheme
     }
 
     val view = LocalView.current
