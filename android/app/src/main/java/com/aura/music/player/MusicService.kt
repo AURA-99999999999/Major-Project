@@ -19,6 +19,7 @@ import androidx.media3.session.MediaSessionService
 import com.aura.music.MainActivity
 import com.aura.music.data.model.Song
 import com.aura.music.data.model.withFallbackMetadata
+import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,11 @@ class MusicService : MediaSessionService() {
 
     private var notificationManager: NotificationManager? = null
     private val repository by lazy { ServiceLocator.getMusicRepository() }
+    private val firestoreRepository by lazy { FirestoreRepository() }
+
+    private var lastLoggedPlayKey: String? = null
+    private var lastLoggedAtMs: Long = 0L
+    private val playStartThresholdMs = 2_000L
 
     inner class MusicBinder : Binder() {
         fun getService(): MusicService = this@MusicService
@@ -74,6 +80,59 @@ class MusicService : MediaSessionService() {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         _playerState.update { it.copy(isPlaying = isPlaying, isLoading = false) }
                         updateNotification()
+
+                        val debugSong = _playerState.value.currentSong
+                        Log.d(
+                            TAG,
+                            "onIsPlayingChanged() isPlaying=$isPlaying " +
+                                "song=${debugSong?.title ?: "null"} " +
+                                "posMs=${player.currentPosition}"
+                        )
+
+                        if (isPlaying) {
+                            val currentSong = _playerState.value.currentSong ?: return
+                            val positionMs = player.currentPosition
+                            if (positionMs > playStartThresholdMs) return
+
+                            val artists = when {
+                                !currentSong.artists.isNullOrEmpty() -> currentSong.artists
+                                !currentSong.artist.isNullOrBlank() -> listOfNotNull(currentSong.artist)
+                                else -> emptyList()
+                            }
+
+                            val key = buildString {
+                                append(currentSong.videoId)
+                                append('|')
+                                append(currentSong.title.lowercase())
+                                append('|')
+                                append((currentSong.album ?: "").lowercase())
+                                append('|')
+                                append(artists.joinToString("|") { it.lowercase() })
+                            }
+
+                            val now = System.currentTimeMillis()
+                            if (key == lastLoggedPlayKey && now - lastLoggedAtMs < 30_000L) return
+
+                            lastLoggedPlayKey = key
+                            lastLoggedAtMs = now
+
+                            serviceScope.launch {
+                                Log.d(
+                                    TAG,
+                                    "Logging play: title='${currentSong.title}', " +
+                                        "album='${currentSong.album ?: ""}', " +
+                                        "artists=${artists.size}"
+                                )
+                                firestoreRepository.logSongPlay(
+                                    videoId = currentSong.videoId,
+                                    songName = currentSong.title,
+                                    albumName = currentSong.album ?: "",
+                                    artists = artists
+                                ).onFailure { error ->
+                                    Log.e(TAG, "Failed to log song play to Firestore", error)
+                                }
+                            }
+                        }
                     }
 
                     override fun onPlaybackStateChanged(playbackState: Int) {

@@ -32,16 +32,23 @@ import com.aura.music.ui.theme.AuraTheme
      * Hosts the single NavController and RootNavGraph that manages:
      * 1. Authentication flow (login/signup)
      * 2. Main app flow (home, search, profile, player)
+     * 3. Firestore integration (handled in ViewModels)
      * 
      * Navigation is state-driven:
      * - AuthState changes trigger navigation automatically
      * - All navigation logic is in RootNavGraph, AuthGraph, MainGraph
      * - No navigation inside screens (clean separation of concerns)
      * 
+     * Firestore Architecture:
+     * - User creation/update: Handled in AuthViewModel on login/signup
+     * - Search logging: Handled in SearchViewModel after successful search
+     * - Play logging: Handled in MusicService when song plays
+     * - NO Firestore logic in MainActivity (follows MVVM architecture)
+     * 
      * Key features:
      * - Single NavController (no nesting)
      * - Single NavHost (no nested NavHosts)
-     * - State-driven navigation with LaunchedEffect
+     * - State-driven navigation
      * - Proper backstack management with popUpTo
      * - MusicService binding for audio playback
      */

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music API Debugger</title>
+    <link rel="stylesheet" href="debug_style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎵 Music API Debugger</h1>
+            <p class="subtitle">API Endpoint Inspector & Response Viewer</p>
+        </header>
+
+        <!-- Search Section -->
+        <section class="search-section">
+            <form id="searchForm" class="search-box">
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    placeholder="Enter song name to search..."
+                    autocomplete="off"
+                >
+                <button id="searchBtn" type="submit">Search</button>
+            </form>
+            <div id="loadingIndicator" class="loading hidden">Loading...</div>
+        </section>
+
+        <!-- Last.fm Top Tracks Section -->
+        <section class="search-section">
+            <h2>🔥 Trending Tracks (Last.fm)</h2>
+            <button id="lastfmBtn" type="button" onclick="loadTrendingTracks()">Load Trending Songs</button>
+            <div id="lastfmLoading" class="loading hidden">Loading top tracks...</div>
+            <div id="lastfmError" class="error-message hidden"></div>
+            <div id="trending-results"></div>
+        </section>
+
+        <!-- API Endpoint Section -->
+        <section class="endpoint-section">
+            <h2>API Endpoint</h2>
+            <div id="endpointDisplay" class="endpoint-display">
+                <p class="placeholder">No request made yet</p>
+            </div>
+        </section>
+
+        <!-- API Debug Section -->
+        <section class="debug-section">
+            <h2>API Request Details</h2>
+            <div id="apiDebugInfo" class="debug-info">
+                <p class="placeholder">Make a search to see API details...</p>
+            </div>
+        </section>
+
+        <!-- Raw Response Section -->
+        <section class="response-section">
+            <h2>Raw JSON Response</h2>
+            <div id="rawResponse" class="raw-response">
+                <pre class="placeholder">Raw API response will appear here...</pre>
+            </div>
+        </section>
+
+        <!-- Results Table Section -->
+        <section class="results-section">
+            <h2>Parsed Results</h2>
+            <div id="errorMessage" class="error-message hidden"></div>
+            <div id="noResults" class="no-results hidden">No results found</div>
+            <div class="table-container">
+                <table id="resultsTable" class="hidden">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Song Name</th>
+                            <th>Artist(s)</th>
+                            <th>Album</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody">
+                        <!-- Results will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Last.fm Results Section (rendered into trending-results) -->
+    </div>
+
+    <script src="debug_script.js"></script>
+</body>
+</html>

@@ -65,6 +65,7 @@ class SearchViewModel(
                 .onSuccess { songs ->
                     logDebug("search() success for '$query' with ${songs.size} songs")
                     _uiState.update { it.copy(results = songs, isLoading = false) }
+
                     if (songs.isEmpty()) {
                         _events.emit(SearchEvent.ShowMessage("No results for \"$query\""))
                     }

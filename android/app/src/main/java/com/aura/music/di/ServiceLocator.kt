@@ -5,6 +5,7 @@ import android.util.Log
 import com.aura.music.BuildConfig
 import com.aura.music.data.remote.MusicApi
 import com.aura.music.data.remote.NetworkConfig
+import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -23,6 +24,7 @@ object ServiceLocator {
     private var retrofit: Retrofit? = null
     private var musicApi: MusicApi? = null
     private var musicRepository: MusicRepository? = null
+    private var firestoreRepository: FirestoreRepository? = null
 
     @Volatile
     private var initialized = false
@@ -83,7 +85,8 @@ object ServiceLocator {
             musicApi = retrofit!!.create(MusicApi::class.java)
 
             // Initialize Repository
-            musicRepository = MusicRepository(musicApi!!)
+            firestoreRepository = FirestoreRepository()
+            musicRepository = MusicRepository(musicApi!!, firestoreRepository!!)
 
             initialized = true
         }
@@ -114,6 +117,7 @@ object ServiceLocator {
             retrofit = null
             musicApi = null
             musicRepository = null
+            firestoreRepository = null
             initialized = false
         }
     }

@@ -9,6 +9,7 @@ from config import Config
 from services.music_service import MusicService
 from services.playlist_service import PlaylistService
 from services.user_service import UserService
+from services.lastfm_service import LastFmService
 
 # Configure logging
 logging.basicConfig(
@@ -30,6 +31,8 @@ CORS(app, origins="*", supports_credentials=True, allow_headers="*", methods="*"
 music_service = MusicService(Config.YDL_OPTS)
 playlist_service = PlaylistService()
 user_service = UserService()
+LASTFM_API_KEY = Config.LASTFM_API_KEY
+lastfm_service = LastFmService(LASTFM_API_KEY)
 
 # Error handlers
 @app.errorhandler(404)
@@ -50,11 +53,21 @@ def bad_request(error):
 def health_check():
     return jsonify({'status': 'healthy', 'service': 'Aura Music API'})
 
+# Serve debug API page
+@app.route('/debug', methods=['GET'])
+def debug_page():
+    """Serve the debug API page"""
+    try:
+        with open('debug_api.html', 'r') as f:
+            return f.read(), 200, {'Content-Type': 'text/html'}
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # ==================== MUSIC ENDPOINTS ====================
 
 @app.route('/api/search', methods=['GET'])
 def search_songs():
-    """Search for songs"""
+    """Search for songs with basic metadata enrichment"""
     try:
         query = request.args.get('query', '').strip()
         limit = int(request.args.get('limit', 20))
@@ -88,7 +101,13 @@ def search_songs():
             "========================================"
         )
         
+        # Get raw results from music service
+        logger.info("📥 Fetching from music API...")
         results = music_service.search_songs(query, limit=limit, filter_type=filter_type)
+        logger.info(f"📋 Raw results: {len(results)} songs found")
+        logger.info(f"Raw data sample: {results[0] if results else 'No results'}")
+        
+        # No enrichment: return raw results from streaming API
         return jsonify({
             'success': True,
             'results': results,
@@ -97,6 +116,8 @@ def search_songs():
     except Exception as e:
         logger.error(f"Search error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+# ==================== SONG STREAMING ENDPOINT ====================
 
 @app.route('/api/song/<video_id>', methods=['GET'])
 def get_song(video_id):
@@ -127,6 +148,65 @@ def get_trending():
         })
     except Exception as e:
         logger.error(f"Trending error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/lastfm/top-tracks', methods=['GET'])
+def get_lastfm_top_tracks():
+    """Get Last.fm top tracks by country (geo.getTopTracks)"""
+    try:
+        country = request.args.get('country', '').strip()
+        location = request.args.get('location', '').strip() or None
+        limit = int(request.args.get('limit', 50))
+        page = int(request.args.get('page', 1))
+
+        if not country:
+            return jsonify({'error': 'Country parameter is required'}), 400
+
+        results, meta = lastfm_service.get_top_tracks(
+            country=country,
+            location=location,
+            limit=limit,
+            page=page
+        )
+
+        return jsonify({
+            'success': True,
+            'country': country,
+            'location': location,
+            'results': results,
+            'count': len(results),
+            'meta': meta
+        })
+    except ValueError as e:
+        logger.error(f"Last.fm error: {str(e)}")
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Last.fm error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/trending/lastfm', methods=['GET'])
+def get_lastfm_trending():
+    """Get Last.fm geo.getTopTracks with a compact response shape"""
+    try:
+        country = request.args.get('country', 'India').strip()
+        limit = int(request.args.get('limit', 20))
+
+        if not country:
+            return jsonify({'error': 'Country parameter is required'}), 400
+
+        results = lastfm_service.get_geo_top_tracks(country=country, limit=limit)
+
+        return jsonify({
+            'success': True,
+            'country': country,
+            'tracks': results,
+            'count': len(results)
+        })
+    except ValueError as e:
+        logger.error(f"Last.fm error: {str(e)}")
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Last.fm error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/artist/<artist_id>', methods=['GET'])

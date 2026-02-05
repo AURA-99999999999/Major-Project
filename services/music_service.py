@@ -27,7 +27,8 @@ class MusicService:
                     'title': result.get('title', 'Unknown'),
                     'artists': [artist.get('name', 'Unknown') for artist in result.get('artists', [])],
                     'thumbnail': self._get_best_thumbnail(result.get('thumbnails', [])),
-                    'duration': result.get('duration'),
+                    'duration': result.get('duration'),  # Keep as string (e.g., "4:28")
+                    'duration_seconds': result.get('duration_seconds'),  # Numeric duration
                     'album': result.get('album', {}).get('name') if result.get('album') else None,
                     'year': result.get('year'),
                 })
@@ -40,6 +41,8 @@ class MusicService:
     def get_song_details(self, video_id: str) -> Dict:
         """Get detailed song information and streaming URL"""
         try:
+            logger.info(f"Fetching song details for video ID: {video_id}")
+            
             # Get streaming URL from yt-dlp first (more reliable)
             with YoutubeDL(self.ydl_opts) as ydl:
                 info = ydl.extract_info(
@@ -47,8 +50,26 @@ class MusicService:
                     download=False
                 )
             
-            if 'url' not in info:
-                raise ValueError('Could not extract audio URL')
+            if not info:
+                raise ValueError('Failed to extract video information')
+            
+            # Try to get direct audio URL
+            audio_url = None
+            if 'url' in info:
+                audio_url = info['url']
+            elif 'formats' in info:
+                # Find best audio format
+                audio_formats = [f for f in info['formats'] if f.get('acodec') != 'none' and f.get('vcodec') == 'none']
+                if audio_formats:
+                    # Sort by quality
+                    audio_formats.sort(key=lambda x: x.get('abr', 0) or 0, reverse=True)
+                    audio_url = audio_formats[0]['url']
+            
+            if not audio_url:
+                logger.error(f"Could not extract audio URL for {video_id}")
+                raise ValueError('Could not extract audio URL from this video')
+            
+            logger.info(f"Successfully extracted audio URL for {video_id}")
             
             # Try to get metadata from YTMusic
             try:
@@ -57,7 +78,8 @@ class MusicService:
                 thumbnails = video_details.get('thumbnail', {}).get('thumbnails', [])
                 artist_info = video_details.get('author', 'Unknown Artist')
                 artist_name = artist_info if isinstance(artist_info, str) else artist_info.get('name', 'Unknown Artist')
-            except:
+            except Exception as e:
+                logger.warning(f"Could not get YTMusic metadata: {str(e)}, using yt-dlp info")
                 # Fallback to yt-dlp info
                 song_info = {}
                 video_details = {}
@@ -73,7 +95,7 @@ class MusicService:
             
             return {
                 'videoId': video_id,
-                'url': info['url'],
+                'url': audio_url,
                 'title': info.get('title', video_details.get('title', 'Unknown Title')),
                 'duration': info.get('duration', 0),
                 'thumbnail': thumbnail,
@@ -85,8 +107,8 @@ class MusicService:
                 'likeCount': video_details.get('likeCount', '0'),
             }
         except Exception as e:
-            logger.error(f"Error getting song details: {str(e)}")
-            raise
+            logger.error(f"Error getting song details for {video_id}: {str(e)}", exc_info=True)
+            raise ValueError(f"Failed to load song: {str(e)}")
     
     def get_trending_songs(self, limit: int = 20) -> List[Dict]:
         """Get trending songs"""

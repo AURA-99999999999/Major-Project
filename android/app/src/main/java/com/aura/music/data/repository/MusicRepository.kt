@@ -15,7 +15,8 @@ import com.aura.music.data.remote.dto.LoginRequest
 import com.aura.music.data.remote.dto.RegisterRequest
 
 class MusicRepository(
-    private val api: MusicApi
+    private val api: MusicApi,
+    private val firestoreLogger: FirestoreLogger = NoOpFirestoreLogger
 ) {
     suspend fun searchSongs(query: String, limit: Int = 20): Result<List<Song>> {
         return try {
@@ -25,6 +26,14 @@ class MusicRepository(
                 Log.d(TAG, "Query: $query")
                 Log.d(TAG, "Limit: $limit")
                 Log.d(TAG, "========================================")
+            }
+            try {
+                firestoreLogger.logSearch(query)
+                    .onFailure { error ->
+                        safeLog { Log.w(TAG, "searchSongs() - Firestore logSearch failed", error) }
+                    }
+            } catch (e: Exception) {
+                safeLog { Log.w(TAG, "searchSongs() - Firestore logSearch threw", e) }
             }
             val response = api.searchSongs(query, limit)
             if (response.success && response.results != null) {
