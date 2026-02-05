@@ -150,6 +150,38 @@ def get_trending():
         logger.error(f"Trending error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/home', methods=['GET'])
+def get_home():
+    """Get home feed with trending (Last.fm) and optional recommendations"""
+    try:
+        country = request.args.get('country', 'India').strip() or 'India'
+        limit = int(request.args.get('limit', 20))
+
+        tracks = lastfm_service.get_geo_top_tracks(country=country, limit=limit)
+        trending = []
+        for track in tracks:
+            trending.append(
+                {
+                    "videoId": track.get("videoId") or "",
+                    "title": track.get("track_name") or track.get("song_name") or "",
+                    "artists": [track.get("artist_name") or ""],
+                    "album": None,
+                    "image": track.get("image") or "",
+                }
+            )
+
+        return jsonify({
+            "trending": trending,
+            "recommendations": []
+        })
+    except ValueError as e:
+        logger.error(f"Home error: {str(e)}")
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Home error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/lastfm/top-tracks', methods=['GET'])
 def get_lastfm_top_tracks():
     """Get Last.fm top tracks by country (geo.getTopTracks)"""

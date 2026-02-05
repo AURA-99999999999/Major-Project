@@ -5,6 +5,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import androidx.navigation.NavGraphBuilder
+import com.aura.music.auth.state.AuthState
 import com.aura.music.player.MusicService
 import com.aura.music.ui.screens.home.HomeScreen
 import com.aura.music.ui.screens.player.PlayerScreen
@@ -32,7 +33,8 @@ import com.aura.music.ui.screens.search.SearchScreen
 @Composable
 fun NavGraph(
     musicService: MusicService?,
-    navController: NavHostController
+    navController: NavHostController,
+    authState: AuthState
 ) {
     // Render music app screens using provided navigation structure
     // The NavHost is already created in MainActivity
@@ -40,13 +42,11 @@ fun NavGraph(
     
     HomeScreen(
         musicService = musicService,
+        authState = authState,
         onNavigateToSearch = { navController.navigate(Screen.Search.route) },
         onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
         onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
-        onNavigateToProfile = { navController.navigate(Screen.Profile.route) },
-        onNavigateToPlaylistDetail = { playlistId ->
-            navController.navigate(Screen.PlaylistDetail.createRoute(playlistId))
-        }
+        onNavigateToProfile = { navController.navigate(Screen.Profile.route) }
     )
 }
 
@@ -56,18 +56,17 @@ fun NavGraph(
  */
 fun NavGraphBuilder.musicAppGraph(
     musicService: MusicService?,
-    navController: NavHostController
+    navController: NavHostController,
+    authState: AuthState
 ) {
     composable(Screen.Home.route) {
         HomeScreen(
             musicService = musicService,
+            authState = authState,
             onNavigateToSearch = { navController.navigate(Screen.Search.route) },
             onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
             onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
-            onNavigateToProfile = { navController.navigate(Screen.Profile.route) },
-            onNavigateToPlaylistDetail = { playlistId ->
-                navController.navigate(Screen.PlaylistDetail.createRoute(playlistId))
-            }
+            onNavigateToProfile = { navController.navigate(Screen.Profile.route) }
         )
     }
     

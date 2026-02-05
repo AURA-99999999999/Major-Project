@@ -2,6 +2,7 @@ package com.aura.music.data.remote
 
 import com.aura.music.data.remote.dto.ApiResponse
 import com.aura.music.data.remote.dto.HealthDto
+import com.aura.music.data.remote.dto.HomeResponseDto
 import com.aura.music.data.remote.dto.LoginRequest
 import com.aura.music.data.remote.dto.PlaylistDto
 import com.aura.music.data.remote.dto.RegisterRequest
@@ -34,6 +35,10 @@ interface MusicApi {
     // Trending
     @GET("trending")
     suspend fun getTrending(@Query("limit") limit: Int = 20): ApiResponse<SongDto>
+
+    // Home (trending + recommendations)
+    @GET("home")
+    suspend fun getHome(): HomeResponseDto
 
     // Artist
     @GET("artist/{artistId}")

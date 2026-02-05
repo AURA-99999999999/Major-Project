@@ -44,7 +44,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,44 +58,38 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
-import com.google.firebase.auth.FirebaseAuth
 import com.aura.music.player.MusicService
 import com.aura.music.data.model.Playlist
 import com.aura.music.data.model.Song
+import com.aura.music.auth.state.AuthState
 import com.aura.music.ui.theme.DarkBackground
 import com.aura.music.ui.theme.DarkSurface
 import com.aura.music.ui.theme.DarkSurfaceVariant
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.viewmodel.HomeUiState
 import com.aura.music.ui.viewmodel.HomeViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 
 @Composable
 fun HomeScreen(
     musicService: MusicService?,
+    authState: AuthState,
     onNavigateToSearch: () -> Unit,
     onNavigateToPlayer: () -> Unit,
     onNavigateToPlaylists: () -> Unit,
     onNavigateToProfile: () -> Unit,
-    onNavigateToPlaylistDetail: (String) -> Unit,
     viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Get current logged-in user
-    var userName by remember { mutableStateOf("User") }
     var selectedTab by remember { mutableIntStateOf(0) }
     
-    LaunchedEffect(Unit) {
-        val currentUser = FirebaseAuth.getInstance().currentUser
-        userName = if (currentUser != null) {
-            // Use display name if available, otherwise use email prefix
-            currentUser.displayName ?: currentUser.email?.substringBefore("@") ?: "User"
-        } else {
-            "User"
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Authenticated) {
+            viewModel.loadHomeData()
         }
-        viewModel.loadData()
     }
 
     Scaffold(
@@ -235,8 +228,8 @@ fun HomeScreen(
                     }
                 }
 
-                when {
-                    uiState.isLoading -> {
+                when (val state = uiState) {
+                    is HomeUiState.Loading -> {
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
@@ -244,7 +237,7 @@ fun HomeScreen(
                             CircularProgressIndicator()
                         }
                     }
-                    else -> {
+                    is HomeUiState.Success -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(16.dp),
@@ -254,36 +247,23 @@ fun HomeScreen(
 
                             item {
                                 TrendingRow(
-                                    songs = uiState.trendingSongs,
+                                    songs = state.trending,
                                     onSongClick = { song ->
-                                        musicService?.playSong(song, false)
-                                        onNavigateToPlayer()
+                                        if (song.videoId.isNotBlank()) {
+                                            musicService?.playSong(song, false)
+                                            onNavigateToPlayer()
+                                        }
                                     }
                                 )
                             }
-
-                            item {
-                                SectionHeader(
-                                    title = "Popular Playlists",
-                                    actionText = "See all",
-                                    onActionClick = onNavigateToPlaylists
-                                )
-                            }
-
-                            if (uiState.playlists.isEmpty()) {
-                                item { EmptyStateCard(message = "No playlists yet. Create or explore trending songs.") }
-                            } else {
-                                items(uiState.playlists) { playlist ->
-                                    PlaylistCard(
-                                        playlist = playlist,
-                                        onClick = { onNavigateToPlaylistDetail(playlist.id) }
-                                    )
-                                }
-                            }
-
-                            uiState.error?.let { message ->
-                                item { ErrorStateCard(message = message) }
-                            }
+                        }
+                    }
+                    is HomeUiState.Error -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ErrorStateCard(message = state.message)
                         }
                     }
                 }

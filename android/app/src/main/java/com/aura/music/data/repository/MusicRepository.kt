@@ -7,6 +7,7 @@ import com.aura.music.data.mapper.toSong
 import com.aura.music.data.mapper.toSongDtoMap
 import com.aura.music.data.mapper.toSongs
 import com.aura.music.data.mapper.toUser
+import com.aura.music.data.model.HomeData
 import com.aura.music.data.model.Playlist
 import com.aura.music.data.model.Song
 import com.aura.music.data.model.User
@@ -99,6 +100,19 @@ class MusicRepository(
             }
         } catch (e: Exception) {
             safeLog { Log.e(TAG, "getTrending() exception", e) }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getHomeData(): Result<HomeData> {
+        return try {
+            safeLog { Log.d(TAG, "getHomeData()") }
+            val response = api.getHome()
+            val trending = response.trending?.toSongs().orEmpty()
+            val recommendations = response.recommendations?.toSongs().orEmpty()
+            Result.success(HomeData(trending = trending, recommendations = recommendations))
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getHomeData() exception", e) }
             Result.failure(e)
         }
     }

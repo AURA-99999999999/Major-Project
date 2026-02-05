@@ -53,6 +53,7 @@ fun NavGraphBuilder.mainGraph(
         composable("main/home") {
             HomeScreen(
                 musicService = musicService,
+                authState = authState,
                 onNavigateToSearch = {
                     navController.navigate("main/search")
                 },
@@ -64,9 +65,6 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onNavigateToProfile = {
                     navController.navigate("main/profile")
-                },
-                onNavigateToPlaylistDetail = { playlistId ->
-                    navController.navigate("main/playlist/$playlistId")
                 }
             )
 
