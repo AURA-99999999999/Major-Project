@@ -85,6 +85,10 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(musicService) {
+        viewModel.attachMusicService(musicService)
+    }
     
     LaunchedEffect(authState) {
         if (authState is AuthState.Authenticated) {
@@ -248,11 +252,9 @@ fun HomeScreen(
                             item {
                                 TrendingRow(
                                     songs = state.trending,
-                                    onSongClick = { song ->
-                                        if (song.videoId.isNotBlank()) {
-                                            musicService?.playSong(song, false)
-                                            onNavigateToPlayer()
-                                        }
+                                    onImageClick = { song ->
+                                        viewModel.playSong(song)
+                                        onNavigateToPlayer()
                                     }
                                 )
                             }
@@ -303,7 +305,7 @@ private fun SectionHeader(
 @Composable
 private fun TrendingRow(
     songs: List<Song>,
-    onSongClick: (Song) -> Unit
+    onImageClick: (Song) -> Unit
 ) {
     if (songs.isEmpty()) {
         EmptyStateCard(message = "No trending songs right now. Pull to refresh or try again later.")
@@ -314,7 +316,7 @@ private fun TrendingRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(songs) { song ->
-            TrendingSongCard(song = song) { onSongClick(song) }
+            TrendingSongCard(song = song) { onImageClick(song) }
         }
     }
 }
@@ -322,18 +324,18 @@ private fun TrendingRow(
 @Composable
 private fun TrendingSongCard(
     song: Song,
-    onClick: () -> Unit
+    onImageClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
-            .width(160.dp)
-            .clickable(onClick = onClick),
+            .width(160.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Surface(
             modifier = Modifier
                 .height(160.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .clickable(onClick = onImageClick),
             shape = RoundedCornerShape(16.dp),
             color = DarkSurfaceVariant
         ) {

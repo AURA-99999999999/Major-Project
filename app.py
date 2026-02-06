@@ -5,6 +5,7 @@ Production-grade music streaming platform
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import logging
+import time
 from config import Config
 from services.music_service import MusicService
 from services.playlist_service import PlaylistService
@@ -33,6 +34,29 @@ playlist_service = PlaylistService()
 user_service = UserService()
 LASTFM_API_KEY = Config.LASTFM_API_KEY
 lastfm_service = LastFmService(LASTFM_API_KEY)
+
+# Simple in-memory caches for home and search results
+CACHE_TTL_SECONDS = 45 * 60
+_home_cache = {}
+_search_cache = {}
+
+
+def _cache_get(cache: dict, key: str):
+    now = time.time()
+    entry = cache.get(key)
+    if not entry:
+        return None
+    if entry["expires_at"] <= now:
+        cache.pop(key, None)
+        return None
+    return entry["value"]
+
+
+def _cache_set(cache: dict, key: str, value):
+    cache[key] = {
+        "value": value,
+        "expires_at": time.time() + CACHE_TTL_SECONDS,
+    }
 
 # Error handlers
 @app.errorhandler(404)
@@ -157,24 +181,85 @@ def get_home():
     try:
         country = request.args.get('country', 'India').strip() or 'India'
         limit = int(request.args.get('limit', 20))
+        cache_key = f"home:{country.lower()}:{limit}"
+        cached = _cache_get(_home_cache, cache_key)
+        if cached is not None:
+            return jsonify(cached)
 
         tracks = lastfm_service.get_geo_top_tracks(country=country, limit=limit)
-        trending = []
-        for track in tracks:
-            trending.append(
-                {
-                    "videoId": track.get("videoId") or "",
-                    "title": track.get("track_name") or track.get("song_name") or "",
-                    "artists": [track.get("artist_name") or ""],
-                    "album": None,
-                    "image": track.get("image") or "",
-                }
-            )
+        if isinstance(tracks, dict):
+            tracks = [tracks]
 
-        return jsonify({
-            "trending": trending,
-            "recommendations": []
-        })
+        trending = []
+        local_query_cache = {}
+
+        for index, track in enumerate(tracks):
+            try:
+                track_name = (track.get("track_name") or track.get("song_name") or "").strip()
+                artist_name = (track.get("artist_name") or "").strip()
+
+                if not track_name or not artist_name:
+                    logger.warning("Skipping track with missing name/artist: %s", track)
+                    continue
+
+                query = f"{track_name} {artist_name}".strip()
+
+                if query in local_query_cache:
+                    results = local_query_cache[query]
+                else:
+                    results = _cache_get(_search_cache, query)
+                    if results is None:
+                        results = music_service.search_songs(query, limit=5, filter_type='songs')
+                        _cache_set(_search_cache, query, results)
+                    local_query_cache[query] = results
+
+                match = None
+                for result in results:
+                    result_title = (result.get("title") or "").strip().lower()
+                    result_artists = result.get("artists") or []
+                    result_artist = (result_artists[0] if result_artists else "").strip().lower()
+
+                    if result_title == track_name.lower() and result_artist == artist_name.lower():
+                        match = result
+                        break
+
+                if not match:
+                    logger.info("No exact match for Last.fm track: %s - %s", artist_name, track_name)
+                    continue
+
+                rank_raw = track.get("rank")
+                if isinstance(rank_raw, int):
+                    rank = rank_raw
+                else:
+                    rank = index + 1
+
+                listeners = track.get("listeners")
+                try:
+                    listeners = int(listeners or 0)
+                except (TypeError, ValueError):
+                    listeners = 0
+
+                trending.append(
+                    {
+                        "rank": rank,
+                        "title": match.get("title") or track_name,
+                        "artists": match.get("artists") or [artist_name],
+                        "album": match.get("album"),
+                        "thumbnail": match.get("thumbnail") or "",
+                        "videoId": match.get("videoId") or "",
+                        "duration_seconds": match.get("duration_seconds") or 0,
+                        "listeners": listeners,
+                        "source": "lastfm",
+                    }
+                )
+            except Exception as track_error:
+                logger.warning("Failed to enrich track: %s", track_error, exc_info=True)
+                continue
+
+        response_payload = {"trending": trending}
+        _cache_set(_home_cache, cache_key, response_payload)
+
+        return jsonify(response_payload)
     except ValueError as e:
         logger.error(f"Home error: {str(e)}")
         return jsonify({'error': str(e)}), 400
