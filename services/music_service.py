@@ -43,7 +43,7 @@ class MusicService:
         try:
             logger.info(f"Fetching song details for video ID: {video_id}")
             
-            # Get streaming URL from yt-dlp first (more reliable)
+            # yt-dlp is the only source for playback and metadata in this path.
             with YoutubeDL(self.ydl_opts) as ydl:
                 info = ydl.extract_info(
                     f'https://www.youtube.com/watch?v={video_id}',
@@ -71,21 +71,9 @@ class MusicService:
             
             logger.info(f"Successfully extracted audio URL for {video_id}")
             
-            # Try to get metadata from YTMusic
-            try:
-                song_info = self.ytmusic.get_song(video_id)
-                video_details = song_info.get('videoDetails', {})
-                thumbnails = video_details.get('thumbnail', {}).get('thumbnails', [])
-                artist_info = video_details.get('author', 'Unknown Artist')
-                artist_name = artist_info if isinstance(artist_info, str) else artist_info.get('name', 'Unknown Artist')
-            except Exception as e:
-                logger.warning(f"Could not get YTMusic metadata: {str(e)}, using yt-dlp info")
-                # Fallback to yt-dlp info
-                song_info = {}
-                video_details = {}
-                thumbnails = info.get('thumbnails', [])
-                artist_name = info.get('uploader', 'Unknown Artist')
-            
+            thumbnails = info.get('thumbnails', [])
+            artist_name = info.get('uploader', 'Unknown Artist')
+
             # Get thumbnail
             thumbnail = ''
             if thumbnails:
@@ -96,15 +84,15 @@ class MusicService:
             return {
                 'videoId': video_id,
                 'url': audio_url,
-                'title': info.get('title', video_details.get('title', 'Unknown Title')),
+                'title': info.get('title', 'Unknown Title'),
                 'duration': info.get('duration', 0),
                 'thumbnail': thumbnail,
                 'artist': artist_name,
                 'artists': [artist_name],
-                'album': song_info.get('album', {}).get('name', '') if song_info.get('album') else info.get('album', ''),
-                'year': song_info.get('year', '') or info.get('release_year', ''),
-                'viewCount': video_details.get('viewCount', '0'),
-                'likeCount': video_details.get('likeCount', '0'),
+                'album': info.get('album', ''),
+                'year': info.get('release_year', ''),
+                'viewCount': info.get('view_count', 0),
+                'likeCount': info.get('like_count', 0),
             }
         except Exception as e:
             logger.error(f"Error getting song details for {video_id}: {str(e)}", exc_info=True)

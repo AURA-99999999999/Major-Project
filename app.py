@@ -3,6 +3,7 @@ Aura Music Streaming App - Main Flask Application
 Production-grade music streaming platform
 """
 from flask import Flask, jsonify, request
+from pathlib import Path
 from flask_cors import CORS
 import logging
 import time
@@ -10,7 +11,7 @@ from config import Config
 from services.music_service import MusicService
 from services.playlist_service import PlaylistService
 from services.user_service import UserService
-from services.lastfm_service import LastFmService
+from ytmusicapi import YTMusic
 
 # Configure logging
 logging.basicConfig(
@@ -32,13 +33,10 @@ CORS(app, origins="*", supports_credentials=True, allow_headers="*", methods="*"
 music_service = MusicService(Config.YDL_OPTS)
 playlist_service = PlaylistService()
 user_service = UserService()
-LASTFM_API_KEY = Config.LASTFM_API_KEY
-lastfm_service = LastFmService(LASTFM_API_KEY)
 
 # Simple in-memory caches for home and search results
-CACHE_TTL_SECONDS = 45 * 60
+HOME_CACHE_TTL_SECONDS = 45 * 60
 _home_cache = {}
-_search_cache = {}
 
 
 def _cache_get(cache: dict, key: str):
@@ -52,11 +50,64 @@ def _cache_get(cache: dict, key: str):
     return entry["value"]
 
 
-def _cache_set(cache: dict, key: str, value):
+def _cache_set(cache: dict, key: str, value, ttl_seconds: int):
     cache[key] = {
         "value": value,
-        "expires_at": time.time() + CACHE_TTL_SECONDS,
+        "expires_at": time.time() + ttl_seconds,
     }
+
+
+def _pick_best_thumbnail(thumbnails):
+    if not thumbnails:
+        return ""
+    if isinstance(thumbnails, dict):
+        thumbnails = [thumbnails]
+    best = max(
+        thumbnails,
+        key=lambda t: (t.get("width") or 0) * (t.get("height") or 0)
+    )
+    return best.get("url") or ""
+
+
+def _normalize_artists(artists):
+    if not artists:
+        return []
+    if isinstance(artists, list):
+        names = []
+        for artist in artists:
+            if isinstance(artist, str):
+                name = artist.strip()
+            else:
+                name = (artist.get("name") or "").strip()
+            if name:
+                names.append(name)
+        return names
+    if isinstance(artists, str):
+        return [artists.strip()] if artists.strip() else []
+    return []
+
+
+def _build_trending_items(items, limit: int):
+    trending = []
+    for item in items:
+        video_id = item.get("videoId")
+        if not video_id:
+            continue
+
+        thumbnails = item.get("thumbnails") or item.get("thumbnail") or []
+        trending.append(
+            {
+                "title": item.get("title") or "",
+                "videoId": video_id,
+                "artists": _normalize_artists(item.get("artists")),
+                "thumbnail": _pick_best_thumbnail(thumbnails),
+                "playlistId": item.get("playlistId") or "",
+                "views": item.get("views") or "",
+            }
+        )
+        if len(trending) >= limit:
+            break
+    return trending
 
 # Error handlers
 @app.errorhandler(404)
@@ -82,9 +133,30 @@ def health_check():
 def debug_page():
     """Serve the debug API page"""
     try:
-        with open('debug_api.html', 'r') as f:
-            return f.read(), 200, {'Content-Type': 'text/html'}
+        debug_file = Path(__file__).resolve().parent / 'debugging' / 'debug_api.html'
+        return debug_file.read_text(encoding='utf-8'), 200, {'Content-Type': 'text/html'}
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== DEBUG-ONLY ENDPOINTS ====================
+
+@app.route('/debug/ytmusic/trending', methods=['GET'])
+def debug_ytmusic_trending():
+    """Debug-only: fetch YTMusic trending items (unauthenticated)."""
+    try:
+        ytmusic = YTMusic()
+        explore = ytmusic.get_explore()
+        trending_items = ((explore or {}).get('trending') or {}).get('items') or []
+
+        trending = _build_trending_items(trending_items, 20)
+
+        return jsonify({
+            'source': 'ytmusicapi',
+            'count': len(trending),
+            'trending': trending,
+        })
+    except Exception as e:
+        logger.error("YTMusic debug trending error: %s", str(e), exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 # ==================== MUSIC ENDPOINTS ====================
@@ -177,154 +249,35 @@ def get_trending():
 
 @app.route('/api/home', methods=['GET'])
 def get_home():
-    """Get home feed with trending (Last.fm) and optional recommendations"""
+    """Get home feed with trending from YTMusic"""
     try:
-        country = request.args.get('country', 'India').strip() or 'India'
-        limit = int(request.args.get('limit', 20))
-        cache_key = f"home:{country.lower()}:{limit}"
+        limit = 15
+        cache_key = f"home:ytmusic:{limit}"
         cached = _cache_get(_home_cache, cache_key)
         if cached is not None:
             return jsonify(cached)
 
-        tracks = lastfm_service.get_geo_top_tracks(country=country, limit=limit)
-        if isinstance(tracks, dict):
-            tracks = [tracks]
+        ytmusic = YTMusic()
+        explore = ytmusic.get_explore()
+        trending_items = ((explore or {}).get("trending") or {}).get("items") or []
 
-        trending = []
-        local_query_cache = {}
-
-        for index, track in enumerate(tracks):
-            try:
-                track_name = (track.get("track_name") or track.get("song_name") or "").strip()
-                artist_name = (track.get("artist_name") or "").strip()
-
-                if not track_name or not artist_name:
-                    logger.warning("Skipping track with missing name/artist: %s", track)
-                    continue
-
-                query = f"{track_name} {artist_name}".strip()
-
-                if query in local_query_cache:
-                    results = local_query_cache[query]
-                else:
-                    results = _cache_get(_search_cache, query)
-                    if results is None:
-                        results = music_service.search_songs(query, limit=5, filter_type='songs')
-                        _cache_set(_search_cache, query, results)
-                    local_query_cache[query] = results
-
-                match = None
-                for result in results:
-                    result_title = (result.get("title") or "").strip().lower()
-                    result_artists = result.get("artists") or []
-                    result_artist = (result_artists[0] if result_artists else "").strip().lower()
-
-                    if result_title == track_name.lower() and result_artist == artist_name.lower():
-                        match = result
-                        break
-
-                if not match:
-                    logger.info("No exact match for Last.fm track: %s - %s", artist_name, track_name)
-                    continue
-
-                rank_raw = track.get("rank")
-                if isinstance(rank_raw, int):
-                    rank = rank_raw
-                else:
-                    rank = index + 1
-
-                listeners = track.get("listeners")
-                try:
-                    listeners = int(listeners or 0)
-                except (TypeError, ValueError):
-                    listeners = 0
-
-                trending.append(
-                    {
-                        "rank": rank,
-                        "title": match.get("title") or track_name,
-                        "artists": match.get("artists") or [artist_name],
-                        "album": match.get("album"),
-                        "thumbnail": match.get("thumbnail") or "",
-                        "videoId": match.get("videoId") or "",
-                        "duration_seconds": match.get("duration_seconds") or 0,
-                        "listeners": listeners,
-                        "source": "lastfm",
-                    }
-                )
-            except Exception as track_error:
-                logger.warning("Failed to enrich track: %s", track_error, exc_info=True)
-                continue
-
-        response_payload = {"trending": trending}
-        _cache_set(_home_cache, cache_key, response_payload)
+        trending = _build_trending_items(trending_items, limit)
+        response_payload = {
+            "source": "ytmusicapi",
+            "count": len(trending),
+            "trending": trending,
+        }
+        _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
 
         return jsonify(response_payload)
-    except ValueError as e:
-        logger.error(f"Home error: {str(e)}")
-        return jsonify({'error': str(e)}), 400
     except Exception as e:
-        logger.error(f"Home error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/lastfm/top-tracks', methods=['GET'])
-def get_lastfm_top_tracks():
-    """Get Last.fm top tracks by country (geo.getTopTracks)"""
-    try:
-        country = request.args.get('country', '').strip()
-        location = request.args.get('location', '').strip() or None
-        limit = int(request.args.get('limit', 50))
-        page = int(request.args.get('page', 1))
-
-        if not country:
-            return jsonify({'error': 'Country parameter is required'}), 400
-
-        results, meta = lastfm_service.get_top_tracks(
-            country=country,
-            location=location,
-            limit=limit,
-            page=page
-        )
-
+        logger.error("Home error: %s", str(e), exc_info=True)
         return jsonify({
-            'success': True,
-            'country': country,
-            'location': location,
-            'results': results,
-            'count': len(results),
-            'meta': meta
+            "source": "ytmusicapi",
+            "count": 0,
+            "trending": [],
         })
-    except ValueError as e:
-        logger.error(f"Last.fm error: {str(e)}")
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        logger.error(f"Last.fm error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/api/trending/lastfm', methods=['GET'])
-def get_lastfm_trending():
-    """Get Last.fm geo.getTopTracks with a compact response shape"""
-    try:
-        country = request.args.get('country', 'India').strip()
-        limit = int(request.args.get('limit', 20))
-
-        if not country:
-            return jsonify({'error': 'Country parameter is required'}), 400
-
-        results = lastfm_service.get_geo_top_tracks(country=country, limit=limit)
-
-        return jsonify({
-            'success': True,
-            'country': country,
-            'tracks': results,
-            'count': len(results)
-        })
-    except ValueError as e:
-        logger.error(f"Last.fm error: {str(e)}")
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        logger.error(f"Last.fm error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/artist/<artist_id>', methods=['GET'])
 def get_artist(artist_id):

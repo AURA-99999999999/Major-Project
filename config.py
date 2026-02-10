@@ -12,10 +12,6 @@ class Config:
     # YTMusic API configuration
     YTMUSIC_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-    # Last.fm API configuration
-    # Get your API key from https://www.last.fm/api
-    LASTFM_API_KEY = os.environ.get('LASTFM_API_KEY', 'a7eeaa5ad49b91615abe68766eb0399f')
-    
     # yt-dlp options - Updated for better compatibility
     YDL_OPTS = {
         'format': 'bestaudio/best',

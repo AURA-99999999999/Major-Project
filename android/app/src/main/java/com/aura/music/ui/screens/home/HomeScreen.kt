@@ -252,7 +252,7 @@ fun HomeScreen(
                             item {
                                 TrendingRow(
                                     songs = state.trending,
-                                    onImageClick = { song ->
+                                    onSongClick = { song ->
                                         viewModel.playSong(song)
                                         onNavigateToPlayer()
                                     }
@@ -305,7 +305,7 @@ private fun SectionHeader(
 @Composable
 private fun TrendingRow(
     songs: List<Song>,
-    onImageClick: (Song) -> Unit
+    onSongClick: (Song) -> Unit
 ) {
     if (songs.isEmpty()) {
         EmptyStateCard(message = "No trending songs right now. Pull to refresh or try again later.")
@@ -316,7 +316,7 @@ private fun TrendingRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(songs) { song ->
-            TrendingSongCard(song = song) { onImageClick(song) }
+            TrendingSongCard(song = song) { onSongClick(song) }
         }
     }
 }
@@ -324,7 +324,7 @@ private fun TrendingRow(
 @Composable
 private fun TrendingSongCard(
     song: Song,
-    onImageClick: () -> Unit
+    onSongClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -335,7 +335,7 @@ private fun TrendingSongCard(
             modifier = Modifier
                 .height(160.dp)
                 .fillMaxWidth()
-                .clickable(onClick = onImageClick),
+                .clickable(onClick = onSongClick),
             shape = RoundedCornerShape(16.dp),
             color = DarkSurfaceVariant
         ) {
@@ -352,7 +352,8 @@ private fun TrendingSongCard(
             style = MaterialTheme.typography.bodyLarge,
             color = TextPrimary,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable(onClick = onSongClick)
         )
         Text(
             text = song.getArtistString(),

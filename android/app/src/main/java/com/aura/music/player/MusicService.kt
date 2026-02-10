@@ -463,7 +463,9 @@ class MusicService : MediaSessionService() {
     }
 
     private suspend fun resolveSong(song: Song): Song {
-        if (!song.url.isNullOrBlank()) return song
+        if (song.videoId.isBlank()) {
+            throw IllegalStateException("Video ID missing for ${song.title}")
+        }
         return withContext(Dispatchers.IO) {
             repository.getSong(song.videoId)
         }.onFailure { throwable ->
