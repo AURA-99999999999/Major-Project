@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aura.music.BuildConfig
 import com.aura.music.data.model.Song
-import com.aura.music.data.model.withFallbackMetadata
 import com.aura.music.data.repository.MusicRepository
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -84,18 +83,14 @@ class SearchViewModel(
             logDebug("prepareSongForPlayback() videoId=${song.videoId}")
             _uiState.update { it.copy(isPlaybackPreparing = true, error = null) }
 
-            val resolvedSong = if (song.url.isNullOrBlank()) {
-                repository.getSong(song.videoId)
-                    .onFailure { throwable ->
-                        val message = mapNetworkError(throwable)
-                        logError("prepareSongForPlayback() failed", throwable)
-                        _events.emit(SearchEvent.ShowMessage(message))
-                    }
-                    .getOrNull()
-                    ?.withFallbackMetadata(song)
-            } else {
-                song
-            }
+            val resolvedSong = repository.getSong(song.videoId)
+                .onFailure { throwable ->
+                    val message = mapNetworkError(throwable)
+                    logError("prepareSongForPlayback() failed", throwable)
+                    _events.emit(SearchEvent.ShowMessage(message))
+                }
+                .getOrNull()
+                ?.let { mergeMetadataFromFallback(it, song) }
 
             if (resolvedSong == null || resolvedSong.url.isNullOrBlank()) {
                 _uiState.update { it.copy(isPlaybackPreparing = false) }
@@ -182,6 +177,15 @@ class SearchViewModel(
 
         private fun logError(message: String, throwable: Throwable? = null) =
             safeLog { Log.e(TAG, message, throwable) }
+    }
+
+    private fun mergeMetadataFromFallback(resolved: Song, fallback: Song): Song {
+        return resolved.copy(
+            title = if (fallback.title.isNotBlank()) fallback.title else resolved.title,
+            artist = fallback.artist ?: resolved.artist,
+            artists = if (!fallback.artists.isNullOrEmpty()) fallback.artists else resolved.artists,
+            thumbnail = fallback.thumbnail ?: resolved.thumbnail
+        )
     }
 }
 

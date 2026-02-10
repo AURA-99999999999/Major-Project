@@ -14,7 +14,8 @@ interface FirestoreLogger {
         videoId: String,
         songName: String,
         albumName: String,
-        artists: List<String>
+        artists: List<String>,
+        source: String
     ): Result<Unit>
 }
 
@@ -25,7 +26,8 @@ object NoOpFirestoreLogger : FirestoreLogger {
         videoId: String,
         songName: String,
         albumName: String,
-        artists: List<String>
+        artists: List<String>,
+        source: String
     ): Result<Unit> = Result.success(Unit)
 }
 
@@ -50,8 +52,6 @@ class FirestoreRepository(
 
     companion object {
         private const val TAG = "FirestoreRepository"
-        private const val PLAY_DEDUP_WINDOW_MS = 30_000L
-        
         // Collection names
         private const val COLLECTION_USERS = "users"
         private const val SUBCOLLECTION_SEARCHES = "searches"
@@ -68,15 +68,14 @@ class FirestoreRepository(
         
         // Field names - plays
         private const val FIELD_VIDEO_ID = "videoId"
-        private const val FIELD_SONG_NAME = "songName"
+        private const val FIELD_SONG_NAME = "title"
         private const val FIELD_ARTISTS = "artists"
-        private const val FIELD_ALBUM = "albumName"
-        private const val FIELD_PLAYED_AT = "playedAt"
+        private const val FIELD_ALBUM = "album"
+        private const val FIELD_SOURCE = "source"
+        private const val FIELD_FIRST_PLAYED_AT = "firstPlayedAt"
+        private const val FIELD_LAST_PLAYED_AT = "lastPlayedAt"
+        private const val FIELD_PLAY_COUNT = "playCount"
     }
-
-    // In-memory de-duplication to avoid rapid duplicate writes for same song
-    // Keyed by userId + normalized song metadata
-    private val recentPlayCache: MutableMap<String, Long> = mutableMapOf()
 
     /**
      * Creates or updates the user document in Firestore.
@@ -195,12 +194,13 @@ class FirestoreRepository(
         videoId: String,
         songName: String,
         albumName: String,
-        artists: List<String>
+        artists: List<String>,
+        source: String
     ): Result<Unit> {
         return try {
             Log.d(
                 TAG,
-                "logSongPlay() called with videoId='${videoId}', songName='${songName}', albumName='${albumName}', artists=${artists.size}"
+                "logSongPlay() called with videoId='${videoId}', songName='${songName}', albumName='${albumName}', artists=${artists.size}, source='${source}'"
             )
             val currentUser = auth.currentUser
             if (currentUser == null) {
@@ -216,12 +216,9 @@ class FirestoreRepository(
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .distinct()
+            val normalizedSource = source.trim().ifBlank { "unknown" }
 
-            if (normalizedVideoId.isBlank() ||
-                normalizedSongName.isBlank() ||
-                normalizedAlbumName.isBlank() ||
-                normalizedArtists.isEmpty()
-            ) {
+            if (normalizedVideoId.isBlank() || normalizedSongName.isBlank()) {
                 Log.w(
                     TAG,
                     "logSongPlay() - Skipping write due to incomplete metadata: " +
@@ -232,47 +229,42 @@ class FirestoreRepository(
 
             Log.d(TAG, "logSongPlay() userId=$userId videoId='$normalizedVideoId' song='$normalizedSongName'")
 
-            val dedupeKey = buildString {
-                append(userId)
-                append('|')
-                append(normalizedVideoId.lowercase())
-                append('|')
-                append(normalizedSongName.lowercase())
-                append('|')
-                append(normalizedAlbumName.lowercase())
-                append('|')
-                append(normalizedArtists.joinToString("|") { it.lowercase() })
-            }
-
-            val now = System.currentTimeMillis()
-            val shouldSkip = synchronized(recentPlayCache) {
-                val lastPlayedAt = recentPlayCache[dedupeKey]
-                if (lastPlayedAt != null && now - lastPlayedAt < PLAY_DEDUP_WINDOW_MS) {
-                    true
-                } else {
-                    recentPlayCache[dedupeKey] = now
-                    false
-                }
-            }
-
-            if (shouldSkip) {
-                Log.d(TAG, "logSongPlay() - Skipping duplicate play within window")
-                return Result.success(Unit)
-            }
-
-            val playData = hashMapOf(
-                FIELD_VIDEO_ID to normalizedVideoId,
-                FIELD_SONG_NAME to normalizedSongName,
-                FIELD_ARTISTS to normalizedArtists,
-                FIELD_ALBUM to normalizedAlbumName,
-                FIELD_PLAYED_AT to FieldValue.serverTimestamp()
-            )
-
-            firestore.collection(COLLECTION_USERS)
+            val playDocRef = firestore.collection(COLLECTION_USERS)
                 .document(userId)
                 .collection(SUBCOLLECTION_PLAYS)
-                .add(playData)
-                .await()
+                .document(normalizedVideoId)
+
+            firestore.runTransaction { transaction ->
+                val snapshot = transaction.get(playDocRef)
+                if (snapshot.exists()) {
+                    transaction.update(
+                        playDocRef,
+                        mapOf(
+                            FIELD_SONG_NAME to normalizedSongName,
+                            FIELD_ARTISTS to normalizedArtists,
+                            FIELD_ALBUM to normalizedAlbumName,
+                            FIELD_SOURCE to normalizedSource,
+                            FIELD_LAST_PLAYED_AT to FieldValue.serverTimestamp(),
+                            FIELD_PLAY_COUNT to FieldValue.increment(1)
+                        )
+                    )
+                } else {
+                    transaction.set(
+                        playDocRef,
+                        mapOf(
+                            FIELD_VIDEO_ID to normalizedVideoId,
+                            FIELD_SONG_NAME to normalizedSongName,
+                            FIELD_ARTISTS to normalizedArtists,
+                            FIELD_ALBUM to normalizedAlbumName,
+                            FIELD_SOURCE to normalizedSource,
+                            FIELD_FIRST_PLAYED_AT to FieldValue.serverTimestamp(),
+                            FIELD_LAST_PLAYED_AT to FieldValue.serverTimestamp(),
+                            FIELD_PLAY_COUNT to 1
+                        ),
+                        SetOptions.merge()
+                    )
+                }
+            }.await()
 
             Log.d(TAG, "✓ Song play logged successfully")
             Result.success(Unit)

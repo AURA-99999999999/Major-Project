@@ -253,7 +253,7 @@ fun HomeScreen(
                                 TrendingRow(
                                     songs = state.trending,
                                     onSongClick = { song ->
-                                        viewModel.playSong(song)
+                                        viewModel.playSongByVideoId(song.videoId)
                                         onNavigateToPlayer()
                                     }
                                 )

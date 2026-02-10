@@ -73,7 +73,7 @@ fun SearchScreen(
         viewModel.events.collectLatest { event ->
             when (event) {
                 is SearchEvent.PlaySong -> {
-                    musicService?.playSong(event.song, false)
+                    musicService?.playResolvedSong(event.song, false, "search")
                     onNavigateToPlayer()
                 }
                 is SearchEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)

@@ -46,7 +46,7 @@ class MusicService:
             # yt-dlp is the only source for playback and metadata in this path.
             with YoutubeDL(self.ydl_opts) as ydl:
                 info = ydl.extract_info(
-                    f'https://www.youtube.com/watch?v={video_id}',
+                    f'https://music.youtube.com/watch?v={video_id}',
                     download=False
                 )
             

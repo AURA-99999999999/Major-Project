@@ -48,6 +48,7 @@ class MusicService : MediaSessionService() {
 
     private var lastLoggedPlayKey: String? = null
     private var lastLoggedAtMs: Long = 0L
+    private var currentPlaybackSource: String = "unknown"
     private val playStartThresholdMs = 2_000L
 
     inner class MusicBinder : Binder() {
@@ -127,7 +128,8 @@ class MusicService : MediaSessionService() {
                                     videoId = currentSong.videoId,
                                     songName = currentSong.title,
                                     albumName = currentSong.album ?: "",
-                                    artists = artists
+                                    artists = artists,
+                                    source = currentPlaybackSource
                                 ).onFailure { error ->
                                     Log.e(TAG, "Failed to log song play to Firestore", error)
                                 }
@@ -198,43 +200,34 @@ class MusicService : MediaSessionService() {
         }
     }
 
-    fun playSong(song: Song, addToQueue: Boolean = false) {
+    fun playSong(song: Song, addToQueue: Boolean = false, source: String = "unknown") {
         serviceScope.launch {
             try {
                 _playerState.update { it.copy(isLoading = true, error = null) }
-
-                val currentSong = _playerState.value.currentSong
-                if (currentSong != null && currentSong.videoId != song.videoId) {
-                    _playerState.update {
-                        it.copy(history = listOf(currentSong) + it.history.take(49))
-                    }
-                }
-
                 val resolvedSong = resolveSong(song)
-                val mediaItem = MediaItem.fromUri(resolvedSong.url!!)
-                exoPlayer?.let { player ->
-                    if (addToQueue && currentSong != null) {
-                        val queue = _playerState.value.queue
-                        if (!queue.any { it.videoId == resolvedSong.videoId }) {
-                            _playerState.update { it.copy(queue = queue + resolvedSong) }
-                        }
-                        return@launch
-                    }
-
-                    player.setMediaItem(mediaItem)
-                    player.prepare()
-                    player.play()
-
-                    _playerState.update {
-                        it.copy(
-                            currentSong = resolvedSong,
-                            isPlaying = true,
-                            isLoading = false
-                        )
-                    }
-                }
+                playResolvedSongInternal(resolvedSong, addToQueue, source)
             } catch (e: Exception) {
                 Log.e(TAG, "playSong() failed", e)
+                _playerState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Failed to play song"
+                    )
+                }
+            }
+        }
+    }
+
+    fun playResolvedSong(song: Song, addToQueue: Boolean = false, source: String = "unknown") {
+        serviceScope.launch {
+            try {
+                _playerState.update { it.copy(isLoading = true, error = null) }
+                if (song.url.isNullOrBlank()) {
+                    throw IllegalStateException("Stream URL missing for ${song.title}")
+                }
+                playResolvedSongInternal(song, addToQueue, source)
+            } catch (e: Exception) {
+                Log.e(TAG, "playResolvedSong() failed", e)
                 _playerState.update {
                     it.copy(
                         isLoading = false,
@@ -477,6 +470,40 @@ class MusicService : MediaSessionService() {
                     throw IllegalStateException("Stream URL missing for ${song.title}")
                 }
             }
+    }
+
+    private fun playResolvedSongInternal(resolvedSong: Song, addToQueue: Boolean, source: String) {
+        currentPlaybackSource = source.ifBlank { "unknown" }
+        val currentSong = _playerState.value.currentSong
+        if (currentSong != null && currentSong.videoId != resolvedSong.videoId) {
+            _playerState.update {
+                it.copy(history = listOf(currentSong) + it.history.take(49))
+            }
+        }
+
+        val mediaItem = MediaItem.fromUri(resolvedSong.url!!)
+        exoPlayer?.let { player ->
+            if (addToQueue && currentSong != null) {
+                val queue = _playerState.value.queue
+                if (!queue.any { it.videoId == resolvedSong.videoId }) {
+                    _playerState.update { it.copy(queue = queue + resolvedSong) }
+                }
+                return
+            }
+
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            player.play()
+
+            _playerState.update {
+                it.copy(
+                    currentSong = resolvedSong,
+                    playbackSource = currentPlaybackSource,
+                    isPlaying = true,
+                    isLoading = false
+                )
+            }
+        }
     }
 
     companion object {
