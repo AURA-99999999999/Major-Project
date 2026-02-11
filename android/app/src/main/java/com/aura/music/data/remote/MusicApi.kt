@@ -4,10 +4,14 @@ import com.aura.music.data.remote.dto.ApiResponse
 import com.aura.music.data.remote.dto.HealthDto
 import com.aura.music.data.remote.dto.HomeResponseDto
 import com.aura.music.data.remote.dto.LoginRequest
+import com.aura.music.data.remote.dto.MoodCategoriesResponse
+import com.aura.music.data.remote.dto.MoodPlaylistsResponse
 import com.aura.music.data.remote.dto.PlaylistDto
 import com.aura.music.data.remote.dto.RegisterRequest
 import com.aura.music.data.remote.dto.SongDto
+import com.aura.music.data.remote.dto.TrendingPlaylistsResponse
 import com.aura.music.data.remote.dto.UserDto
+import com.aura.music.data.remote.dto.YTMusicPlaylistDetailResponse
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -39,6 +43,30 @@ interface MusicApi {
     // Home (trending + recommendations)
     @GET("home")
     suspend fun getHome(): HomeResponseDto
+
+    // Home: Trending Playlists
+    @GET("home/trending-playlists")
+    suspend fun getTrendingPlaylists(
+        @Query("limit") limit: Int = 10
+    ): TrendingPlaylistsResponse
+
+    // Home: Mood Categories
+    @GET("home/moods")
+    suspend fun getMoodCategories(): MoodCategoriesResponse
+
+    // Home: Mood Playlists
+    @GET("home/mood-playlists")
+    suspend fun getMoodPlaylists(
+        @Query("params") params: String,
+        @Query("limit") limit: Int = 10
+    ): MoodPlaylistsResponse
+
+    // YTMusic Playlist Songs
+    @GET("playlist/{playlistId}/songs")
+    suspend fun getYTMusicPlaylistSongs(
+        @Path("playlistId") playlistId: String,
+        @Query("limit") limit: Int = 50
+    ): YTMusicPlaylistDetailResponse
 
     // Artist
     @GET("artist/{artistId}")

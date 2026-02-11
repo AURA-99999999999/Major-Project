@@ -117,6 +117,86 @@ class MusicRepository(
         }
     }
 
+    suspend fun getTrendingPlaylists(limit: Int = 10): Result<List<com.aura.music.data.model.YTMusicPlaylist>> {
+        return try {
+            safeLog { Log.d(TAG, "getTrendingPlaylists() limit=$limit") }
+            val response = api.getTrendingPlaylists(limit)
+            if (response.success) {
+                val playlists = response.playlists.map { it.toYTMusicPlaylist() }
+                safeLog { Log.d(TAG, "getTrendingPlaylists() success count=${playlists.size}") }
+                Result.success(playlists)
+            } else {
+                safeLog { Log.w(TAG, "getTrendingPlaylists() failed") }
+                Result.failure(Exception("Failed to get trending playlists"))
+            }
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getTrendingPlaylists() exception", e) }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getMoodCategories(): Result<List<com.aura.music.data.model.MoodCategory>> {
+        return try {
+            safeLog { Log.d(TAG, "getMoodCategories()") }
+            val response = api.getMoodCategories()
+            if (response.success) {
+                val categories = response.categories.map { it.toMoodCategory() }
+                safeLog { Log.d(TAG, "getMoodCategories() success count=${categories.size}") }
+                Result.success(categories)
+            } else {
+                safeLog { Log.w(TAG, "getMoodCategories() failed") }
+                Result.failure(Exception("Failed to get mood categories"))
+            }
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getMoodCategories() exception", e) }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getMoodPlaylists(params: String, limit: Int = 10): Result<List<com.aura.music.data.model.YTMusicPlaylist>> {
+        return try {
+            safeLog { Log.d(TAG, "getMoodPlaylists() params=$params limit=$limit") }
+            val response = api.getMoodPlaylists(params, limit)
+            if (response.success) {
+                val playlists = response.playlists.map { it.toYTMusicPlaylist() }
+                safeLog { Log.d(TAG, "getMoodPlaylists() success count=${playlists.size}") }
+                Result.success(playlists)
+            } else {
+                safeLog { Log.w(TAG, "getMoodPlaylists() failed") }
+                Result.failure(Exception("Failed to get mood playlists"))
+            }
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getMoodPlaylists() exception", e) }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getYTMusicPlaylistSongs(playlistId: String, limit: Int = 50): Result<com.aura.music.data.model.YTMusicPlaylistDetail> {
+        return try {
+            safeLog { Log.d(TAG, "getYTMusicPlaylistSongs() playlistId=$playlistId limit=$limit") }
+            val response = api.getYTMusicPlaylistSongs(playlistId, limit)
+            if (response.success) {
+                val playlistDetail = com.aura.music.data.model.YTMusicPlaylistDetail(
+                    id = response.playlist.id,
+                    title = response.playlist.title,
+                    description = response.playlist.description ?: "",
+                    thumbnail = response.playlist.thumbnail ?: "",
+                    author = response.playlist.author ?: "YouTube Music",
+                    songCount = response.playlist.songCount,
+                    songs = response.songs.toSongs()
+                )
+                safeLog { Log.d(TAG, "getYTMusicPlaylistSongs() success songCount=${playlistDetail.songs.size}") }
+                Result.success(playlistDetail)
+            } else {
+                safeLog { Log.w(TAG, "getYTMusicPlaylistSongs() failed") }
+                Result.failure(Exception("Failed to get playlist songs"))
+            }
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getYTMusicPlaylistSongs() exception", e) }
+            Result.failure(e)
+        }
+    }
+
     suspend fun getPlaylists(userId: String): Result<List<Playlist>> {
         return try {
             val response = api.getPlaylists(userId)

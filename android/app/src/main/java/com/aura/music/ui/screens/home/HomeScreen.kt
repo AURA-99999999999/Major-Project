@@ -90,6 +90,7 @@ fun HomeScreen(
     onNavigateToPlayer: () -> Unit,
     onNavigateToPlaylists: () -> Unit,
     onNavigateToProfile: () -> Unit,
+    onNavigateToPlaylistPreview: (String) -> Unit,
     viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -277,6 +278,7 @@ fun HomeScreen(
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            // Trending Songs Section
                             item { SectionHeader(title = "Trending Now") }
 
                             item {
@@ -290,6 +292,66 @@ fun HomeScreen(
                                         pendingSongForPlaylist = song
                                     }
                                 )
+                            }
+
+                            // Trending Playlists Section
+                            if (state.trendingPlaylists.isNotEmpty()) {
+                                item { 
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SectionHeader(title = "Trending Playlists") 
+                                }
+
+                                item {
+                                    TrendingPlaylistsRow(
+                                        playlists = state.trendingPlaylists,
+                                        onPlaylistClick = { playlist ->
+                                            onNavigateToPlaylistPreview(playlist.playlistId)
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Mood Categories Section
+                            if (state.moodCategories.isNotEmpty()) {
+                                item { 
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SectionHeader(title = "Explore by Mood") 
+                                }
+
+                                item {
+                                    MoodCategoriesRow(
+                                        categories = state.moodCategories,
+                                        selectedMoodTitle = state.selectedMoodTitle,
+                                        onCategoryClick = { category ->
+                                            if (state.selectedMoodTitle == category.title) {
+                                                viewModel.clearMoodSelection()
+                                            } else {
+                                                viewModel.selectMood(category)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Mood Playlists Section (shown when mood is selected)
+                            if (state.moodPlaylists.isNotEmpty() && state.selectedMoodTitle.isNotEmpty()) {
+                                item { 
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SectionHeader(
+                                        title = state.selectedMoodTitle,
+                                        actionText = "Clear",
+                                        onActionClick = { viewModel.clearMoodSelection() }
+                                    )
+                                }
+
+                                item {
+                                    MoodPlaylistsRow(
+                                        playlists = state.moodPlaylists,
+                                        onPlaylistClick = { playlist ->
+                                            onNavigateToPlaylistPreview(playlist.playlistId)
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -514,3 +576,127 @@ private fun ErrorStateCard(message: String) {
     }
 }
 
+@Composable
+private fun TrendingPlaylistsRow(
+    playlists: List<com.aura.music.data.model.YTMusicPlaylist>,
+    onPlaylistClick: (com.aura.music.data.model.YTMusicPlaylist) -> Unit
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(playlists) { playlist ->
+            YTMusicPlaylistCard(
+                playlist = playlist,
+                onClick = { onPlaylistClick(playlist) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun YTMusicPlaylistCard(
+    playlist: com.aura.music.data.model.YTMusicPlaylist,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(160.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Surface(
+            modifier = Modifier
+                .height(160.dp)
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
+            shape = RoundedCornerShape(16.dp),
+            color = DarkSurfaceVariant
+        ) {
+            AsyncImage(
+                model = playlist.thumbnail,
+                contentDescription = playlist.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+
+        Text(
+            text = playlist.title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = TextPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable(onClick = onClick)
+        )
+        
+        Text(
+            text = playlist.author,
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun MoodCategoriesRow(
+    categories: List<com.aura.music.data.model.MoodCategory>,
+    selectedMoodTitle: String,
+    onCategoryClick: (com.aura.music.data.model.MoodCategory) -> Unit
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(categories) { category ->
+            MoodChip(
+                category = category,
+                isSelected = selectedMoodTitle == category.title,
+                onClick = { onCategoryClick(category) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MoodChip(
+    category: com.aura.music.data.model.MoodCategory,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .height(40.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        color = if (isSelected) Primary else DarkSurfaceVariant
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = category.title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isSelected) Color.Black else TextPrimary,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun MoodPlaylistsRow(
+    playlists: List<com.aura.music.data.model.YTMusicPlaylist>,
+    onPlaylistClick: (com.aura.music.data.model.YTMusicPlaylist) -> Unit
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(playlists) { playlist ->
+            YTMusicPlaylistCard(
+                playlist = playlist,
+                onClick = { onPlaylistClick(playlist) }
+            )
+        }
+    }
+}

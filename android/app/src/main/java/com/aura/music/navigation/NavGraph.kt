@@ -46,7 +46,10 @@ fun NavGraph(
         onNavigateToSearch = { navController.navigate(Screen.Search.route) },
         onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
         onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
-        onNavigateToProfile = { navController.navigate(Screen.Profile.route) }
+        onNavigateToProfile = { navController.navigate(Screen.Profile.route) },
+        onNavigateToPlaylistPreview = { playlistId ->
+            navController.navigate("main/playlist-preview/$playlistId")
+        }
     )
 }
 
@@ -66,7 +69,10 @@ fun NavGraphBuilder.musicAppGraph(
             onNavigateToSearch = { navController.navigate(Screen.Search.route) },
             onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
             onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
-            onNavigateToProfile = { navController.navigate(Screen.Profile.route) }
+            onNavigateToProfile = { navController.navigate(Screen.Profile.route) },
+            onNavigateToPlaylistPreview = { playlistId ->
+                navController.navigate("main/playlist-preview/$playlistId")
+            }
         )
     }
     

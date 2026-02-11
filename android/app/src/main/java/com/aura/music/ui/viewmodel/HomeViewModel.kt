@@ -2,7 +2,9 @@ package com.aura.music.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.aura.music.data.model.MoodCategory
 import com.aura.music.data.model.Song
+import com.aura.music.data.model.YTMusicPlaylist
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.player.MusicService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +17,10 @@ sealed class HomeUiState {
 
     data class Success(
         val trending: List<Song>,
+        val trendingPlaylists: List<YTMusicPlaylist> = emptyList(),
+        val moodCategories: List<MoodCategory> = emptyList(),
+        val moodPlaylists: List<YTMusicPlaylist> = emptyList(),
+        val selectedMoodTitle: String = "",
         val recommendations: List<Song> = emptyList()
     ) : HomeUiState()
 
@@ -59,17 +65,61 @@ class HomeViewModel(
 
         viewModelScope.launch {
             _uiState.value = HomeUiState.Loading
-            val result = repository.getHomeData()
-            _uiState.value = result.fold(
+            
+            // Load all home data in parallel
+            val homeResult = repository.getHomeData()
+            val trendingPlaylistsResult = repository.getTrendingPlaylists()
+            val moodCategoriesResult = repository.getMoodCategories()
+            
+            _uiState.value = homeResult.fold(
                 onSuccess = { data ->
                     HomeUiState.Success(
                         trending = data.trending,
+                        trendingPlaylists = trendingPlaylistsResult.getOrDefault(emptyList()),
+                        moodCategories = moodCategoriesResult.getOrDefault(emptyList()),
+                        moodPlaylists = emptyList(),
+                        selectedMoodTitle = "",
                         recommendations = data.recommendations
                     )
                 },
                 onFailure = { error ->
                     HomeUiState.Error(error.message ?: "Failed to load home data")
                 }
+            )
+        }
+    }
+
+    fun selectMood(category: MoodCategory) {
+        viewModelScope.launch {
+            val currentState = _uiState.value
+            if (currentState !is HomeUiState.Success) return@launch
+            
+            // Load mood playlists for selected category
+            val result = repository.getMoodPlaylists(category.params)
+            result.fold(
+                onSuccess = { playlists ->
+                    _uiState.value = currentState.copy(
+                        moodPlaylists = playlists,
+                        selectedMoodTitle = category.title
+                    )
+                },
+                onFailure = { _ ->
+                    // Keep current state but show error somehow
+                    _uiState.value = currentState.copy(
+                        moodPlaylists = emptyList(),
+                        selectedMoodTitle = ""
+                    )
+                }
+            )
+        }
+    }
+
+    fun clearMoodSelection() {
+        val currentState = _uiState.value
+        if (currentState is HomeUiState.Success) {
+            _uiState.value = currentState.copy(
+                moodPlaylists = emptyList(),
+                selectedMoodTitle = ""
             )
         }
     }

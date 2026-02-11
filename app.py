@@ -279,6 +279,237 @@ def get_home():
         })
 
 
+@app.route('/api/home/trending-playlists', methods=['GET'])
+def get_trending_playlists():
+    """Get trending playlists from YTMusic explore"""
+    try:
+        limit = int(request.args.get('limit', 10))
+        cache_key = f"trending_playlists:{limit}"
+        cached = _cache_get(_home_cache, cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        ytmusic = YTMusic()
+        explore = ytmusic.get_explore()
+        
+        playlists = []
+        
+        # Extract playlists from explore sections
+        if explore:
+            for section in explore:
+                if isinstance(section, dict) and section.get('contents'):
+                    for item in section['contents']:
+                        if isinstance(item, dict):
+                            playlist_id = item.get('playlistId') or item.get('browseId')
+                            if playlist_id and (playlist_id.startswith('VL') or playlist_id.startswith('PL')):
+                                thumbnails = item.get('thumbnails') or []
+                                playlists.append({
+                                    'playlistId': playlist_id,
+                                    'title': item.get('title') or '',
+                                    'description': item.get('description') or '',
+                                    'thumbnail': _pick_best_thumbnail(thumbnails),
+                                    'author': item.get('author') or 'YouTube Music',
+                                    'songCount': 0,
+                                })
+                                if len(playlists) >= limit:
+                                    break
+                if len(playlists) >= limit:
+                    break
+        
+        response_payload = {
+            'success': True,
+            'playlists': playlists[:limit],
+            'count': len(playlists[:limit])
+        }
+        _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
+        
+        return jsonify(response_payload)
+    except Exception as e:
+        logger.error(f"Trending playlists error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'playlists': [],
+            'count': 0
+        })
+
+
+@app.route('/api/home/moods', methods=['GET'])
+def get_mood_categories():
+    """Get mood and genre categories from YTMusic"""
+    try:
+        cache_key = "mood_categories"
+        cached = _cache_get(_home_cache, cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        ytmusic = YTMusic()
+        mood_sections = ytmusic.get_mood_categories()
+        
+        # Predefined colors for visual appeal (cycle through these)
+        colors = ['#4A90E2', '#E74C3C', '#9B59B6', '#27AE60', '#34495E', 
+                  '#E91E63', '#607D8B', '#FFC107', '#FF9800', '#00BCD4',
+                  '#3498DB', '#E67E22', '#1ABC9C', '#F39C12', '#8E44AD']
+        
+        categories = []
+        color_index = 0
+        
+        # Flatten all sections into a single list
+        # Prioritize "Moods & moments" and "For you" sections
+        priority_sections = ['Moods & moments', 'For you', 'Genres']
+        
+        for section_name in priority_sections:
+            if section_name in mood_sections:
+                for item in mood_sections[section_name]:
+                    categories.append({
+                        'title': item.get('title', ''),
+                        'params': item.get('params', ''),
+                        'color': colors[color_index % len(colors)]
+                    })
+                    color_index += 1
+        
+        # Add any remaining sections not in priority list
+        for section_name, items in mood_sections.items():
+            if section_name not in priority_sections:
+                for item in items:
+                    categories.append({
+                        'title': item.get('title', ''),
+                        'params': item.get('params', ''),
+                        'color': colors[color_index % len(colors)]
+                    })
+                    color_index += 1
+        
+        response_payload = {
+            'success': True,
+            'categories': categories,
+            'count': len(categories)
+        }
+        _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
+        
+        return jsonify(response_payload)
+    except Exception as e:
+        logger.error(f"Mood categories error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'categories': [],
+            'count': 0
+        })
+
+
+@app.route('/api/home/mood-playlists', methods=['GET'])
+def get_mood_playlists():
+    """Get playlists for a specific mood/genre"""
+    try:
+        params = request.args.get('params', '').strip()
+        if not params:
+            return jsonify({'error': 'params parameter is required'}), 400
+        
+        limit = int(request.args.get('limit', 10))
+        cache_key = f"mood_playlists:{params}:{limit}"
+        cached = _cache_get(_home_cache, cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        ytmusic = YTMusic()
+        mood_data = ytmusic.get_mood_playlists(params)
+        
+        playlists = []
+        for item in (mood_data or [])[:limit]:
+            playlist_id = item.get('playlistId') or item.get('browseId')
+            if not playlist_id:
+                continue
+            
+            thumbnails = item.get('thumbnails') or []
+            playlists.append({
+                'playlistId': playlist_id,
+                'title': item.get('title') or '',
+                'description': item.get('description') or '',
+                'thumbnail': _pick_best_thumbnail(thumbnails),
+                'author': item.get('author') or 'YouTube Music',
+            })
+        
+        response_payload = {
+            'success': True,
+            'playlists': playlists,
+            'count': len(playlists)
+        }
+        _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
+        
+        return jsonify(response_payload)
+    except Exception as e:
+        logger.error(f"Mood playlists error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'playlists': [],
+            'count': 0
+        })
+
+
+@app.route('/api/playlist/<playlist_id>/songs', methods=['GET'])
+def get_ytmusic_playlist_songs(playlist_id):
+    """Get songs from a YTMusic playlist"""
+    try:
+        limit = int(request.args.get('limit', 50))
+        cache_key = f"ytmusic_playlist:{playlist_id}:{limit}"
+        cached = _cache_get(_home_cache, cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        ytmusic = YTMusic()
+        playlist_data = ytmusic.get_playlist(playlist_id, limit=limit)
+        
+        if not playlist_data:
+            return jsonify({'error': 'Playlist not found'}), 404
+        
+        songs = []
+        for track in playlist_data.get('tracks', []):
+            video_id = track.get('videoId')
+            if not video_id:
+                continue
+            
+            thumbnails = track.get('thumbnails') or track.get('thumbnail') or []
+            songs.append({
+                'videoId': video_id,
+                'title': track.get('title') or '',
+                'artists': _normalize_artists(track.get('artists')),
+                'thumbnail': _pick_best_thumbnail(thumbnails),
+                'duration': track.get('duration') or '',
+                'album': track.get('album', {}).get('name') if track.get('album') else '',
+            })
+        
+        # Normalize author field - can be string or object
+        author_data = playlist_data.get('author')
+        if isinstance(author_data, dict):
+            author = author_data.get('name', 'YouTube Music')
+        elif isinstance(author_data, str):
+            author = author_data
+        else:
+            author = 'YouTube Music'
+        
+        response_payload = {
+            'success': True,
+            'playlist': {
+                'id': playlist_id,
+                'title': playlist_data.get('title') or '',
+                'description': playlist_data.get('description') or '',
+                'thumbnail': _pick_best_thumbnail(playlist_data.get('thumbnails', [])),
+                'author': author,
+                'songCount': len(songs),
+            },
+            'songs': songs,
+            'count': len(songs)
+        }
+        _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
+        
+        return jsonify(response_payload)
+    except Exception as e:
+        logger.error(f"YTMusic playlist songs error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'songs': [],
+            'count': 0
+        })
+
+
 @app.route('/api/artist/<artist_id>', methods=['GET'])
 def get_artist(artist_id):
     """Get artist information"""

@@ -42,6 +42,13 @@ class ViewModelFactory(
                 ServiceLocator.getPlaylistRepository()
             )
         }
+
+        /**
+         * Get MusicRepository instance for direct use in Composables
+         */
+        fun getMusicRepository(@Suppress("UNUSED_PARAMETER") application: Application): MusicRepository {
+            return ServiceLocator.getMusicRepository()
+        }
     }
 }
 
