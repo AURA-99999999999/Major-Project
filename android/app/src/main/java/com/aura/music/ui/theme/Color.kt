@@ -2,24 +2,24 @@ package com.aura.music.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Olive and Beige theme colors
-val DarkBackground = Color(0xFF3D4D2C) // Deep olive
-val DarkSurface = Color(0xFF4A5A35) // Olive surface
-val DarkSurfaceVariant = Color(0xFF556B3F) // Light olive variant
+// Blue Gradient theme colors
+val DarkBackground = Color(0xFF0A0E1A) // Deep navy/black
+val DarkSurface = Color(0xFF1A2332) // Dark blue
+val DarkSurfaceVariant = Color(0xFF2D3F5C) // Medium blue
 
-val Primary = Color(0xFF7A8F5F) // True olive green
-val PrimaryVariant = Color(0xFF6B7E52) // Deeper olive
-val Secondary = Color(0xFF5F6E47) // Darker olive
-val Accent = Color(0xFFE8D4B8) // Light cream
+val Primary = Color(0xFFFFFFFF) // White for buttons
+val PrimaryVariant = Color(0xFF5B8EC9) // Light blue
+val Secondary = Color(0xFF3D5A80) // Medium blue
+val Accent = Color(0xFF64B5F6) // Bright sky blue
 
-val TextPrimary = Color(0xFFF5F1E8) // Off-white cream
-val TextSecondary = Color(0xFFB8B0A0) // Warm gray
-val TextTertiary = Color(0xFF9A8F80) // Muted warm tone
+val TextPrimary = Color(0xFFFFFFFF) // Pure white
+val TextSecondary = Color(0xFFB3C5D7) // Light blue-gray
+val TextTertiary = Color(0xFF8BA3BA) // Muted blue-gray
 
-val Divider = Color(0xFF556B3F)
-val Error = Color(0xFFDC4A4A)
+val Divider = Color(0xFF2D3F5C)
+val Error = Color(0xFFEF5350)
 
-// Light theme (optional, can use same theme)
-val LightBackground = Color(0xFFF9F6F0) // Cream beige
-val LightSurface = Color(0xFFF0EAE0) // Warm white
+// Light theme (optional)
+val LightBackground = Color(0xFFE3F2FD) // Light blue
+val LightSurface = Color(0xFFBBDEFB) // Sky blue
 
