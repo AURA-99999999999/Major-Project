@@ -1,143 +1,227 @@
 package com.aura.music.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.aura.music.data.model.Playlist
+import com.aura.music.data.model.PlaylistSong
 import com.aura.music.data.model.Song
+import com.aura.music.data.model.UserPlaylist
 import com.aura.music.data.repository.MusicRepository
+import com.aura.music.data.repository.PlaylistRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 
 data class PlaylistUiState(
-    val playlists: List<Playlist> = emptyList(),
-    val currentPlaylist: Playlist? = null,
+    val playlists: List<UserPlaylist> = emptyList(),
+    val currentPlaylist: UserPlaylist? = null,
+    val songs: List<PlaylistSong> = emptyList(),
     val isLoading: Boolean = false,
+    val isPlaybackPreparing: Boolean = false,
     val error: String? = null
 )
 
+sealed interface PlaylistEvent {
+    data class ShowMessage(val message: String) : PlaylistEvent
+    data class PlaySong(val song: Song) : PlaylistEvent
+}
+
 class PlaylistViewModel(
-    private val repository: MusicRepository
+    private val playlistRepository: PlaylistRepository,
+    private val musicRepository: MusicRepository
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(PlaylistUiState())
     val uiState: StateFlow<PlaylistUiState> = _uiState.asStateFlow()
 
-    fun loadPlaylists(userId: String = "default") {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            repository.getPlaylists(userId)
-                .onSuccess { playlists ->
+    private val _events = MutableSharedFlow<PlaylistEvent>(extraBufferCapacity = 1)
+    val events: SharedFlow<PlaylistEvent> = _events.asSharedFlow()
+
+    private var playlistsJob: Job? = null
+    private var playlistJob: Job? = null
+    private var songsJob: Job? = null
+
+    fun observePlaylists() {
+        playlistsJob?.cancel()
+        playlistsJob = viewModelScope.launch {
+            playlistRepository.observePlaylists()
+                .onStart {
+                    _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+                }
+                .onEach { playlists ->
                     _uiState.value = _uiState.value.copy(
                         playlists = playlists,
                         isLoading = false
                     )
                 }
-                .onFailure { e ->
+                .catch { e ->
+                    Log.e(TAG, "observePlaylists() failed", e)
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         error = e.message ?: "Failed to load playlists"
                     )
                 }
+                .collect { }
         }
     }
 
-    fun loadPlaylist(playlistId: String, userId: String = "default") {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            repository.getPlaylist(playlistId, userId)
-                .onSuccess { playlist ->
+    fun observePlaylistDetails(playlistId: String) {
+        playlistJob?.cancel()
+        songsJob?.cancel()
+
+        playlistJob = viewModelScope.launch {
+            playlistRepository.observePlaylist(playlistId)
+                .onStart {
+                    _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+                }
+                .onEach { playlist ->
                     _uiState.value = _uiState.value.copy(
                         currentPlaylist = playlist,
                         isLoading = false
                     )
                 }
-                .onFailure { e ->
+                .catch { e ->
+                    Log.e(TAG, "observePlaylistDetails() failed", e)
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = e.message ?: "Playlist not found"
+                        error = e.message ?: "Failed to load playlist"
                     )
                 }
+                .collect { }
+        }
+
+        songsJob = viewModelScope.launch {
+            playlistRepository.observePlaylistSongs(playlistId)
+                .onEach { songs ->
+                    _uiState.value = _uiState.value.copy(songs = songs)
+                }
+                .catch { e ->
+                    Log.e(TAG, "observePlaylistSongs() failed", e)
+                    _uiState.value = _uiState.value.copy(
+                        error = e.message ?: "Failed to load songs"
+                    )
+                }
+                .collect { }
         }
     }
 
-    fun createPlaylist(name: String, description: String?, userId: String, onSuccess: (String) -> Unit) {
+    fun createPlaylist(name: String) {
+        if (name.isBlank()) return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            repository.createPlaylist(name, description, userId)
-                .onSuccess { playlist ->
-                    loadPlaylists(userId)
-                    onSuccess(playlist.id)
+            playlistRepository.createPlaylist(name)
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(isLoading = false)
+                    _events.tryEmit(PlaylistEvent.ShowMessage("Playlist created"))
                 }
                 .onFailure { e ->
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         error = e.message ?: "Failed to create playlist"
                     )
+                    _events.tryEmit(PlaylistEvent.ShowMessage(_uiState.value.error ?: "Failed"))
                 }
         }
     }
 
-    fun updatePlaylist(
-        playlistId: String,
-        name: String?,
-        description: String?,
-        userId: String
-    ) {
+    fun renamePlaylist(playlistId: String, name: String) {
+        if (name.isBlank()) return
         viewModelScope.launch {
-            repository.updatePlaylist(playlistId, name, description, userId)
+            playlistRepository.renamePlaylist(playlistId, name)
                 .onSuccess {
-                    loadPlaylist(playlistId, userId)
+                    _events.tryEmit(PlaylistEvent.ShowMessage("Playlist renamed"))
                 }
                 .onFailure { e ->
                     _uiState.value = _uiState.value.copy(
-                        error = e.message ?: "Failed to update playlist"
+                        error = e.message ?: "Failed to rename playlist"
                     )
+                    _events.tryEmit(PlaylistEvent.ShowMessage(_uiState.value.error ?: "Failed"))
                 }
         }
     }
 
-    fun deletePlaylist(playlistId: String, userId: String, onSuccess: () -> Unit) {
+    fun deletePlaylist(playlistId: String) {
         viewModelScope.launch {
-            repository.deletePlaylist(playlistId, userId)
+            playlistRepository.deletePlaylist(playlistId)
                 .onSuccess {
-                    loadPlaylists(userId)
-                    onSuccess()
+                    _events.tryEmit(PlaylistEvent.ShowMessage("Playlist deleted"))
                 }
                 .onFailure { e ->
                     _uiState.value = _uiState.value.copy(
                         error = e.message ?: "Failed to delete playlist"
                     )
+                    _events.tryEmit(PlaylistEvent.ShowMessage(_uiState.value.error ?: "Failed"))
                 }
         }
     }
 
-    fun addSongToPlaylist(playlistId: String, song: Song, userId: String) {
+    fun addSongToPlaylist(playlistId: String, song: Song) {
         viewModelScope.launch {
-            repository.addSongToPlaylist(playlistId, song, userId)
+            playlistRepository.addSongToPlaylist(playlistId, song)
                 .onSuccess {
-                    loadPlaylist(playlistId, userId)
+                    _events.tryEmit(PlaylistEvent.ShowMessage("Added to playlist"))
                 }
                 .onFailure { e ->
-                    _uiState.value = _uiState.value.copy(
-                        error = e.message ?: "Failed to add song"
-                    )
+                    val message = e.message ?: "Failed to add song"
+                    _uiState.value = _uiState.value.copy(error = message)
+                    _events.tryEmit(PlaylistEvent.ShowMessage(message))
                 }
         }
     }
 
-    fun removeSongFromPlaylist(playlistId: String, videoId: String, userId: String) {
+    fun removeSongFromPlaylist(playlistId: String, videoId: String) {
         viewModelScope.launch {
-            repository.removeSongFromPlaylist(playlistId, videoId, userId)
+            playlistRepository.removeSongFromPlaylist(playlistId, videoId)
                 .onSuccess {
-                    loadPlaylist(playlistId, userId)
+                    _events.tryEmit(PlaylistEvent.ShowMessage("Removed from playlist"))
                 }
                 .onFailure { e ->
-                    _uiState.value = _uiState.value.copy(
-                        error = e.message ?: "Failed to remove song"
-                    )
+                    val message = e.message ?: "Failed to remove song"
+                    _uiState.value = _uiState.value.copy(error = message)
+                    _events.tryEmit(PlaylistEvent.ShowMessage(message))
                 }
         }
+    }
+
+    fun prepareSongForPlayback(song: PlaylistSong) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isPlaybackPreparing = true, error = null)
+
+            val fallback = song.toSong()
+            val resolved = musicRepository.getSong(song.videoId)
+                .getOrNull()
+                ?.let { mergeMetadataFromFallback(it, fallback) }
+
+            if (resolved == null || resolved.url.isNullOrBlank()) {
+                _uiState.value = _uiState.value.copy(isPlaybackPreparing = false)
+                _events.tryEmit(PlaylistEvent.ShowMessage("Stream URL missing for ${song.title}"))
+                return@launch
+            }
+
+            _uiState.value = _uiState.value.copy(isPlaybackPreparing = false)
+            _events.tryEmit(PlaylistEvent.PlaySong(resolved))
+        }
+    }
+
+    private fun mergeMetadataFromFallback(resolved: Song, fallback: Song): Song {
+        return resolved.copy(
+            title = if (fallback.title.isNotBlank()) fallback.title else resolved.title,
+            artist = fallback.artist ?: resolved.artist,
+            artists = if (!fallback.artists.isNullOrEmpty()) fallback.artists else resolved.artists,
+            thumbnail = fallback.thumbnail ?: resolved.thumbnail,
+            album = fallback.album ?: resolved.album
+        )
+    }
+
+    companion object {
+        private const val TAG = "PlaylistViewModel"
     }
 }
 

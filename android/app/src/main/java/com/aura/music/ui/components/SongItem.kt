@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,12 +30,15 @@ import com.aura.music.ui.theme.DarkSurfaceVariant
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 
 @Composable
 fun SongItem(
     song: Song,
     isPlaying: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onOverflowClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -69,27 +74,35 @@ fun SongItem(
             }
         }
 
-        Row(
+        Column(
             modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 text = song.title,
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (isPlaying) Primary else TextPrimary,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = song.getArtistString(),
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
-        Text(
-            text = song.getArtistString(),
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        if (onOverflowClick != null) {
+            IconButton(onClick = onOverflowClick) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "More options",
+                    tint = TextSecondary
+                )
+            }
+        }
     }
 }
 

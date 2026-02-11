@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -52,10 +53,15 @@ import com.aura.music.ui.theme.DarkSurface
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.viewmodel.PlaylistEvent
+import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.SearchEvent
 import com.aura.music.ui.viewmodel.SearchViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import kotlinx.coroutines.flow.collectLatest
+import com.aura.music.data.model.Song
+import com.aura.music.ui.screens.playlist.PlaylistPickerBottomSheet
+import androidx.compose.runtime.setValue
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,8 +72,13 @@ fun SearchScreen(
     viewModel: SearchViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val playlistViewModel: PlaylistViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val playlistState by playlistViewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
+    var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
 
     LaunchedEffect(viewModel, musicService) {
         viewModel.events.collectLatest { event ->
@@ -83,6 +94,19 @@ fun SearchScreen(
 
     LaunchedEffect(Unit) {
         viewModel.verifyBackendConnection()
+    }
+
+    LaunchedEffect(Unit) {
+        playlistViewModel.observePlaylists()
+    }
+
+    LaunchedEffect(playlistViewModel) {
+        playlistViewModel.events.collectLatest { event ->
+            when (event) {
+                is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                is PlaylistEvent.PlaySong -> Unit
+            }
+        }
     }
 
     Scaffold(
@@ -200,7 +224,8 @@ fun SearchScreen(
                                     song = song,
                                     isPlaying = musicService?.playerState?.value?.currentSong?.videoId == song.videoId &&
                                             musicService?.playerState?.value?.isPlaying == true,
-                                    onClick = { viewModel.prepareSongForPlayback(song) }
+                                    onClick = { viewModel.prepareSongForPlayback(song) },
+                                    onOverflowClick = { pendingSongForPlaylist = song }
                                 )
                             }
                         }
@@ -208,6 +233,17 @@ fun SearchScreen(
                 }
             }
         }
+    }
+
+    pendingSongForPlaylist?.let { song ->
+        PlaylistPickerBottomSheet(
+            playlists = playlistState.playlists,
+            onDismiss = { pendingSongForPlaylist = null },
+            onPlaylistSelected = { playlist ->
+                playlistViewModel.addSongToPlaylist(playlist.id, song)
+                pendingSongForPlaylist = null
+            }
+        )
     }
 }
 

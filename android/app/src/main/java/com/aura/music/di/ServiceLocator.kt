@@ -7,6 +7,7 @@ import com.aura.music.data.remote.MusicApi
 import com.aura.music.data.remote.NetworkConfig
 import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
+import com.aura.music.data.repository.PlaylistRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -25,6 +26,7 @@ object ServiceLocator {
     private var musicApi: MusicApi? = null
     private var musicRepository: MusicRepository? = null
     private var firestoreRepository: FirestoreRepository? = null
+    private var playlistRepository: PlaylistRepository? = null
 
     @Volatile
     private var initialized = false
@@ -86,6 +88,7 @@ object ServiceLocator {
 
             // Initialize Repository
             firestoreRepository = FirestoreRepository()
+            playlistRepository = PlaylistRepository()
             musicRepository = MusicRepository(musicApi!!, firestoreRepository!!)
 
             initialized = true
@@ -95,6 +98,11 @@ object ServiceLocator {
     fun getMusicRepository(): MusicRepository {
         checkInitialized()
         return musicRepository!!
+    }
+
+    fun getPlaylistRepository(): PlaylistRepository {
+        checkInitialized()
+        return playlistRepository!!
     }
 
     fun getMusicApi(): MusicApi {
@@ -118,6 +126,7 @@ object ServiceLocator {
             musicApi = null
             musicRepository = null
             firestoreRepository = null
+            playlistRepository = null
             initialized = false
         }
     }

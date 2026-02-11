@@ -206,18 +206,30 @@ Update your Firestore rules in Firebase Console:
 
 ```javascript
 rules_version = '2';
+
 service cloud.firestore {
-  match /databases/{database}/documents {
-    // Users can read/write only their own document
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // Test collection (remove after testing)
-    match /test_connectivity/{userId} {
-      allow write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
+   match /databases/{database}/documents {
+
+      match /users/{userId} {
+         allow read, write: if request.auth != null
+                                       && request.auth.uid == userId;
+
+         match /playlists/{playlistId} {
+            allow read, write: if request.auth != null
+                                          && request.auth.uid == userId;
+
+            match /songs/{songId} {
+               allow read, write: if request.auth != null
+                                             && request.auth.uid == userId;
+            }
+         }
+
+         match /{subCollection}/{docId} {
+            allow read, write: if request.auth != null
+                                          && request.auth.uid == userId;
+         }
+      }
+   }
 }
 ```
 

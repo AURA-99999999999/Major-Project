@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Home
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +38,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,9 +75,14 @@ import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
 import com.aura.music.ui.viewmodel.HomeUiState
 import com.aura.music.ui.viewmodel.HomeViewModel
+import com.aura.music.ui.viewmodel.PlaylistEvent
+import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
+import kotlinx.coroutines.flow.collectLatest
+import com.aura.music.ui.screens.playlist.PlaylistPickerBottomSheet
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun HomeScreen(
     musicService: MusicService?,
     authState: AuthState,
@@ -83,8 +93,14 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val playlistViewModel: PlaylistViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val playlistState by playlistViewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedTab by remember { mutableIntStateOf(0) }
+    var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
 
     LaunchedEffect(musicService) {
         viewModel.attachMusicService(musicService)
@@ -96,7 +112,21 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        playlistViewModel.observePlaylists()
+    }
+
+    LaunchedEffect(playlistViewModel) {
+        playlistViewModel.events.collectLatest { event ->
+            when (event) {
+                is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                is PlaylistEvent.PlaySong -> Unit
+            }
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             NavigationBar(
                 containerColor = DarkSurface,
@@ -255,6 +285,9 @@ fun HomeScreen(
                                     onSongClick = { song ->
                                         viewModel.playSongByVideoId(song.videoId)
                                         onNavigateToPlayer()
+                                    },
+                                    onAddToPlaylist = { song ->
+                                        pendingSongForPlaylist = song
                                     }
                                 )
                             }
@@ -271,6 +304,17 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    pendingSongForPlaylist?.let { song ->
+        PlaylistPickerBottomSheet(
+            playlists = playlistState.playlists,
+            onDismiss = { pendingSongForPlaylist = null },
+            onPlaylistSelected = { playlist ->
+                playlistViewModel.addSongToPlaylist(playlist.id, song)
+                pendingSongForPlaylist = null
+            }
+        )
     }
 }
 
@@ -305,7 +349,8 @@ private fun SectionHeader(
 @Composable
 private fun TrendingRow(
     songs: List<Song>,
-    onSongClick: (Song) -> Unit
+    onSongClick: (Song) -> Unit,
+    onAddToPlaylist: (Song) -> Unit
 ) {
     if (songs.isEmpty()) {
         EmptyStateCard(message = "No trending songs right now. Pull to refresh or try again later.")
@@ -316,7 +361,11 @@ private fun TrendingRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(songs) { song ->
-            TrendingSongCard(song = song) { onSongClick(song) }
+            TrendingSongCard(
+                song = song,
+                onSongClick = { onSongClick(song) },
+                onOverflowClick = { onAddToPlaylist(song) }
+            )
         }
     }
 }
@@ -324,7 +373,8 @@ private fun TrendingRow(
 @Composable
 private fun TrendingSongCard(
     song: Song,
-    onSongClick: () -> Unit
+    onSongClick: () -> Unit,
+    onOverflowClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -347,14 +397,28 @@ private fun TrendingSongCard(
             )
         }
 
-        Text(
-            text = song.title,
-            style = MaterialTheme.typography.bodyLarge,
-            color = TextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.clickable(onClick = onSongClick)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = song.title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onSongClick)
+            )
+            IconButton(onClick = onOverflowClick) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "More options",
+                    tint = TextSecondary
+                )
+            }
+        }
         Text(
             text = song.getArtistString(),
             style = MaterialTheme.typography.bodySmall,

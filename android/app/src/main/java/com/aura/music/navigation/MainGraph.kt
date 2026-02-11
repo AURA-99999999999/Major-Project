@@ -160,6 +160,9 @@ fun NavGraphBuilder.mainGraph(
                 musicService = musicService,
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onNavigateToPlayer = {
+                    navController.navigate("main/player")
                 }
             )
 
@@ -180,6 +183,9 @@ fun NavGraphBuilder.mainGraph(
                 musicService = musicService,
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onNavigateToPlaylists = {
+                    navController.navigate("main/playlists")
                 },
                 authViewModel = authViewModel
             )

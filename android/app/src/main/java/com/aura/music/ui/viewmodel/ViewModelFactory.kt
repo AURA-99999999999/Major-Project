@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.aura.music.data.repository.MusicRepository
+import com.aura.music.data.repository.PlaylistRepository
 import com.aura.music.di.ServiceLocator
 
 /**
@@ -11,7 +12,8 @@ import com.aura.music.di.ServiceLocator
  */
 class ViewModelFactory(
     private val application: Application,
-    private val musicRepository: MusicRepository
+    private val musicRepository: MusicRepository,
+    private val playlistRepository: PlaylistRepository
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
@@ -23,7 +25,7 @@ class ViewModelFactory(
                 SearchViewModel(musicRepository) as T
             }
             modelClass.isAssignableFrom(PlaylistViewModel::class.java) -> {
-                PlaylistViewModel(musicRepository) as T
+                PlaylistViewModel(playlistRepository, musicRepository) as T
             }
             modelClass.isAssignableFrom(ProfileViewModel::class.java) -> {
                 ProfileViewModel(musicRepository) as T
@@ -34,7 +36,11 @@ class ViewModelFactory(
 
     companion object {
         fun create(application: Application): ViewModelFactory {
-            return ViewModelFactory(application, ServiceLocator.getMusicRepository())
+            return ViewModelFactory(
+                application,
+                ServiceLocator.getMusicRepository(),
+                ServiceLocator.getPlaylistRepository()
+            )
         }
     }
 }

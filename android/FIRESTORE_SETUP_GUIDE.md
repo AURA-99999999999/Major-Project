@@ -265,18 +265,30 @@ Make sure your Firestore security rules allow authenticated users to write their
 
 ```javascript
 rules_version = '2';
+
 service cloud.firestore {
-  match /databases/{database}/documents {
-    // Users can read/write their own document
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // Test connectivity (remove after testing)
-    match /test_connectivity/{userId} {
-      allow write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
+   match /databases/{database}/documents {
+
+      match /users/{userId} {
+         allow read, write: if request.auth != null
+                                       && request.auth.uid == userId;
+
+         match /playlists/{playlistId} {
+            allow read, write: if request.auth != null
+                                          && request.auth.uid == userId;
+
+            match /songs/{songId} {
+               allow read, write: if request.auth != null
+                                             && request.auth.uid == userId;
+            }
+         }
+
+         match /{subCollection}/{docId} {
+            allow read, write: if request.auth != null
+                                          && request.auth.uid == userId;
+         }
+      }
+   }
 }
 ```
 

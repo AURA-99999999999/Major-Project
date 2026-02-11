@@ -107,14 +107,16 @@ fun NavGraphBuilder.musicAppGraph(
         PlaylistDetailScreen(
             playlistId = playlistId,
             musicService = musicService,
-            onNavigateBack = { navController.popBackStack() }
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
         )
     }
     
     composable(Screen.Profile.route) {
         ProfileScreen(
             musicService = musicService,
-            onNavigateBack = { navController.popBackStack() }
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) }
         )
     }
 }
