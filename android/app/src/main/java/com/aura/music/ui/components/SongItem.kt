@@ -11,11 +11,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,8 +44,12 @@ fun SongItem(
     song: Song,
     isPlaying: Boolean = false,
     onClick: () -> Unit,
-    onOverflowClick: (() -> Unit)? = null
+    isLiked: Boolean = false,
+    onToggleLike: (() -> Unit)? = null,
+    onAddToPlaylist: (() -> Unit)? = null
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -94,13 +104,42 @@ fun SongItem(
             )
         }
 
-        if (onOverflowClick != null) {
-            IconButton(onClick = onOverflowClick) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = "More options",
-                    tint = TextSecondary
-                )
+        if (onToggleLike != null || onAddToPlaylist != null) {
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "More options",
+                        tint = TextSecondary
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    if (onToggleLike != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (isLiked) "Remove from Liked Songs" else "Add to Liked Songs"
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onToggleLike()
+                            }
+                        )
+                    }
+                    if (onAddToPlaylist != null) {
+                        DropdownMenuItem(
+                            text = { Text("Add to playlist") },
+                            onClick = {
+                                showMenu = false
+                                onAddToPlaylist()
+                            }
+                        )
+                    }
+                }
             }
         }
     }

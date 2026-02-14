@@ -30,6 +30,8 @@ import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -75,6 +77,8 @@ import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
 import com.aura.music.ui.viewmodel.HomeUiState
 import com.aura.music.ui.viewmodel.HomeViewModel
+import com.aura.music.ui.viewmodel.LikedSongsEvent
+import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
 import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
@@ -98,6 +102,10 @@ fun HomeScreen(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
     val playlistState by playlistViewModel.uiState.collectAsState()
+    val likedSongsViewModel: LikedSongsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val likedSongsState by likedSongsViewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -117,11 +125,24 @@ fun HomeScreen(
         playlistViewModel.observePlaylists()
     }
 
+    LaunchedEffect(Unit) {
+        likedSongsViewModel.observeLikedSongs()
+    }
+
     LaunchedEffect(playlistViewModel) {
         playlistViewModel.events.collectLatest { event ->
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
                 is PlaylistEvent.PlaySong -> Unit
+            }
+        }
+    }
+
+    LaunchedEffect(likedSongsViewModel) {
+        likedSongsViewModel.events.collectLatest { event ->
+            when (event) {
+                is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                is LikedSongsEvent.PlaySong -> Unit
             }
         }
     }
@@ -284,9 +305,13 @@ fun HomeScreen(
                             item {
                                 TrendingRow(
                                     songs = state.trending,
+                                    likedSongIds = likedSongsState.likedSongIds,
                                     onSongClick = { song ->
                                         viewModel.playSongByVideoId(song.videoId)
                                         onNavigateToPlayer()
+                                    },
+                                    onToggleLike = { song ->
+                                        likedSongsViewModel.toggleLike(song)
                                     },
                                     onAddToPlaylist = { song ->
                                         pendingSongForPlaylist = song
@@ -411,7 +436,9 @@ private fun SectionHeader(
 @Composable
 private fun TrendingRow(
     songs: List<Song>,
+    likedSongIds: Set<String>,
     onSongClick: (Song) -> Unit,
+    onToggleLike: (Song) -> Unit,
     onAddToPlaylist: (Song) -> Unit
 ) {
     if (songs.isEmpty()) {
@@ -425,8 +452,10 @@ private fun TrendingRow(
         items(songs) { song ->
             TrendingSongCard(
                 song = song,
+                isLiked = likedSongIds.contains(song.videoId),
                 onSongClick = { onSongClick(song) },
-                onOverflowClick = { onAddToPlaylist(song) }
+                onToggleLike = { onToggleLike(song) },
+                onAddToPlaylist = { onAddToPlaylist(song) }
             )
         }
     }
@@ -435,9 +464,13 @@ private fun TrendingRow(
 @Composable
 private fun TrendingSongCard(
     song: Song,
+    isLiked: Boolean,
     onSongClick: () -> Unit,
-    onOverflowClick: () -> Unit
+    onToggleLike: () -> Unit,
+    onAddToPlaylist: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .width(160.dp),
@@ -473,11 +506,34 @@ private fun TrendingSongCard(
                     .weight(1f)
                     .clickable(onClick = onSongClick)
             )
-            IconButton(onClick = onOverflowClick) {
+            IconButton(onClick = { showMenu = true }) {
                 Icon(
                     imageVector = Icons.Filled.MoreVert,
                     contentDescription = "More options",
                     tint = TextSecondary
+                )
+            }
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (isLiked) "Remove from Liked Songs" else "Add to Liked Songs"
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onToggleLike()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to playlist") },
+                    onClick = {
+                        showMenu = false
+                        onAddToPlaylist()
+                    }
                 )
             }
         }

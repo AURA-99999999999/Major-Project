@@ -3,6 +3,7 @@ package com.aura.music.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
 import com.aura.music.di.ServiceLocator
@@ -13,7 +14,8 @@ import com.aura.music.di.ServiceLocator
 class ViewModelFactory(
     private val application: Application,
     private val musicRepository: MusicRepository,
-    private val playlistRepository: PlaylistRepository
+    private val playlistRepository: PlaylistRepository,
+    private val firestoreRepository: FirestoreRepository
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
@@ -30,6 +32,9 @@ class ViewModelFactory(
             modelClass.isAssignableFrom(ProfileViewModel::class.java) -> {
                 ProfileViewModel(musicRepository) as T
             }
+            modelClass.isAssignableFrom(LikedSongsViewModel::class.java) -> {
+                LikedSongsViewModel(firestoreRepository, musicRepository) as T
+            }
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
@@ -39,7 +44,8 @@ class ViewModelFactory(
             return ViewModelFactory(
                 application,
                 ServiceLocator.getMusicRepository(),
-                ServiceLocator.getPlaylistRepository()
+                ServiceLocator.getPlaylistRepository(),
+                ServiceLocator.getFirestoreRepository()
             )
         }
 

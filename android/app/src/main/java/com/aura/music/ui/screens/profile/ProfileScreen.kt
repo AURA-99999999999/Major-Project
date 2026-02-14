@@ -58,6 +58,7 @@ fun ProfileScreen(
     musicService: MusicService?,
     onNavigateBack: () -> Unit,
     onNavigateToPlaylists: () -> Unit = {},
+    onNavigateToLikedSongs: () -> Unit = {},
     authViewModel: AuthViewModel = viewModel()
 ) {
     var userName by remember { mutableStateOf("User") }
@@ -168,8 +169,14 @@ fun ProfileScreen(
 
                         ProfileActionRow(
                             icon = Icons.Outlined.QueueMusic,
-                            label = "My Playlist",
+                            label = "My Playlists",
                             onClick = onNavigateToPlaylists
+                        )
+
+                        ProfileActionRow(
+                            icon = Icons.Outlined.QueueMusic,
+                            label = "Liked Songs",
+                            onClick = onNavigateToLikedSongs
                         )
 
                         ProfileActionRow(

@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -42,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,6 +58,8 @@ import com.aura.music.ui.theme.DarkSurfaceVariant
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.viewmodel.LikedSongsEvent
+import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
 import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
@@ -69,15 +73,24 @@ import java.util.Locale
 fun PlaylistsScreen(
     musicService: MusicService?,
     onNavigateToPlaylistDetail: (String) -> Unit,
+    onNavigateToLikedSongs: () -> Unit,
     onNavigateBack: () -> Unit,
     viewModel: PlaylistViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val likedSongsViewModel: LikedSongsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val likedSongsState by likedSongsViewModel.uiState.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.observePlaylists()
+    }
+
+    LaunchedEffect(Unit) {
+        likedSongsViewModel.observeLikedSongs()
     }
 
     LaunchedEffect(viewModel) {
@@ -85,6 +98,15 @@ fun PlaylistsScreen(
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
                 is PlaylistEvent.PlaySong -> Unit
+            }
+        }
+    }
+
+    LaunchedEffect(likedSongsViewModel) {
+        likedSongsViewModel.events.collectLatest { event ->
+            when (event) {
+                is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                is LikedSongsEvent.PlaySong -> Unit
             }
         }
     }
@@ -110,7 +132,11 @@ fun PlaylistsScreen(
                 onClick = { showCreateDialog = true },
                 containerColor = Primary
             ) {
-                Icon(imageVector = Icons.Filled.Add, contentDescription = "Create playlist")
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Create playlist",
+                    tint = Color.Black
+                )
             }
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
@@ -127,9 +153,6 @@ fun PlaylistsScreen(
                         CircularProgressIndicator()
                     }
                 }
-                uiState.playlists.isEmpty() -> {
-                    EmptyLibraryState(onCreateClick = { showCreateDialog = true })
-                }
                 else -> {
                     LazyColumn(
                         modifier = Modifier
@@ -137,11 +160,24 @@ fun PlaylistsScreen(
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(uiState.playlists) { playlist ->
-                            LibraryPlaylistCard(
-                                playlist = playlist,
-                                onClick = { onNavigateToPlaylistDetail(playlist.id) }
+                        item {
+                            LikedSongsCard(
+                                songCount = likedSongsState.songs.size,
+                                onClick = onNavigateToLikedSongs
                             )
+                        }
+
+                        if (uiState.playlists.isEmpty()) {
+                            item {
+                                EmptyLibraryState(onCreateClick = { showCreateDialog = true })
+                            }
+                        } else {
+                            items(uiState.playlists) { playlist ->
+                                LibraryPlaylistCard(
+                                    playlist = playlist,
+                                    onClick = { onNavigateToPlaylistDetail(playlist.id) }
+                                )
+                            }
                         }
                     }
                 }
@@ -180,19 +216,6 @@ private fun EmptyLibraryState(onCreateClick: () -> Unit) {
             color = TextSecondary,
             style = MaterialTheme.typography.bodyMedium
         )
-        Spacer(modifier = Modifier.height(16.dp))
-        Surface(
-            modifier = Modifier
-                .clip(RoundedCornerShape(22.dp))
-                .clickable(onClick = onCreateClick),
-            color = Primary
-        ) {
-            Text(
-                text = "Create playlist",
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                color = TextPrimary
-            )
-        }
     }
 }
 
@@ -232,6 +255,58 @@ private fun LibraryPlaylistCard(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "${playlist.songCount} songs · ${formatPlaylistDate(playlist.createdAt)}",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LikedSongsCard(
+    songCount: Int,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
+        color = DarkSurfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(54.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Favorite,
+                        contentDescription = null,
+                        tint = Primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Liked Songs",
+                    color = TextPrimary,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "$songCount songs",
                     color = TextSecondary,
                     style = MaterialTheme.typography.bodySmall
                 )

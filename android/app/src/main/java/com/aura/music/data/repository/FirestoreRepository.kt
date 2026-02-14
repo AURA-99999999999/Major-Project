@@ -1,10 +1,15 @@
 package com.aura.music.data.repository
 
 import android.util.Log
+import com.aura.music.data.model.Song
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
 interface FirestoreLogger {
@@ -56,6 +61,7 @@ class FirestoreRepository(
         private const val COLLECTION_USERS = "users"
         private const val SUBCOLLECTION_SEARCHES = "searches"
         private const val SUBCOLLECTION_PLAYS = "plays"
+        private const val SUBCOLLECTION_LIKED_SONGS = "likedSongs"
         
         // Field names - users
         private const val FIELD_EMAIL = "email"
@@ -75,6 +81,138 @@ class FirestoreRepository(
         private const val FIELD_FIRST_PLAYED_AT = "firstPlayedAt"
         private const val FIELD_LAST_PLAYED_AT = "lastPlayedAt"
         private const val FIELD_PLAY_COUNT = "playCount"
+
+        // Field names - liked songs
+        private const val FIELD_THUMBNAIL = "thumbnail"
+        private const val FIELD_DURATION = "duration"
+        private const val FIELD_LIKED_AT = "likedAt"
+    }
+
+    suspend fun addToLikedSongs(userId: String, song: Song): Result<Unit> {
+        return try {
+            if (userId.isBlank()) {
+                return Result.failure(IllegalStateException("User not authenticated"))
+            }
+
+            val normalizedVideoId = song.videoId.trim()
+            if (normalizedVideoId.isBlank()) {
+                return Result.failure(IllegalArgumentException("Invalid videoId"))
+            }
+
+            val songRef = firestore.collection(COLLECTION_USERS)
+                .document(userId)
+                .collection(SUBCOLLECTION_LIKED_SONGS)
+                .document(normalizedVideoId)
+
+            val payload = mapOf(
+                FIELD_VIDEO_ID to normalizedVideoId,
+                FIELD_SONG_NAME to song.title.trim(),
+                FIELD_ALBUM to (song.album ?: ""),
+                FIELD_ARTISTS to resolveArtists(song),
+                FIELD_THUMBNAIL to (song.thumbnail ?: ""),
+                FIELD_DURATION to (song.duration ?: ""),
+                FIELD_LIKED_AT to FieldValue.serverTimestamp()
+            )
+
+            firestore.runTransaction { transaction ->
+                val existing = transaction.get(songRef)
+                if (!existing.exists()) {
+                    transaction.set(songRef, payload)
+                }
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "addToLikedSongs() failed", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun removeFromLikedSongs(userId: String, videoId: String): Result<Unit> {
+        return try {
+            if (userId.isBlank()) {
+                return Result.failure(IllegalStateException("User not authenticated"))
+            }
+
+            val normalizedVideoId = videoId.trim()
+            if (normalizedVideoId.isBlank()) {
+                return Result.failure(IllegalArgumentException("Invalid videoId"))
+            }
+
+            firestore.collection(COLLECTION_USERS)
+                .document(userId)
+                .collection(SUBCOLLECTION_LIKED_SONGS)
+                .document(normalizedVideoId)
+                .delete()
+                .await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "removeFromLikedSongs() failed", e)
+            Result.failure(e)
+        }
+    }
+
+    fun getLikedSongs(userId: String): Flow<List<Song>> = callbackFlow {
+        if (userId.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val likedRef = firestore.collection(COLLECTION_USERS)
+            .document(userId)
+            .collection(SUBCOLLECTION_LIKED_SONGS)
+            .orderBy(FIELD_LIKED_AT, Query.Direction.DESCENDING)
+
+        val listener = likedRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e(TAG, "getLikedSongs() failed", error)
+                close(error)
+                return@addSnapshotListener
+            }
+
+            val songs = snapshot?.documents
+                ?.mapNotNull { it.toLikedSong() }
+                ?: emptyList()
+
+            trySend(songs)
+        }
+
+        awaitClose { listener.remove() }
+    }
+
+    fun isSongLiked(userId: String, videoId: String): Flow<Boolean> = callbackFlow {
+        if (userId.isBlank() || videoId.isBlank()) {
+            trySend(false)
+            close()
+            return@callbackFlow
+        }
+
+        val songRef = firestore.collection(COLLECTION_USERS)
+            .document(userId)
+            .collection(SUBCOLLECTION_LIKED_SONGS)
+            .document(videoId)
+
+        val listener = songRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e(TAG, "isSongLiked() failed", error)
+                close(error)
+                return@addSnapshotListener
+            }
+
+            trySend(snapshot?.exists() == true)
+        }
+
+        awaitClose { listener.remove() }
+    }
+
+    private fun resolveArtists(song: Song): List<String> {
+        return when {
+            !song.artists.isNullOrEmpty() -> song.artists
+            !song.artist.isNullOrBlank() -> listOf(song.artist)
+            else -> emptyList()
+        }
     }
 
     /**
@@ -273,4 +411,25 @@ class FirestoreRepository(
             Result.failure(e)
         }
     }
+}
+
+private fun com.google.firebase.firestore.DocumentSnapshot.toLikedSong(): Song? {
+    val videoId = getString("videoId") ?: id
+    val title = getString("title") ?: return null
+    val album = getString("album")
+    val thumbnail = getString("thumbnail")
+    val duration = getString("duration")
+    val artists = (get("artists") as? List<*>)
+        ?.mapNotNull { it as? String }
+        ?: emptyList()
+
+    return Song(
+        videoId = videoId,
+        title = title,
+        artist = artists.firstOrNull(),
+        artists = if (artists.isNotEmpty()) artists else null,
+        thumbnail = thumbnail,
+        duration = duration,
+        album = album
+    )
 }

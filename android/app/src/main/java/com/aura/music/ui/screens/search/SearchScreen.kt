@@ -53,6 +53,8 @@ import com.aura.music.ui.theme.DarkSurface
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.viewmodel.LikedSongsEvent
+import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
 import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.SearchEvent
@@ -76,6 +78,10 @@ fun SearchScreen(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
     val playlistState by playlistViewModel.uiState.collectAsState()
+    val likedSongsViewModel: LikedSongsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val likedSongsState by likedSongsViewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
     var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
@@ -100,11 +106,24 @@ fun SearchScreen(
         playlistViewModel.observePlaylists()
     }
 
+    LaunchedEffect(Unit) {
+        likedSongsViewModel.observeLikedSongs()
+    }
+
     LaunchedEffect(playlistViewModel) {
         playlistViewModel.events.collectLatest { event ->
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
                 is PlaylistEvent.PlaySong -> Unit
+            }
+        }
+    }
+
+    LaunchedEffect(likedSongsViewModel) {
+        likedSongsViewModel.events.collectLatest { event ->
+            when (event) {
+                is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                is LikedSongsEvent.PlaySong -> Unit
             }
         }
     }
@@ -224,8 +243,10 @@ fun SearchScreen(
                                     song = song,
                                     isPlaying = musicService?.playerState?.value?.currentSong?.videoId == song.videoId &&
                                             musicService?.playerState?.value?.isPlaying == true,
+                                    isLiked = likedSongsState.likedSongIds.contains(song.videoId),
                                     onClick = { viewModel.prepareSongForPlayback(song) },
-                                    onOverflowClick = { pendingSongForPlaylist = song }
+                                    onToggleLike = { likedSongsViewModel.toggleLike(song) },
+                                    onAddToPlaylist = { pendingSongForPlaylist = song }
                                 )
                             }
                         }

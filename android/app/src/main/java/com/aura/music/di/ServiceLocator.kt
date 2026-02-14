@@ -100,6 +100,11 @@ object ServiceLocator {
         return musicRepository!!
     }
 
+    fun getFirestoreRepository(): FirestoreRepository {
+        checkInitialized()
+        return firestoreRepository!!
+    }
+
     fun getPlaylistRepository(): PlaylistRepository {
         checkInitialized()
         return playlistRepository!!

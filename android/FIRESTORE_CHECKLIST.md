@@ -146,6 +146,11 @@
         allow read, write: if request.auth != null
                             && request.auth.uid == userId;
 
+        match /likedSongs/{songId} {
+          allow read, write: if request.auth != null
+                              && request.auth.uid == userId;
+        }
+
         match /playlists/{playlistId} {
           allow read, write: if request.auth != null
                               && request.auth.uid == userId;

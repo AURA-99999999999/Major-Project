@@ -62,6 +62,8 @@ import com.aura.music.ui.theme.DarkSurfaceVariant
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.viewmodel.LikedSongsEvent
+import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
 import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
@@ -89,6 +91,10 @@ fun PlaylistPreviewScreen(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
     val playlistState by playlistViewModel.uiState.collectAsState()
+    val likedSongsViewModel: LikedSongsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val likedSongsState by likedSongsViewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
 
@@ -107,11 +113,24 @@ fun PlaylistPreviewScreen(
         playlistViewModel.observePlaylists()
     }
 
+    LaunchedEffect(Unit) {
+        likedSongsViewModel.observeLikedSongs()
+    }
+
     LaunchedEffect(playlistViewModel) {
         playlistViewModel.events.collectLatest { event ->
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
                 is PlaylistEvent.PlaySong -> Unit
+            }
+        }
+    }
+
+    LaunchedEffect(likedSongsViewModel) {
+        likedSongsViewModel.events.collectLatest { event ->
+            when (event) {
+                is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                is LikedSongsEvent.PlaySong -> Unit
             }
         }
     }
@@ -175,7 +194,9 @@ fun PlaylistPreviewScreen(
                 is PlaylistPreviewUiState.Success -> {
                     PlaylistContent(
                         playlist = state.playlist,
+                        likedSongIds = likedSongsState.likedSongIds,
                         onSongClick = onPlaySong,
+                        onToggleLike = { song -> likedSongsViewModel.toggleLike(song) },
                         onSongOverflowClick = { song -> pendingSongForPlaylist = song }
                     )
                 }
@@ -206,7 +227,9 @@ fun PlaylistPreviewScreen(
 @Composable
 private fun PlaylistContent(
     playlist: YTMusicPlaylistDetail,
+    likedSongIds: Set<String>,
     onSongClick: (Song) -> Unit,
+    onToggleLike: (Song) -> Unit,
     onSongOverflowClick: (Song) -> Unit
 ) {
     LazyColumn(
@@ -225,7 +248,9 @@ private fun PlaylistContent(
                 song = song,
                 isPlaying = false,
                 onClick = { onSongClick(song) },
-                onOverflowClick = { onSongOverflowClick(song) }
+                isLiked = likedSongIds.contains(song.videoId),
+                onToggleLike = { onToggleLike(song) },
+                onAddToPlaylist = { onSongOverflowClick(song) }
             )
         }
     }

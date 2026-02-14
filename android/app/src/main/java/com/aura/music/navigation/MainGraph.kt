@@ -18,6 +18,7 @@ import com.aura.music.ui.screens.player.PlayerScreen
 import com.aura.music.ui.screens.playlist.PlaylistsScreen
 import com.aura.music.ui.screens.playlist.PlaylistDetailScreen
 import com.aura.music.ui.screens.playlist.PlaylistPreviewScreen
+import com.aura.music.ui.screens.liked.LikedSongsScreen
 import com.aura.music.ui.screens.profile.ProfileScreen
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import kotlinx.coroutines.launch
@@ -137,6 +138,9 @@ fun NavGraphBuilder.mainGraph(
                 onNavigateToPlaylistDetail = { playlistId ->
                     navController.navigate("main/playlist/$playlistId")
                 },
+                onNavigateToLikedSongs = {
+                    navController.navigate("main/liked-songs")
+                },
                 onNavigateBack = {
                     navController.popBackStack()
                 }
@@ -175,6 +179,28 @@ fun NavGraphBuilder.mainGraph(
             )
 
             // If user logs out, return to auth
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+
+        // ==================== LIKED SONGS SCREEN ====================
+        composable("main/liked-songs") {
+            LikedSongsScreen(
+                musicService = musicService,
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToPlayer = {
+                    navController.navigate("main/player")
+                }
+            )
+
             LaunchedEffect(authState) {
                 if (authState is AuthState.Unauthenticated) {
                     navController.navigate("auth") {
@@ -277,6 +303,9 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onNavigateToPlaylists = {
                     navController.navigate("main/playlists")
+                },
+                onNavigateToLikedSongs = {
+                    navController.navigate("main/liked-songs")
                 },
                 authViewModel = authViewModel
             )

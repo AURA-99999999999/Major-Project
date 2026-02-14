@@ -23,6 +23,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -62,6 +69,9 @@ import com.aura.music.ui.theme.PrimaryVariant
 import com.aura.music.ui.theme.Secondary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.viewmodel.LikedSongsViewModel
+import com.aura.music.ui.viewmodel.ViewModelFactory
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlin.math.floor
 
 @Composable
@@ -70,6 +80,14 @@ fun PlayerScreen(
     onNavigateBack: () -> Unit
 ) {
     val playerState = musicService?.playerState?.collectAsState()?.value ?: PlayerState()
+    val likedSongsViewModel: LikedSongsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val likedSongsState by likedSongsViewModel.uiState.collectAsState()
+
+    LaunchedEffect(Unit) {
+        likedSongsViewModel.observeLikedSongs()
+    }
 
     if (playerState.currentSong == null) {
         Box(
@@ -132,7 +150,7 @@ fun PlayerScreen(
             ) {
                 IconButton(onClick = onNavigateBack) {
                     Icon(
-                        painter = androidx.compose.ui.res.painterResource(android.R.drawable.ic_menu_revert),
+                        imageVector = Icons.Filled.ArrowBack,
                         contentDescription = "Back",
                         tint = TextPrimary
                     )
@@ -222,7 +240,11 @@ fun PlayerScreen(
                 // Progress Bar
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Slider(
-                        value = if (duration > 0) (currentPosition / duration).toFloat() else 0f,
+                        value = if (duration > 0) {
+                            (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        },
                         onValueChange = { progress ->
                             musicService?.seekTo((progress * duration).toLong())
                         },
@@ -259,23 +281,44 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Repeat/Shuffle button (left)
+                    // Repeat / Repeat One / Shuffle button (left)
                     IconButton(
                         onClick = {
-                            val nextMode = when (playerState.repeatMode) {
-                                PlayerRepeatMode.OFF -> PlayerRepeatMode.ALL
-                                PlayerRepeatMode.ALL -> PlayerRepeatMode.ONE
-                                PlayerRepeatMode.ONE -> PlayerRepeatMode.OFF
+                            val isShuffle = playerState.shuffleEnabled
+                            val repeatMode = playerState.repeatMode
+
+                            when {
+                                isShuffle -> {
+                                    musicService?.setShuffleEnabled(false)
+                                    musicService?.setRepeatMode(PlayerRepeatMode.ALL)
+                                }
+                                repeatMode == PlayerRepeatMode.ALL -> {
+                                    musicService?.setRepeatMode(PlayerRepeatMode.ONE)
+                                    musicService?.setShuffleEnabled(false)
+                                }
+                                repeatMode == PlayerRepeatMode.ONE -> {
+                                    musicService?.setRepeatMode(PlayerRepeatMode.OFF)
+                                    musicService?.setShuffleEnabled(true)
+                                }
+                                else -> {
+                                    musicService?.setShuffleEnabled(false)
+                                    musicService?.setRepeatMode(PlayerRepeatMode.ALL)
+                                }
                             }
-                            musicService?.setRepeatMode(nextMode)
                         }
                     ) {
+                        val modeIcon = when {
+                            playerState.shuffleEnabled -> Icons.Filled.Shuffle
+                            playerState.repeatMode == PlayerRepeatMode.ONE -> Icons.Filled.RepeatOne
+                            else -> Icons.Filled.Repeat
+                        }
+                        val isActive = playerState.shuffleEnabled ||
+                            playerState.repeatMode != PlayerRepeatMode.OFF
+
                         Icon(
-                            painter = androidx.compose.ui.res.painterResource(
-                                android.R.drawable.ic_menu_revert
-                            ),
-                            contentDescription = "Repeat",
-                            tint = if (playerState.repeatMode != PlayerRepeatMode.OFF) Primary else TextSecondary
+                            imageVector = modeIcon,
+                            contentDescription = "Repeat mode",
+                            tint = if (isActive) Primary else TextSecondary
                         )
                     }
 
@@ -296,11 +339,7 @@ fun PlayerScreen(
                         modifier = Modifier
                             .size(80.dp)
                             .clip(CircleShape)
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(Primary, PrimaryVariant)
-                                )
-                            )
+                            .background(Color.Transparent)
                             .clickable { musicService?.togglePlayPause() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -328,12 +367,15 @@ fun PlayerScreen(
 
                     // Like/Favorite button (right)
                     IconButton(
-                        onClick = { /* Toggle like */ }
+                        onClick = {
+                            likedSongsViewModel.toggleLike(song)
+                        }
                     ) {
+                        val isLiked = likedSongsState.likedSongIds.contains(song.videoId)
                         Icon(
-                            painter = androidx.compose.ui.res.painterResource(android.R.drawable.star_big_on),
-                            contentDescription = "Like",
-                            tint = Color.Red.copy(alpha = 0.8f)
+                            imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = if (isLiked) "Liked" else "Not liked",
+                            tint = if (isLiked) Color.Red.copy(alpha = 0.9f) else TextSecondary
                         )
                     }
                 }

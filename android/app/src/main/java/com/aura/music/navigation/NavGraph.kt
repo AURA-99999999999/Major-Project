@@ -11,6 +11,7 @@ import com.aura.music.ui.screens.home.HomeScreen
 import com.aura.music.ui.screens.player.PlayerScreen
 import com.aura.music.ui.screens.playlist.PlaylistDetailScreen
 import com.aura.music.ui.screens.playlist.PlaylistsScreen
+import com.aura.music.ui.screens.liked.LikedSongsScreen
 import com.aura.music.ui.screens.profile.ProfileScreen
 import com.aura.music.ui.screens.search.SearchScreen
 
@@ -75,12 +76,20 @@ fun NavGraphBuilder.musicAppGraph(
             }
         )
     }
-    
+
     composable(Screen.Search.route) {
         SearchScreen(
             musicService = musicService,
             onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
             onNavigateBack = { navController.popBackStack() }
+        )
+    }
+
+    composable(Screen.LikedSongs.route) {
+        LikedSongsScreen(
+            musicService = musicService,
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
         )
     }
     
@@ -97,6 +106,7 @@ fun NavGraphBuilder.musicAppGraph(
             onNavigateToPlaylistDetail = { playlistId ->
                 navController.navigate(Screen.PlaylistDetail.createRoute(playlistId))
             },
+            onNavigateToLikedSongs = { navController.navigate(Screen.LikedSongs.route) },
             onNavigateBack = { navController.popBackStack() }
         )
     }
@@ -122,7 +132,8 @@ fun NavGraphBuilder.musicAppGraph(
         ProfileScreen(
             musicService = musicService,
             onNavigateBack = { navController.popBackStack() },
-            onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) }
+            onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
+            onNavigateToLikedSongs = { navController.navigate(Screen.LikedSongs.route) }
         )
     }
 }

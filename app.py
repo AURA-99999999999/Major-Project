@@ -410,7 +410,14 @@ def get_mood_playlists():
             return jsonify(cached)
 
         ytmusic = YTMusic()
-        mood_data = ytmusic.get_mood_playlists(params)
+        try:
+            mood_data = ytmusic.get_mood_playlists(params)
+        except KeyError as e:
+            logger.warning(
+                "Mood playlists parser mismatch; returning empty list. Missing key: %s",
+                str(e)
+            )
+            mood_data = []
         
         playlists = []
         for item in (mood_data or [])[:limit]:

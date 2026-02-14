@@ -62,6 +62,8 @@ import com.aura.music.ui.theme.DarkSurfaceVariant
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.viewmodel.LikedSongsEvent
+import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
 import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
@@ -78,12 +80,20 @@ fun PlaylistDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val likedSongsViewModel: LikedSongsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val likedSongsState by likedSongsViewModel.uiState.collectAsState()
     var editableName by remember { mutableStateOf("") }
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(playlistId) {
         viewModel.observePlaylistDetails(playlistId)
+    }
+
+    LaunchedEffect(Unit) {
+        likedSongsViewModel.observeLikedSongs()
     }
 
     LaunchedEffect(uiState.currentPlaylist?.name) {
@@ -98,6 +108,15 @@ fun PlaylistDetailScreen(
                     musicService?.playResolvedSong(event.song, false, "playlist")
                     onNavigateToPlayer()
                 }
+            }
+        }
+    }
+
+    LaunchedEffect(likedSongsViewModel) {
+        likedSongsViewModel.events.collectLatest { event ->
+            when (event) {
+                is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                is LikedSongsEvent.PlaySong -> Unit
             }
         }
     }
@@ -199,6 +218,8 @@ fun PlaylistDetailScreen(
                                 PlaylistSongRow(
                                     song = song,
                                     onClick = { viewModel.prepareSongForPlayback(song) },
+                                    isLiked = likedSongsState.likedSongIds.contains(song.videoId),
+                                    onToggleLike = { likedSongsViewModel.toggleLike(song.toSong()) },
                                     onRemove = { viewModel.removeSongFromPlaylist(playlistId, song.videoId) }
                                 )
                             }
@@ -238,6 +259,8 @@ fun PlaylistDetailScreen(
 private fun PlaylistSongRow(
     song: PlaylistSong,
     onClick: () -> Unit,
+    isLiked: Boolean,
+    onToggleLike: () -> Unit,
     onRemove: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -298,6 +321,17 @@ private fun PlaylistSongRow(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false }
             ) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (isLiked) "Remove from Liked Songs" else "Add to Liked Songs"
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onToggleLike()
+                    }
+                )
                 DropdownMenuItem(
                     text = { Text("Remove") },
                     onClick = {

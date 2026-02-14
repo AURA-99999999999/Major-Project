@@ -287,6 +287,9 @@ class MusicService : MediaSessionService() {
 
     fun seekTo(position: Long) {
         exoPlayer?.seekTo(position)
+        _playerState.update { state ->
+            state.copy(currentPosition = position.coerceAtLeast(0L))
+        }
     }
 
     fun setRepeatMode(mode: RepeatMode) {
@@ -300,6 +303,10 @@ class MusicService : MediaSessionService() {
 
     fun toggleShuffle() {
         _playerState.update { it.copy(shuffleEnabled = !it.shuffleEnabled) }
+    }
+
+    fun setShuffleEnabled(enabled: Boolean) {
+        _playerState.update { it.copy(shuffleEnabled = enabled) }
     }
 
     fun setVolume(volume: Float) {
