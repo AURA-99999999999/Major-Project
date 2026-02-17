@@ -89,7 +89,11 @@ Major-Project/
 
 ### Home Screen
 - Trending songs with horizontal scrolling
-- Personalized recommendations
+- **Personalized recommendations** with ML-inspired features:
+  - Weighted signals: Liked songs (2x) + play history (1x)
+  - Time-decay weighting: Recent plays prioritized
+  - Diversity enforcement: Max 2 songs per artist, 3 per album
+  - Cold-start fallback for new users
 - Explore by Mood with category selection
 - Pull-to-refresh for fresh data
 
@@ -124,8 +128,9 @@ Firebase Google Sign-In:
 users/{uid}/
   ├── userProfile/          # User info
   ├── lastPlayed/current    # Mini player persistence
+  ├── plays/                # Play history with timestamps (for time-decay recommendations)
   ├── playlists/            # User playlists
-  └── likedSongs/           # Liked songs collection
+  └── likedSongs/           # Liked songs collection with timestamps
 ```
 
 ## 🔄 State Management

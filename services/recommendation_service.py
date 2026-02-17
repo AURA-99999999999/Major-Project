@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Set, Tuple
 import logging
 import os
 import time
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
 
@@ -77,6 +78,11 @@ class RecommendationService:
         
         self.max_workers = 3  # Limit concurrent ytmusic calls
         self._firestore_db = None
+        
+        # Time-decay configuration for recommendation freshness
+        self.decay_lambda = float(os.getenv('RECOMMENDER_DECAY_LAMBDA', '0.15'))
+        logger.info(f"RecommendationService initialized with decay_lambda={self.decay_lambda}")
+        
         self._ensure_firestore_client()
 
     def _ensure_firestore_client(self) -> None:
@@ -124,14 +130,16 @@ class RecommendationService:
         try:
             logger.info(f"Generating recommendations for user: {uid}")
             
-            # 1. Fetch user data from Firestore
-            user_plays = self._fetch_user_plays(uid)
-            user_liked = self._fetch_user_liked_songs(uid)
+            # 1. Fetch user signals (plays + liked songs)
+            user_signals = self._fetch_user_signals(uid)
+            user_plays = user_signals['plays']
+            user_liked = user_signals['liked']
 
-            logger.debug(f"User {uid}: {len(user_plays)} plays, {len(user_liked)} liked songs")
+            logger.info(f"Signals: plays={len(user_plays)}, liked={len(user_liked)}")
 
             # Required temporary debug logs
             print(f"[RECOMMENDER] Plays found: {len(user_plays)}")
+            print(f"[RECOMMENDER] Liked found: {len(user_liked)}")
             print(f"[RECOMMENDER] Sample play: {user_plays[0] if user_plays else 'None'}")
 
             # Create sets for faster lookup and filtering
@@ -139,15 +147,19 @@ class RecommendationService:
             liked_ids: Set[str] = {s.get('videoId') for s in user_liked if s.get('videoId')}
             all_consumed: Set[str] = played_ids | liked_ids
 
-            # 2. Extract top artists and albums from play history
-            top_artists, top_albums = self._extract_top_artists_and_albums(user_plays)
-            print(f"[RECOMMENDER] Top artists: {top_artists}")
-            print(f"[RECOMMENDER] Top albums: {top_albums}")
+            # 2. Build weighted signals (liked songs have 2x weight)
+            weighted_signals = self._build_weighted_signals(user_plays, user_liked)
+            top_artists = weighted_signals['top_artists']
+            top_albums = weighted_signals['top_albums']
+            
+            logger.info(f"Weighted artists count: {len(weighted_signals['artist_scores'])}")
+            print(f"[RECOMMENDER] Top weighted artists: {top_artists}")
+            print(f"[RECOMMENDER] Top weighted albums: {top_albums}")
 
             # 3. Gather recommendations using search queries
             recommendations: Dict[str, Dict] = {}  # {videoId: song_data}
 
-            if user_plays:
+            if user_plays or user_liked:
                 search_queries = self._build_search_queries(top_artists, top_albums)
                 for query in search_queries:
                     search_results = self._search_songs(query, limit=10)
@@ -155,16 +167,23 @@ class RecommendationService:
                 logger.info(f"Added {len(recommendations)} from search queries")
 
             # Trending fallback layer (cold-start)
-            if len(user_plays) < 1:
+            if len(user_plays) < 1 and len(user_liked) < 1:
                 trending_recommendations = self._get_trending_fallback()
                 self._merge_recommendations(recommendations, trending_recommendations, 'trending')
                 logger.info(f"Added {len(trending_recommendations)} from trending (cold-start)")
             
             # 4. Deduplicate, filter, and rank
-            final_recommendations = self._deduplicate_and_filter(
+            ranked_recommendations = self._deduplicate_and_filter(
                 recommendations,
                 all_consumed,
                 limit
+            )
+            
+            # 5. Apply diversity constraints to prevent artist/album dominance
+            final_recommendations = self._apply_diversity_constraints(
+                ranked_recommendations,
+                max_per_artist=2,
+                max_per_album=3
             )
             
             logger.info(f"Generated {len(final_recommendations)} final recommendations for {uid}")
@@ -213,6 +232,212 @@ class RecommendationService:
         except Exception as e:
             logger.error(f"Failed to fetch liked songs for {uid}: {str(e)}")
             return []
+    
+    def _fetch_user_signals(self, uid: str) -> Dict[str, List[Dict]]:
+        """
+        Fetch both user plays and liked songs.
+        
+        Returns:
+            Dict with 'plays' and 'liked' keys containing song lists
+        """
+        try:
+            plays = self._fetch_user_plays(uid)
+            liked = self._fetch_user_liked_songs(uid)
+            
+            return {
+                'plays': plays,
+                'liked': liked
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch user signals for {uid}: {str(e)}")
+            return {
+                'plays': [],
+                'liked': []
+            }
+    
+    def _calculate_time_decay_weight(self, play_timestamp: Optional[float]) -> float:
+        """
+        Calculate exponential time decay weight for a play event.
+        
+        Recent plays receive higher weight, older plays decay exponentially.
+        Formula: weight = exp(-λ * days_since_play)
+        
+        Args:
+            play_timestamp: Unix timestamp of the play event (seconds)
+            
+        Returns:
+            Decay weight between 0.0 and 1.0
+        """
+        try:
+            # Handle missing timestamp
+            if play_timestamp is None:
+                logger.debug("Missing timestamp, assigning default weight 0.1")
+                return 0.1
+            
+            # Convert to float if needed
+            try:
+                play_timestamp = float(play_timestamp)
+            except (TypeError, ValueError):
+                logger.debug(f"Invalid timestamp type: {type(play_timestamp)}, using default weight")
+                return 0.1
+            
+            # Calculate days since play
+            current_time = time.time()
+            days_since_play = (current_time - play_timestamp) / 86400.0  # 86400 seconds in a day
+            
+            # Handle future timestamps (clock skew or invalid data)
+            if days_since_play < 0:
+                logger.debug(f"Future timestamp detected, clamping to 0 days")
+                days_since_play = 0
+            
+            # Calculate exponential decay: exp(-λ * days)
+            decay_weight = math.exp(-self.decay_lambda * days_since_play)
+            
+            # Log for debugging (can be removed in production)
+            if days_since_play > 0:
+                logger.debug(f"Decay weight for {days_since_play:.2f} days: {decay_weight:.4f}")
+            
+            return decay_weight
+            
+        except Exception as e:
+            logger.warning(f"Error calculating time decay: {str(e)}, using default weight 0.1")
+            return 0.1
+    
+    def _build_weighted_signals(
+        self,
+        plays: List[Dict],
+        liked_songs: List[Dict],
+        play_weight: float = 1.0,
+        liked_weight: float = 2.0
+    ) -> Dict:
+        """
+        Build weighted preference signals from plays and liked songs.
+        
+        Applies time-decay weighting to favor recent listening behavior.
+        Liked songs receive higher base weight (default 2x) to boost their influence.
+        
+        Time decay formula: weight = base_weight * exp(-λ * days_since_play)
+        
+        Args:
+            plays: List of played songs with timestamps
+            liked_songs: List of liked songs with timestamps
+            play_weight: Base weight for played songs (default: 1.0)
+            liked_weight: Base weight for liked songs (default: 2.0)
+            
+        Returns:
+            Dict containing weighted artist_scores, album_scores, top_artists, top_albums
+        """
+        try:
+            artist_scores: Counter = Counter()
+            album_scores: Counter = Counter()
+            
+            # Track time decay statistics
+            total_plays_processed = 0
+            total_decay_applied = 0.0
+            
+            # Process plays with base weight and time decay
+            for play in plays:
+                play_count = play.get('playCount', 1)
+                try:
+                    play_count = int(play_count)
+                except (TypeError, ValueError):
+                    play_count = 1
+                
+                # Apply time decay based on play timestamp
+                play_timestamp = play.get('timestamp') or play.get('playedAt')
+                time_decay = self._calculate_time_decay_weight(play_timestamp)
+                
+                # Final weight: base_weight * play_count * time_decay
+                weight = play_weight * play_count * time_decay
+                
+                total_plays_processed += 1
+                total_decay_applied += time_decay
+                
+                # Extract and weight artists
+                artists = play.get('artists', [])
+                if isinstance(artists, list):
+                    for artist in artists:
+                        if isinstance(artist, dict):
+                            artist_name = artist.get('name')
+                        else:
+                            artist_name = str(artist)
+                        if artist_name:
+                            artist_scores[artist_name] += weight
+                elif isinstance(artists, str) and artists:
+                    artist_scores[artists] += weight
+                
+                # Extract and weight albums
+                album = play.get('album')
+                if album:
+                    album_scores[str(album)] += weight
+            
+            # Log average decay weight for plays
+            if total_plays_processed > 0:
+                avg_decay = total_decay_applied / total_plays_processed
+                logger.info(f"Plays processed: {total_plays_processed}, avg decay weight: {avg_decay:.4f}")
+            
+            # Process liked songs with higher weight and time decay
+            liked_processed = 0
+            liked_decay_total = 0.0
+            
+            for liked in liked_songs:
+                # Apply time decay to liked songs as well
+                liked_timestamp = liked.get('timestamp') or liked.get('likedAt')
+                time_decay = self._calculate_time_decay_weight(liked_timestamp)
+                
+                # Liked songs get higher base weight
+                weight = liked_weight * time_decay
+                
+                liked_processed += 1
+                liked_decay_total += time_decay
+                
+                # Extract and weight artists
+                artists = liked.get('artists', [])
+                if isinstance(artists, list):
+                    for artist in artists:
+                        if isinstance(artist, dict):
+                            artist_name = artist.get('name')
+                        else:
+                            artist_name = str(artist)
+                        if artist_name:
+                            artist_scores[artist_name] += weight
+                elif isinstance(artists, str) and artists:
+                    artist_scores[artists] += weight
+                
+                # Extract and weight albums
+                album = liked.get('album')
+                if album:
+                    album_scores[str(album)] += weight
+            
+            # Log average decay weight for liked songs
+            if liked_processed > 0:
+                avg_liked_decay = liked_decay_total / liked_processed
+                logger.info(f"Liked songs processed: {liked_processed}, avg decay weight: {avg_liked_decay:.4f}")
+            
+            # Get top artists and albums
+            top_artists = [name for name, _ in artist_scores.most_common(5)]
+            top_albums = [name for name, _ in album_scores.most_common(3)]
+            
+            logger.info(
+                f"Built weighted signals with time-decay: {len(artist_scores)} artists, "
+                f"{len(album_scores)} albums (top artist: {top_artists[0] if top_artists else 'None'})"
+            )
+            
+            return {
+                'artist_scores': dict(artist_scores),
+                'album_scores': dict(album_scores),
+                'top_artists': top_artists,
+                'top_albums': top_albums
+            }
+            
+        except Exception as e:
+            logger.error(f"Error building weighted signals: {str(e)}")
+            return {
+                'artist_scores': {},
+                'album_scores': {},
+                'top_artists': [],
+                'top_albums': []
+            }
     
     def _extract_top_artists_and_albums(self, plays: List[Dict]) -> Tuple[List[str], List[str]]:
         """
@@ -623,6 +848,93 @@ class RecommendationService:
                 # New song
                 song_data['_sources'] = [source]
                 main_dict[video_id] = song_data
+    
+    def _apply_diversity_constraints(
+        self,
+        recommendations: List[Dict],
+        max_per_artist: int = 2,
+        max_per_album: int = 3
+    ) -> List[Dict]:
+        """
+        Apply diversity constraints to recommendations to prevent artist/album dominance.
+        
+        Args:
+            recommendations: Ranked list of song recommendations
+            max_per_artist: Maximum songs per artist (default: 2)
+            max_per_album: Maximum songs per album (default: 3)
+            
+        Returns:
+            Filtered list maintaining ranking order with diversity applied
+        """
+        if not recommendations:
+            return []
+        
+        artist_count = {}  # {artist_name: count}
+        album_count = {}   # {album_name: count}
+        diverse_results = []
+        
+        try:
+            for song in recommendations:
+                # Handle missing fields safely
+                artists = song.get('artists', [])
+                album = song.get('album', '')
+                
+                # Normalize artists to list of strings
+                if not isinstance(artists, list):
+                    artists = [str(artists)] if artists else []
+                
+                # Check artist constraints
+                artist_limit_exceeded = False
+                for artist in artists:
+                    # Normalize artist name
+                    if isinstance(artist, dict):
+                        artist_name = artist.get('name', '').strip()
+                    else:
+                        artist_name = str(artist).strip()
+                    
+                    if not artist_name:
+                        continue
+                    
+                    # Check if this artist has reached the limit
+                    if artist_count.get(artist_name, 0) >= max_per_artist:
+                        artist_limit_exceeded = True
+                        break
+                
+                if artist_limit_exceeded:
+                    continue
+                
+                # Check album constraint
+                album_name = str(album).strip() if album else ''
+                if album_name and album_count.get(album_name, 0) >= max_per_album:
+                    continue
+                
+                # Song passes all diversity constraints - add it
+                diverse_results.append(song)
+                
+                # Update counters
+                for artist in artists:
+                    if isinstance(artist, dict):
+                        artist_name = artist.get('name', '').strip()
+                    else:
+                        artist_name = str(artist).strip()
+                    
+                    if artist_name:
+                        artist_count[artist_name] = artist_count.get(artist_name, 0) + 1
+                
+                if album_name:
+                    album_count[album_name] = album_count.get(album_name, 0) + 1
+            
+            logger.info(
+                f"Diversity applied: {len(recommendations)} → {len(diverse_results)} "
+                f"(artists constrained: {len(artist_count)}, albums constrained: {len(album_count)})"
+            )
+            
+            return diverse_results
+            
+        except Exception as e:
+            logger.error(f"Error applying diversity constraints: {str(e)}", exc_info=True)
+            # Fail gracefully - return original recommendations
+            return recommendations
     
     def _deduplicate_and_filter(
         self,

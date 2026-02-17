@@ -181,13 +181,36 @@ users/
 
 ### Recommendations System
 
-Real-time personalized recommendations based on:
-- Listening history
-- Liked songs
-- Search patterns
-- Trending songs
+**Production-grade hybrid recommendation engine** with multiple ML-inspired features:
 
-Integration: `services/recommendation_service.py` + HomeScreen UI
+#### Core Features
+- **Weighted Signal Processing**: Liked songs (2x weight) + play history (1x weight)
+- **Time-Decay Weighting**: Recent plays weighted higher via exponential decay `exp(-λ * days)`
+  - Default λ = 0.15 (configurable via `RECOMMENDER_DECAY_LAMBDA` env var)
+  - Recent plays ≈ 1.0 weight, 30-day-old plays significantly reduced
+- **Diversity Layer**: Max 2 songs per artist, max 3 songs per album
+- **Cold-Start Fallback**: Trending songs for new users
+- **Search-Based Discovery**: Top 5 artists + top 3 albums from weighted history
+
+#### Signal Sources Priority
+1. Liked songs (base weight: 2.0 × time_decay)
+2. Play history (base weight: 1.0 × playCount × time_decay)
+3. Artist similarity
+4. Album clustering
+5. Trending fallback
+
+#### Ranking Algorithm
+```
+final_weight = base_weight × play_count × exp(-λ × days_since_play)
+artist_scores[artist] += final_weight
+```
+
+**Configuration**:
+- `RECOMMENDER_DECAY_LAMBDA`: Time decay factor (default: 0.15)
+- Adjustable via environment variables
+- No API schema changes required
+
+**Integration**: `services/recommendation_service.py` + HomeScreen UI + API endpoint `/api/recommendations`
 
 ### Mini Player Features
 
