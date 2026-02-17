@@ -411,6 +411,117 @@ class FirestoreRepository(
             Result.failure(e)
         }
     }
+
+    /**
+     * Updates the lastPlayed document in the user's profile.
+     * 
+     * Called when: A song starts playing via MusicService
+     * 
+     * Storage location: users/{uid}/lastPlayed (single document)
+     * 
+     * Behavior:
+     * - Saves minimal metadata needed for mini player display
+     * - Does NOT auto-play song (just stores for reference)
+     * - Overwrites previous lastPlayed data
+     * 
+     * @param song The Song object being played
+     * @return Result indicating success or failure
+     */
+    suspend fun updateLastPlayedSong(song: Song): Result<Unit> {
+        return try {
+            val currentUser = auth.currentUser
+            if (currentUser == null) {
+                Log.w(TAG, "updateLastPlayedSong() - No authenticated user")
+                return Result.success(Unit) // Fail silently
+            }
+
+            val userId = currentUser.uid
+            val normalizedVideoId = song.videoId.trim()
+            val normalizedTitle = song.title.trim()
+            val normalizedArtists = resolveArtists(song)
+            val normalizedThumbnail = song.thumbnail ?: ""
+
+            if (normalizedVideoId.isBlank() || normalizedTitle.isBlank()) {
+                Log.w(
+                    TAG,
+                    "updateLastPlayedSong() - Skipping due to incomplete metadata: " +
+                        "videoId='$normalizedVideoId', title='$normalizedTitle'"
+                )
+                return Result.success(Unit)
+            }
+
+            Log.d(TAG, "updateLastPlayedSong() userId=$userId videoId='$normalizedVideoId' title='$normalizedTitle'")
+
+            val lastPlayedData = mapOf(
+                FIELD_VIDEO_ID to normalizedVideoId,
+                FIELD_SONG_NAME to normalizedTitle,
+                FIELD_ARTISTS to normalizedArtists,
+                FIELD_ALBUM to (song.album ?: ""),
+                FIELD_THUMBNAIL to normalizedThumbnail,
+                FIELD_DURATION to (song.duration ?: ""),
+                FIELD_LAST_PLAYED_AT to FieldValue.serverTimestamp()
+            )
+
+            firestore.collection(COLLECTION_USERS)
+                .document(userId)
+                .collection("lastPlayed")
+                .document("current")
+                .set(lastPlayedData, SetOptions.merge())
+                .await()
+
+            Log.d(TAG, "✓ Last played song updated successfully")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Failed to update last played song", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Retrieves the lastPlayed song for the current user.
+     * 
+     * Called when: App launches or user logs in
+     * 
+     * Storage location: users/{uid}/lastPlayed/current
+     * 
+     * Behavior:
+     * - Returns null if no lastPlayed document exists
+     * - Returns Song object with minimal metadata
+     * - Does NOT auto-play (just restoration)
+     * 
+     * @return Song? The last played song or null
+     */
+    suspend fun getLastPlayedSong(): Song? {
+        return try {
+            val currentUser = auth.currentUser
+            if (currentUser == null) {
+                Log.w(TAG, "getLastPlayedSong() - No authenticated user")
+                return null
+            }
+
+            val userId = currentUser.uid
+            Log.d(TAG, "getLastPlayedSong() userId=$userId")
+
+            val documentSnapshot = firestore.collection(COLLECTION_USERS)
+                .document(userId)
+                .collection("lastPlayed")
+                .document("current")
+                .get()
+                .await()
+
+            if (!documentSnapshot.exists()) {
+                Log.d(TAG, "No lastPlayed document found")
+                return null
+            }
+
+            val song = documentSnapshot.toLikedSong()
+            Log.d(TAG, "✓ Last played song retrieved: ${song?.title}")
+            song
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Failed to retrieve last played song", e)
+            null
+        }
+    }
 }
 
 private fun com.google.firebase.firestore.DocumentSnapshot.toLikedSong(): Song? {

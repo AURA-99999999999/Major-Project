@@ -44,12 +44,14 @@ import kotlinx.coroutines.launch
  * @param musicService The music playback service
  * @param authViewModel ViewModel that handles authentication
  * @param authState Current authentication state
+ * @param playerViewModel Shared player state holder for mini player
  */
 fun NavGraphBuilder.mainGraph(
     navController: NavHostController,
     musicService: MusicService?,
     authViewModel: AuthViewModel,
-    authState: AuthState
+    authState: AuthState,
+    playerViewModel: com.aura.music.ui.viewmodel.PlayerViewModel? = null
 ) {
     navigation(
         startDestination = "main/home",

@@ -42,6 +42,13 @@ class MusicService : MediaSessionService() {
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
+    // Expose individual StateFlows for mini player and shared UI consumption
+    private val _currentSong = MutableStateFlow<Song?>(null)
+    val currentSong: StateFlow<Song?> = _currentSong.asStateFlow()
+
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
     private var notificationManager: NotificationManager? = null
     private val repository by lazy { ServiceLocator.getMusicRepository() }
     private val firestoreRepository by lazy { FirestoreRepository() }
@@ -80,6 +87,7 @@ class MusicService : MediaSessionService() {
                 player.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         _playerState.update { it.copy(isPlaying = isPlaying, isLoading = false) }
+                        _isPlaying.value = isPlaying
                         updateNotification()
 
                         val debugSong = _playerState.value.currentSong
@@ -361,6 +369,7 @@ class MusicService : MediaSessionService() {
                 currentPosition = 0L
             )
         }
+        _isPlaying.value = false
     }
 
     private fun createNotificationChannel() {
@@ -510,6 +519,9 @@ class MusicService : MediaSessionService() {
                     isLoading = false
                 )
             }
+            // Update individual StateFlows for mini player
+            _currentSong.value = resolvedSong
+            _isPlaying.value = true
         }
     }
 
