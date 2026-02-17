@@ -9,6 +9,11 @@ A modern, full-stack music streaming application with Flask backend, React front
 
 ## 🎵 Features
 
+- **🤖 Advanced ML-Inspired Recommendation Engine**
+  - Weighted signals (liked songs 2x, plays 1x)
+  - Time-decay weighting for freshness
+  - Diversity enforcement (max 2/artist, 3/album)
+  - Cold-start fallback with trending songs
 - Music search & streaming with real-time playback
 - Persistent Mini Player (Now Playing Bar) across all screens
 - Playlists management with liked songs
@@ -16,8 +21,7 @@ A modern, full-stack music streaming application with Flask backend, React front
 - Cross-platform (Web + Android)
 - Background audio playback with ExoPlayer
 - Queue management and playback controls
-- Personalized recommendations
-- Firestore-backed persistence
+- Firestore-backed persistence with timestamps
 
 ## 🏗️ Tech Stack
 
@@ -80,38 +84,72 @@ Major-Project/
 
 ## 🎯 Key Features
 
-### Mini Player (Now Playing Bar)
-- Appears above bottom navigation on all screens (except full player)
-- Shows song thumbnail, title, artist
-- Media controls: skip previous, play/pause, skip next
-- Persists last played song with Firestore
-- Loads previous session's song on app start
+### 🤖 Advanced Recommendation System
 
-### Home Screen
-- Trending songs with horizontal scrolling
-- **Personalized recommendations** with ML-inspired features:
-  - Weighted signals: Liked songs (2x) + play history (1x)
-  - Time-decay weighting: Recent plays prioritized
-  - Diversity enforcement: Max 2 songs per artist, 3 per album
-  - Cold-start fallback for new users
-- Explore by Mood with category selection
-- Pull-to-refresh for fresh data
+**Production-grade hybrid ML recommender** with intelligent personalization:
 
-### Search
-- Real-time song search
-- Multi-source search (TMDB, YouTube Music)
+#### Core Algorithm Features
+- **Weighted Signal Processing**: 
+  - Liked songs: 2x preference weight
+  - Play history: 1x base weight with playCount multiplier
+  - Combines both signals for comprehensive taste profile
+
+- **Time-Decay Weighting** (Exponential Freshness):
+  - Formula: `weight = base_weight × exp(-λ × days_since_play)`
+  - Default λ = 0.15 (configurable via `RECOMMENDER_DECAY_LAMBDA`)
+  - Recent plays (today): ~100% influence
+  - Week-old plays: ~35% influence
+  - Month-old plays: ~1% influence
+  - Ensures recommendations stay fresh and relevant
+
+- **Diversity Layer** (Anti-Dominance):
+  - Maximum 2 songs per artist
+  - Maximum 3 songs per album
+  - Prevents artist/album saturation
+  - Maintains ranking order without re-scoring
+
+- **Cold-Start Handling**:
+  - Trending songs fallback for new users
+  - Works with zero history seamlessly
+  - Graceful degradation
+
+#### Smart Candidate Generation
+- Top 5 weighted artists extraction
+- Top 3 weighted albums clustering
+- Multi-source search (YouTube Music API)
+- Artist similarity and related songs
+- Real-time query optimization
+
+#### API Endpoint
+```
+GET /api/recommendations?uid={user_id}&limit=20
+```
+
+**Result**: Dynamic, diverse, and fresh recommendations that evolve with user taste over time.
+
+---
+
+### 🎵 Music Playback & UI
+
+**Mini Player (Now Playing Bar)**
+- Persistent across all screens (above bottom navigation)
+- Media controls: previous, play/pause, next
+- Firestore-backed session persistence
+
+**Full Player Screen**
+- Full-screen album art
+- Complete playback controls & queue management
+- Current timestamp display
+
+**Search & Discovery**
+- Real-time song search (YouTube Music)
 - Play from search results
+- Explore by Mood categories
 
-### Playlists
-- Create and manage custom playlists
+**Playlists & Library**
+- Create custom playlists
 - Like/unlike songs
 - View liked songs collection
-
-### Player
-- Full-screen player with album art
-- Complete playback controls
-- Queue management
-- Current timestamp display
 
 ## 🔐 Authentication
 
@@ -174,6 +212,6 @@ MIT License - Educational purposes
 ---
 
 **Documentation Updated**: February 2026  
-**Current Features**: Fully functional mini player, home screen, search, playlists, authentication, cross-platform persistence
+**Current Features**: Production-grade recommendation engine with time-decay weighting, diversity layer, mini player, home screen, search, playlists, authentication, cross-platform persistence
 
 Built with ❤️ using Flask, React, Kotlin, and Jetpack Compose
