@@ -1,5 +1,6 @@
 package com.aura.music.data.remote.dto
 
+import com.google.gson.JsonElement
 import com.google.gson.annotations.SerializedName
 
 data class SongDto(
@@ -18,7 +19,7 @@ data class SongDto(
     @SerializedName("url")
     val url: String?,
     @SerializedName("album")
-    val album: String?,
+    val album: JsonElement?,
     @SerializedName("artistId")
     val artistId: String?
 )

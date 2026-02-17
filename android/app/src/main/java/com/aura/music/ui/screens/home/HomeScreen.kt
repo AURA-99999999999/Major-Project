@@ -98,6 +98,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val recommendedSongs by viewModel.recommendedSongs.collectAsState()
     val playlistViewModel: PlaylistViewModel = viewModel(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
@@ -118,6 +119,9 @@ fun HomeScreen(
     LaunchedEffect(authState) {
         if (authState is AuthState.Authenticated) {
             viewModel.loadHomeData()
+            viewModel.loadRecommendationsIfNeeded()
+        } else {
+            viewModel.clearRecommendations()
         }
     }
 
@@ -331,6 +335,30 @@ fun HomeScreen(
                                         playlists = state.trendingPlaylists,
                                         onPlaylistClick = { playlist ->
                                             onNavigateToPlaylistPreview(playlist.playlistId)
+                                        }
+                                    )
+                                }
+                            }
+
+                            if (recommendedSongs.isNotEmpty()) {
+                                item {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SectionHeader(title = "Recommended For You")
+                                }
+
+                                item {
+                                    TrendingRow(
+                                        songs = recommendedSongs,
+                                        likedSongIds = likedSongsState.likedSongIds,
+                                        onSongClick = { song ->
+                                            viewModel.playSongByVideoId(song.videoId)
+                                            onNavigateToPlayer()
+                                        },
+                                        onToggleLike = { song ->
+                                            likedSongsViewModel.toggleLike(song)
+                                        },
+                                        onAddToPlaylist = { song ->
+                                            pendingSongForPlaylist = song
                                         }
                                     )
                                 }

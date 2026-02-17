@@ -5,6 +5,7 @@ from ytmusicapi import YTMusic
 from yt_dlp import YoutubeDL
 from typing import List, Dict, Optional
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,15 @@ class MusicService:
     """Service class for music operations"""
     
     def __init__(self, ydl_opts: dict):
-        self.ytmusic = YTMusic()
+        # Try to use OAuth if available, otherwise use unauthenticated
+        oauth_path = 'oauth.json'
+        if os.path.exists(oauth_path):
+            logger.info("Using authenticated YTMusic with oauth.json")
+            self.ytmusic = YTMusic(oauth_path)
+        else:
+            logger.warning("oauth.json not found - using unauthenticated YTMusic. Run setup_ytmusic_oauth.py to authenticate.")
+            self.ytmusic = YTMusic()
+        
         self.ydl_opts = ydl_opts
     
     def search_songs(self, query: str, limit: int = 20, filter_type: str = 'songs') -> List[Dict]:
@@ -39,35 +48,111 @@ class MusicService:
             raise
     
     def get_song_details(self, video_id: str) -> Dict:
-        """Get detailed song information and streaming URL"""
+        """
+        Get song details and streaming URL (production-safe).
+        Never throws unhandled exceptions.
+        
+        Returns error dict on failure: {'error': str, 'videoId': str}
+        """
         try:
             logger.info(f"Fetching song details for video ID: {video_id}")
             
-            # yt-dlp is the only source for playback and metadata in this path.
-            with YoutubeDL(self.ydl_opts) as ydl:
-                info = ydl.extract_info(
-                    f'https://music.youtube.com/watch?v={video_id}',
-                    download=False
-                )
+            # First try: Use YTMusic API to get song info (faster, more reliable)
+            try:
+                song_info = self.ytmusic.get_song(video_id)
+                logger.debug(f"YTMusic API response received for {video_id}")
+                
+                # Extract streaming formats
+                streaming_data = song_info.get('streamingData', {})
+                formats = streaming_data.get('adaptiveFormats', [])
+                logger.debug(f"Found {len(formats)} adaptive formats for {video_id}")
+                
+                # Find best audio format
+                audio_url = None
+                best_format = None
+                highest_bitrate = 0
+                
+                for fmt in formats:
+                    # Look for audio-only formats
+                    if fmt.get('mimeType', '').startswith('audio/'):
+                        bitrate = fmt.get('bitrate', 0)
+                        if bitrate > highest_bitrate:
+                            highest_bitrate = bitrate
+                            best_format = fmt
+                            audio_url = fmt.get('url')
+                
+                if audio_url:
+                    logger.info(f"Successfully extracted audio URL from YTMusic API for {video_id}")
+                    
+                    # Get video details for metadata
+                    video_details = song_info.get('videoDetails', {})
+                    
+                    return {
+                        'videoId': video_id,
+                        'url': audio_url,
+                        'title': video_details.get('title', 'Unknown Title'),
+                        'duration': int(video_details.get('lengthSeconds', 0)),
+                        'thumbnail': self._get_best_thumbnail(video_details.get('thumbnail', {}).get('thumbnails', [])),
+                        'artist': video_details.get('author', 'Unknown Artist'),
+                        'artists': [video_details.get('author', 'Unknown Artist')],
+                        'album': '',
+                        'year': '',
+                        'viewCount': int(video_details.get('viewCount', 0)),
+                        'likeCount': 0,
+                    }
+            except Exception as ytmusic_error:
+                logger.warning(f"YTMusic API failed: {str(ytmusic_error)}, falling back to yt-dlp")
+            
+            # Fallback: Use yt-dlp for video extraction (NO cookies, production-safe config)
+            url = f'https://www.youtube.com/watch?v={video_id}'
+            
+            try:
+                logger.info(f"Attempting yt-dlp extraction for {video_id}")
+                with YoutubeDL(self.ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                logger.info(f"yt-dlp extraction succeeded for {video_id}")
+            except Exception as ydl_error:
+                error_msg = str(ydl_error)
+                logger.error(f"yt-dlp extraction failed for {video_id}: {error_msg}")
+                # Return error dict (safe, won't crash)
+                return {
+                    'error': f'Could not extract audio for this video',
+                    'videoId': video_id
+                }
             
             if not info:
-                raise ValueError('Failed to extract video information')
+                logger.error(f"No info extracted for {video_id}")
+                return {
+                    'error': 'Failed to extract video information',
+                    'videoId': video_id
+                }
             
-            # Try to get direct audio URL
+            # Extract best audio URL from yt-dlp results
             audio_url = None
-            if 'url' in info:
+            
+            # Try direct url first
+            if info.get('url'):
                 audio_url = info['url']
-            elif 'formats' in info:
-                # Find best audio format
-                audio_formats = [f for f in info['formats'] if f.get('acodec') != 'none' and f.get('vcodec') == 'none']
+                logger.info(f"Using direct URL for {video_id}")
+            # Then try formats list
+            elif info.get('formats'):
+                audio_formats = [
+                    f for f in info['formats'] 
+                    if f.get('acodec') != 'none' and f.get('vcodec') == 'none'
+                ]
                 if audio_formats:
-                    # Sort by quality
+                    # Sort by bitrate (highest first)
                     audio_formats.sort(key=lambda x: x.get('abr', 0) or 0, reverse=True)
-                    audio_url = audio_formats[0]['url']
+                    audio_url = audio_formats[0].get('url')
+                    bitrate = audio_formats[0].get('abr', 'unknown')
+                    logger.info(f"Selected audio format (bitrate: {bitrate}) for {video_id}")
             
             if not audio_url:
-                logger.error(f"Could not extract audio URL for {video_id}")
-                raise ValueError('Could not extract audio URL from this video')
+                logger.error(f"Could not extract any audio URL for {video_id}")
+                return {
+                    'error': 'This video does not have streamable audio',
+                    'videoId': video_id
+                }
             
             logger.info(f"Successfully extracted audio URL for {video_id}")
             
@@ -95,8 +180,13 @@ class MusicService:
                 'likeCount': info.get('like_count', 0),
             }
         except Exception as e:
-            logger.error(f"Error getting song details for {video_id}: {str(e)}", exc_info=True)
-            raise ValueError(f"Failed to load song: {str(e)}")
+            # Final safety net: never let unhandled exceptions escape
+            error_msg = str(e)
+            logger.error(f"Unhandled error getting song details for {video_id}: {error_msg}", exc_info=True)
+            return {
+                'error': f'Failed to load song',
+                'videoId': video_id
+            }
     
     def get_trending_songs(self, limit: int = 20) -> List[Dict]:
         """Get trending songs"""

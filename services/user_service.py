@@ -1,12 +1,22 @@
 """
 User Service - Handles user-related operations
-For production, this would use a database. Using in-memory storage for now.
+Supports both local storage and Firebase Firestore backend
 """
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import json
 import os
 from datetime import datetime
 import hashlib
+import logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+    FIRESTORE_AVAILABLE = True
+except ImportError:
+    FIRESTORE_AVAILABLE = False
 
 class UserService:
     """Service for managing users"""
@@ -16,6 +26,16 @@ class UserService:
         self._ensure_storage_dir()
         self.users = self._load_users()
         self.sessions = {}  # In production, use JWT or Redis
+        
+        # Initialize Firestore if available
+        self.db = None
+        if FIRESTORE_AVAILABLE:
+            try:
+                self.db = firestore.client()
+                logger.info("Firestore connected successfully")
+            except Exception as e:
+                logger.warning(f"Firestore not available: {str(e)}")
+                self.db = None
     
     def _ensure_storage_dir(self):
         """Ensure the data directory exists"""
@@ -141,4 +161,73 @@ class UserService:
         
         self._save_users()
         return True
+    
+    def get_user_plays(self, uid: str, limit: int = 50) -> List[Dict]:
+        """
+        Get user's recent plays from Firestore or local storage.
+        Returns list of play records ordered by recency.
+        """
+        try:
+            # Try Firestore first
+            if self.db:
+                try:
+                    plays_ref = self.db.collection('users').document(uid).collection('plays')
+                    docs = plays_ref.order_by('lastPlayedAt', direction=firestore.Query.DESCENDING).limit(limit).stream()
+                    
+                    plays = []
+                    for doc in docs:
+                        data = doc.to_dict()
+                        if data:
+                            plays.append(data)
+                    
+                    logger.debug(f"Fetched {len(plays)} plays from Firestore for user {uid}")
+                    return plays
+                except Exception as e:
+                    logger.warning(f"Error fetching plays from Firestore: {str(e)}")
+            
+            # Fallback to local storage
+            user = self.users.get(uid)
+            if user and user.get('recentlyPlayed'):
+                logger.debug(f"Fetched {len(user['recentlyPlayed'])} plays from local storage for user {uid}")
+                return user['recentlyPlayed'][:limit]
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error getting user plays for {uid}: {str(e)}")
+            return []
+    
+    def get_user_liked_songs(self, uid: str) -> List[Dict]:
+        """
+        Get user's liked songs from Firestore or local storage.
+        """
+        try:
+            # Try Firestore first
+            if self.db:
+                try:
+                    liked_ref = self.db.collection('users').document(uid).collection('likedSongs')
+                    docs = liked_ref.stream()
+                    
+                    liked_songs = []
+                    for doc in docs:
+                        data = doc.to_dict()
+                        if data:
+                            liked_songs.append(data)
+                    
+                    logger.debug(f"Fetched {len(liked_songs)} liked songs from Firestore for user {uid}")
+                    return liked_songs
+                except Exception as e:
+                    logger.warning(f"Error fetching liked songs from Firestore: {str(e)}")
+            
+            # Fallback to local storage
+            user = self.users.get(uid)
+            if user and user.get('likedSongs'):
+                logger.debug(f"Fetched {len(user['likedSongs'])} liked songs from local storage for user {uid}")
+                return user['likedSongs']
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error getting user liked songs for {uid}: {str(e)}")
+            return []
 

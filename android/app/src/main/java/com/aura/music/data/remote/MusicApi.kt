@@ -7,6 +7,7 @@ import com.aura.music.data.remote.dto.LoginRequest
 import com.aura.music.data.remote.dto.MoodCategoriesResponse
 import com.aura.music.data.remote.dto.MoodPlaylistsResponse
 import com.aura.music.data.remote.dto.PlaylistDto
+import com.aura.music.data.remote.dto.RecommendationResponse
 import com.aura.music.data.remote.dto.RegisterRequest
 import com.aura.music.data.remote.dto.SongDto
 import com.aura.music.data.remote.dto.TrendingPlaylistsResponse
@@ -43,6 +44,12 @@ interface MusicApi {
     // Home (trending + recommendations)
     @GET("home")
     suspend fun getHome(): HomeResponseDto
+
+    // User Recommendations
+    @GET("recommendations")
+    suspend fun getRecommendations(
+        @Query("uid") uid: String
+    ): RecommendationResponse
 
     // Home: Trending Playlists
     @GET("home/trending-playlists")

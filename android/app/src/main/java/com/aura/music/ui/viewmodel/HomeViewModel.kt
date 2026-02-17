@@ -33,7 +33,11 @@ class HomeViewModel(
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    private val _recommendedSongs = MutableStateFlow<List<Song>>(emptyList())
+    val recommendedSongs: StateFlow<List<Song>> = _recommendedSongs.asStateFlow()
+
     private var hasLoaded = false
+    private var hasLoadedRecommendations = false
     private var musicService: MusicService? = null
 
     fun attachMusicService(service: MusicService?) {
@@ -89,6 +93,21 @@ class HomeViewModel(
         }
     }
 
+    fun loadRecommendationsIfNeeded() {
+        if (hasLoadedRecommendations) return
+        hasLoadedRecommendations = true
+
+        viewModelScope.launch {
+            val songs = repository.fetchUserRecommendations()
+            _recommendedSongs.value = songs
+        }
+    }
+
+    fun clearRecommendations() {
+        _recommendedSongs.value = emptyList()
+        hasLoadedRecommendations = false
+    }
+
     fun selectMood(category: MoodCategory) {
         viewModelScope.launch {
             val currentState = _uiState.value
@@ -129,6 +148,10 @@ class HomeViewModel(
         if (state is HomeUiState.Success) {
             return (state.trending + state.recommendations)
                 .firstOrNull { it.videoId == videoId }
+        }
+        val recommended = _recommendedSongs.value
+        if (recommended.isNotEmpty()) {
+            return recommended.firstOrNull { it.videoId == videoId }
         }
         return null
     }

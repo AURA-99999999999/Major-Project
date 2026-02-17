@@ -14,6 +14,7 @@ import com.aura.music.data.model.User
 import com.aura.music.data.remote.MusicApi
 import com.aura.music.data.remote.dto.LoginRequest
 import com.aura.music.data.remote.dto.RegisterRequest
+import com.google.firebase.auth.FirebaseAuth
 
 class MusicRepository(
     private val api: MusicApi,
@@ -114,6 +115,19 @@ class MusicRepository(
         } catch (e: Exception) {
             safeLog { Log.e(TAG, "getHomeData() exception", e) }
             Result.failure(e)
+        }
+    }
+
+    suspend fun fetchUserRecommendations(): List<Song> {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+            ?: return emptyList()
+
+        return try {
+            val response = api.getRecommendations(uid)
+            response.results.toSongs()
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "fetchUserRecommendations() exception", e) }
+            emptyList()
         }
     }
 

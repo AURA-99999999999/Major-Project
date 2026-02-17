@@ -7,10 +7,12 @@ from pathlib import Path
 from flask_cors import CORS
 import logging
 import time
+import os
 from config import Config
 from services.music_service import MusicService
 from services.playlist_service import PlaylistService
 from services.user_service import UserService
+from services.recommendation_service import RecommendationService
 from ytmusicapi import YTMusic
 
 # Configure logging
@@ -33,6 +35,22 @@ CORS(app, origins="*", supports_credentials=True, allow_headers="*", methods="*"
 music_service = MusicService(Config.YDL_OPTS)
 playlist_service = PlaylistService()
 user_service = UserService()
+
+# Initialize YTMusic with OAuth if available
+ytmusic = None
+try:
+    if os.path.exists('oauth.json'):
+        ytmusic = YTMusic('oauth.json')
+        logger.info("YTMusic initialized with OAuth")
+    else:
+        ytmusic = YTMusic()
+        logger.info("YTMusic initialized without OAuth (unauthenticated)")
+except Exception as e:
+    logger.error(f"Error initializing YTMusic: {str(e)}")
+    ytmusic = YTMusic()
+
+# Initialize recommendation service
+recommendation_service = RecommendationService(ytmusic, user_service)
 
 # Simple in-memory caches for home and search results
 HOME_CACHE_TTL_SECONDS = 45 * 60
@@ -217,19 +235,32 @@ def search_songs():
 
 @app.route('/api/song/<video_id>', methods=['GET'])
 def get_song(video_id):
-    """Get song details and streaming URL"""
+    """Get song details and streaming URL (production-safe)"""
     try:
         if not video_id:
             return jsonify({'error': 'Video ID is required'}), 400
         
         song_data = music_service.get_song_details(video_id)
+        
+        # Check if music_service returned an error dict
+        if 'error' in song_data:
+            logger.warning(f"Song extraction error for {video_id}: {song_data.get('error')}")
+            return jsonify(song_data), 400
+        
+        # Success: return properly formatted response
         return jsonify({
             'success': True,
             'data': song_data
-        })
+        }), 200
+        
     except Exception as e:
-        logger.error(f"Get song error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        # This is a safety net - get_song_details should NOT raise exceptions
+        error_msg = str(e)
+        logger.error(f"Unexpected error in get_song endpoint for {video_id}: {error_msg}", exc_info=True)
+        return jsonify({
+            'error': 'Failed to load song',
+            'videoId': video_id
+        }), 400
 
 @app.route('/api/trending', methods=['GET'])
 def get_trending():
@@ -245,6 +276,60 @@ def get_trending():
     except Exception as e:
         logger.error(f"Trending error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/recommendations', methods=['GET'])
+def get_recommendations():
+    """
+    Get personalized music recommendations for a user.
+    
+    Query Parameters:
+        uid: User ID (required)
+        limit: Number of recommendations (optional, default 20)
+    
+    Returns:
+        {
+            "count": 20,
+            "source": "recommendation_engine",
+            "results": [
+                {
+                    "videoId": "...",
+                    "title": "...",
+                    "artists": [...],
+                    "thumbnail": "...",
+                    "album": "..."
+                }
+            ]
+        }
+    """
+    try:
+        # Get user ID from query parameters
+        uid = request.args.get('uid')
+        if not uid:
+            return jsonify({'error': 'uid parameter is required'}), 400
+        
+        limit = int(request.args.get('limit', 20))
+        if limit < 1 or limit > 100:
+            limit = 20
+        
+        logger.info(f"Recommendation request for user {uid}, limit: {limit}")
+        
+        # Generate recommendations
+        recommendations = recommendation_service.get_recommendations(uid, limit=limit)
+        
+        return jsonify(recommendations), 200
+        
+    except ValueError as e:
+        logger.error(f"Invalid parameter: {str(e)}")
+        return jsonify({'error': 'Invalid parameters'}), 400
+    except Exception as e:
+        logger.error(f"Recommendations error: {str(e)}", exc_info=True)
+        return jsonify({
+            'count': 0,
+            'source': 'recommendation_engine',
+            'results': [],
+            'error': 'Failed to generate recommendations'
+        }), 500
 
 
 @app.route('/api/home', methods=['GET'])

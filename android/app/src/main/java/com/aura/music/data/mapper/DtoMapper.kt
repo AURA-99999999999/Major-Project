@@ -6,6 +6,7 @@ import com.aura.music.data.model.User
 import com.aura.music.data.remote.dto.PlaylistDto
 import com.aura.music.data.remote.dto.SongDto
 import com.aura.music.data.remote.dto.UserDto
+import com.google.gson.JsonElement
 
 fun SongDto.toSong(): Song {
     return Song(
@@ -16,9 +17,28 @@ fun SongDto.toSong(): Song {
         thumbnail = thumbnail,
         duration = duration,
         url = url,
-        album = album,
+        album = album.toAlbumName(),
         artistId = artistId
     )
+}
+
+private fun JsonElement?.toAlbumName(): String? {
+    if (this == null || isJsonNull) {
+        return null
+    }
+
+    if (isJsonPrimitive) {
+        return asString
+    }
+
+    if (isJsonObject) {
+        val nameElement = asJsonObject.get("name")
+        if (nameElement != null && nameElement.isJsonPrimitive) {
+            return nameElement.asString
+        }
+    }
+
+    return null
 }
 
 fun List<SongDto>.toSongs(): List<Song> {
