@@ -6,6 +6,7 @@ from yt_dlp import YoutubeDL
 from typing import List, Dict, Optional
 import logging
 import os
+from services.music_filter import filter_music_tracks
 
 logger = logging.getLogger(__name__)
 
@@ -189,24 +190,44 @@ class MusicService:
             }
     
     def get_trending_songs(self, limit: int = 20) -> List[Dict]:
-        """Get trending songs"""
+        """
+        Get trending songs with strict music-only filtering.
+        
+        Uses YTMusic.get_explore() to fetch trending data, then applies
+        production-grade filtering to remove non-music content (interviews,
+        podcasts, trailers, etc).
+        
+        Args:
+            limit: Maximum number of trending songs to return
+            
+        Returns:
+            List of validated music track dictionaries
+        """
         try:
-            charts = self.ytmusic.get_charts(country='US', limit=limit)
-            trending = []
+            logger.info(f"Fetching trending songs: limit={limit}")
             
-            for song in charts.get('songs', [])[:limit]:
-                trending.append({
-                    'videoId': song.get('videoId'),
-                    'title': song.get('title', 'Unknown'),
-                    'artists': [artist.get('name', 'Unknown') for artist in song.get('artists', [])],
-                    'thumbnail': self._get_best_thumbnail(song.get('thumbnails', [])),
-                    'duration': song.get('duration'),
-                    'album': song.get('album', {}).get('name') if song.get('album') else None,
-                })
+            # Fetch raw trending data from YTMusic
+            # get_explore returns: {'trending': {'items': [...]}, 'new_releases': {...}, ...}
+            explore = self.ytmusic.get_explore()
+            raw_items = explore.get('trending', {}).get('items', [])
             
-            return trending
+            # Fetch extra items to account for filtering rejections
+            raw_items = raw_items[:limit * 3] if raw_items else []
+            
+            logger.debug(f"YTMusic returned {len(raw_items)} raw trending items")
+            
+            # Apply strict music-only filtering
+            # Note: We disable deep validation here for performance (get_song calls are expensive)
+            # The title blocklist provides sufficient quality filtering for trending
+            filtered_items = filter_music_tracks(raw_items, ytmusic=None, include_validation=False)
+            
+            # Return top N items
+            result = filtered_items[:limit]
+            logger.info(f"Trending songs result: requested={limit} returned={len(result)}")
+            
+            return result
         except Exception as e:
-            logger.error(f"Error getting trending songs: {str(e)}")
+            logger.error(f"Error getting trending songs: {str(e)}", exc_info=True)
             return []
     
     def get_artist_info(self, artist_id: str) -> Dict:

@@ -10,6 +10,7 @@ import time
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
+from services.music_filter import filter_music_tracks, _validate_music_video_type
 
 try:
     import firebase_admin
@@ -790,40 +791,19 @@ class RecommendationService:
             return None
 
     def _is_title_allowed(self, title: str) -> bool:
-        """Lightweight title filter to avoid obvious non-music content."""
-        if not title:
-            return True
-        lowered = title.lower()
-        return not any(term in lowered for term in self.TITLE_BLOCKLIST)
+        """
+        Lightweight title filter to avoid obvious non-music content.
+        Uses shared filtering logic from music_filter module.
+        """
+        from services.music_filter import _is_title_allowed as filter_is_title_allowed
+        return filter_is_title_allowed(title)
 
     def _is_valid_music_video(self, video_id: str, title: str) -> bool:
-        """Validate the video is a real music track using YTMusic get_song."""
-        if not video_id:
-            return False
-
-        try:
-            song_details = self.ytmusic.get_song(video_id)
-            video_details = song_details.get('videoDetails', {}) if isinstance(song_details, dict) else {}
-            music_video_type = video_details.get('musicVideoType')
-
-            if music_video_type in self.ALLOWED_MUSIC_VIDEO_TYPES:
-                return True
-
-            logger.info(
-                "Recommendation skipped: reason=music_video_type videoId=%s title=%s musicVideoType=%s",
-                video_id,
-                title,
-                music_video_type
-            )
-            return False
-        except Exception as e:
-            logger.warning(
-                "Recommendation validation failed: videoId=%s title=%s error=%s",
-                video_id,
-                title,
-                str(e)
-            )
-            return False
+        """
+        Validate the video is a real music track using YTMusic get_song.
+        Uses shared validation logic from music_filter module.
+        """
+        return _validate_music_video_type(video_id, title, self.ytmusic)
     
     def _merge_recommendations(
         self,

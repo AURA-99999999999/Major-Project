@@ -1,14 +1,9 @@
 package com.aura.music.player
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Intent
 import android.os.Binder
-import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -49,7 +44,6 @@ class MusicService : MediaSessionService() {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    private var notificationManager: NotificationManager? = null
     private val repository by lazy { ServiceLocator.getMusicRepository() }
     private val firestoreRepository by lazy { FirestoreRepository() }
 
@@ -64,8 +58,6 @@ class MusicService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        notificationManager = getSystemService(NotificationManager::class.java)
-        createNotificationChannel()
         initializePlayer()
     }
 
@@ -88,7 +80,6 @@ class MusicService : MediaSessionService() {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         _playerState.update { it.copy(isPlaying = isPlaying, isLoading = false) }
                         _isPlaying.value = isPlaying
-                        updateNotification()
 
                         val debugSong = _playerState.value.currentSong
                         Log.d(
@@ -157,7 +148,6 @@ class MusicService : MediaSessionService() {
                                 handleTrackEnd()
                             }
                         }
-                        updateNotification()
                     }
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -192,8 +182,6 @@ class MusicService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, exoPlayer!!)
             .setCallback(object : MediaSession.Callback {})
             .build()
-
-        startForeground(NOTIFICATION_ID, createNotification())
     }
 
     private fun updateCurrentPosition() {
@@ -372,90 +360,9 @@ class MusicService : MediaSessionService() {
         _isPlaying.value = false
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Music Player",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Music playback controls"
-                setShowBadge(false)
-            }
-            notificationManager?.createNotificationChannel(channel)
-        }
-    }
 
-    private fun createNotification(): android.app.Notification {
-        val currentSong = _playerState.value.currentSong
-        val isPlaying = _playerState.value.isPlaying
-
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            action = Intent.ACTION_MAIN
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val playPauseAction = NotificationCompat.Action(
-            if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
-            if (isPlaying) "Pause" else "Play",
-            createPendingIntent(ACTION_TOGGLE_PLAY_PAUSE)
-        )
-
-        val prevAction = NotificationCompat.Action(
-            android.R.drawable.ic_media_rew,
-            "Previous",
-            createPendingIntent(ACTION_PREVIOUS)
-        )
-
-        val nextAction = NotificationCompat.Action(
-            android.R.drawable.ic_media_ff,
-            "Next",
-            createPendingIntent(ACTION_NEXT)
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(currentSong?.title ?: "Aura")
-            .setContentText(currentSong?.getArtistString() ?: "No song playing")
-            .setSmallIcon(android.R.drawable.ic_menu_slideshow)
-            .setContentIntent(pendingIntent)
-            .addAction(prevAction)
-            .addAction(playPauseAction)
-            .addAction(nextAction)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOnlyAlertOnce(true)
-            .build()
-    }
-
-    private fun createPendingIntent(action: String): PendingIntent {
-        val intent = Intent(this, MusicService::class.java).apply {
-            this.action = action
-        }
-        return PendingIntent.getService(
-            this,
-            action.hashCode(),
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-    }
-
-    private fun updateNotification() {
-        notificationManager?.notify(NOTIFICATION_ID, createNotification())
-    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_TOGGLE_PLAY_PAUSE -> togglePlayPause()
-            ACTION_PREVIOUS -> playPrevious()
-            ACTION_NEXT -> playNext()
-        }
         return START_STICKY
     }
 
@@ -526,11 +433,6 @@ class MusicService : MediaSessionService() {
     }
 
     companion object {
-        private const val CHANNEL_ID = "music_channel"
-        private const val NOTIFICATION_ID = 1
-        private const val ACTION_TOGGLE_PLAY_PAUSE = "com.aura.music.TOGGLE_PLAY_PAUSE"
-        private const val ACTION_PREVIOUS = "com.aura.music.PREVIOUS"
-        private const val ACTION_NEXT = "com.aura.music.NEXT"
         private const val TAG = "MusicService"
     }
 }

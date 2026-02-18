@@ -11,6 +11,7 @@ import com.aura.music.auth.screens.HomeScreen
 import com.aura.music.auth.screens.LoginScreen
 import com.aura.music.auth.screens.SignupScreen
 import com.aura.music.auth.state.AuthState
+import com.aura.music.auth.state.PasswordResetState
 import com.aura.music.auth.viewmodel.AuthViewModel
 
 /**
@@ -35,6 +36,7 @@ fun AuthNavigation(
 ) {
     val authViewModel: AuthViewModel = viewModel()
     val authState by authViewModel.authState.collectAsState()
+    val passwordResetState by authViewModel.passwordResetState.collectAsState()
 
     NavHost(
         navController = navController,
@@ -46,6 +48,7 @@ fun AuthNavigation(
         composable("login") {
             LoginScreen(
                 authState = authState,
+                passwordResetState = passwordResetState,
                 onLogin = { email, password ->
                     authViewModel.login(email, password)
                 },
@@ -57,6 +60,12 @@ fun AuthNavigation(
                 },
                 onGoogleSignIn = { idToken ->
                     authViewModel.signInWithGoogle(idToken)
+                },
+                onSendPasswordResetEmail = { email ->
+                    authViewModel.sendPasswordResetEmail(email)
+                },
+                onResetPasswordResetState = {
+                    authViewModel.resetPasswordResetState()
                 }
             )
 

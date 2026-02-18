@@ -35,6 +35,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.aura.music.R
 import com.aura.music.auth.state.AuthState
+import com.aura.music.auth.state.PasswordResetState
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -44,13 +45,17 @@ import com.google.android.gms.tasks.Task
 @Composable
 fun LoginScreen(
     authState: AuthState,
+    passwordResetState: PasswordResetState,
     onLogin: (email: String, password: String) -> Unit,
     onNavigateToSignup: () -> Unit,
     onGoogleSignIn: (idToken: String) -> Unit,
+    onSendPasswordResetEmail: (email: String) -> Unit,
+    onResetPasswordResetState: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var showForgotPasswordDialog by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val webClientId = stringResource(R.string.default_web_client_id)
 
@@ -116,7 +121,27 @@ fun LoginScreen(
                 enabled = authState !is AuthState.Loading
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Forgot Password link
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(
+                    onClick = { showForgotPasswordDialog = true },
+                    enabled = authState !is AuthState.Loading,
+                    modifier = Modifier.padding(end = 0.dp)
+                ) {
+                    Text(
+                        text = "Forgot Password?",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Error message
             if (authState is AuthState.Error) {
@@ -191,5 +216,18 @@ fun LoginScreen(
             }
         }
     }
+
+    // Forgot Password Dialog
+    ForgotPasswordDialog(
+        isShowing = showForgotPasswordDialog,
+        passwordResetState = passwordResetState,
+        onSendResetEmail = { email ->
+            onSendPasswordResetEmail(email)
+        },
+        onDismiss = {
+            showForgotPasswordDialog = false
+            onResetPasswordResetState()
+        }
+    )
 }
 

@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.aura.music.auth.screens.LoginScreen
 import com.aura.music.auth.screens.SignupScreen
 import com.aura.music.auth.state.AuthState
+import com.aura.music.auth.state.PasswordResetState
 import com.aura.music.auth.viewmodel.AuthViewModel
 import com.aura.music.player.MusicService
 import com.aura.music.ui.components.MiniPlayerBar
@@ -70,6 +71,9 @@ fun RootNavGraph(
         else -> "auth"
     }
 
+    // Observe password reset state
+    val passwordResetState by authViewModel.passwordResetState.collectAsState()
+
     // Observe player state for mini player display
     val currentSong by playerViewModel.currentSong.collectAsState()
     val isPlaying by playerViewModel.isPlaying.collectAsState()
@@ -106,7 +110,8 @@ fun RootNavGraph(
             authGraph(
                 navController = navController,
                 authViewModel = authViewModel,
-                authState = authState
+                authState = authState,
+                passwordResetState = passwordResetState
             )
 
             // ==================== MAIN APP GRAPH ====================

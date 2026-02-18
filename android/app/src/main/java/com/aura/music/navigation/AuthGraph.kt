@@ -8,6 +8,7 @@ import androidx.navigation.navigation
 import com.aura.music.auth.screens.LoginScreen
 import com.aura.music.auth.screens.SignupScreen
 import com.aura.music.auth.state.AuthState
+import com.aura.music.auth.state.PasswordResetState
 import com.aura.music.auth.viewmodel.AuthViewModel
 
 /**
@@ -28,7 +29,8 @@ import com.aura.music.auth.viewmodel.AuthViewModel
 fun NavGraphBuilder.authGraph(
     navController: NavHostController,
     authViewModel: AuthViewModel,
-    authState: AuthState
+    authState: AuthState,
+    passwordResetState: PasswordResetState
 ) {
     navigation(
         startDestination = "auth/login",
@@ -38,6 +40,7 @@ fun NavGraphBuilder.authGraph(
         composable("auth/login") {
             LoginScreen(
                 authState = authState,
+                passwordResetState = passwordResetState,
                 onLogin = { email, password ->
                     authViewModel.login(email, password)
                 },
@@ -49,6 +52,12 @@ fun NavGraphBuilder.authGraph(
                 },
                 onGoogleSignIn = { idToken ->
                     authViewModel.signInWithGoogle(idToken)
+                },
+                onSendPasswordResetEmail = { email ->
+                    authViewModel.sendPasswordResetEmail(email)
+                },
+                onResetPasswordResetState = {
+                    authViewModel.resetPasswordResetState()
                 }
             )
 

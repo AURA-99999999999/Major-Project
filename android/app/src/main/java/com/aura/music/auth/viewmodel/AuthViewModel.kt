@@ -4,6 +4,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aura.music.auth.state.AuthState
+import com.aura.music.auth.state.PasswordResetState
+import com.aura.music.data.repository.AuthRepository
 import com.aura.music.data.repository.FirestoreRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
@@ -25,14 +27,25 @@ import kotlinx.coroutines.tasks.await
  */
 class AuthViewModel(
     private val firebaseAuth: FirebaseAuth = FirebaseAuth.getInstance(),
-    private val firestoreRepository: FirestoreRepository = FirestoreRepository()
+    private val firestoreRepository: FirestoreRepository = FirestoreRepository(),
+    private val authRepository: AuthRepository = AuthRepository()
 ) : ViewModel() {
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
+    private val _passwordResetState = MutableStateFlow<PasswordResetState>(PasswordResetState.Idle)
+    val passwordResetState: StateFlow<PasswordResetState> = _passwordResetState.asStateFlow()
+
     init {
-        checkAuthStatus()
+        try {
+            Log.d(TAG, "AuthViewModel initializing...")
+            checkAuthStatus()
+            Log.d(TAG, "AuthViewModel initialized successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing AuthViewModel", e)
+            _authState.value = AuthState.Error("Failed to initialize: ${e.message}")
+        }
     }
 
     /**
@@ -43,14 +56,22 @@ class AuthViewModel(
      */
     fun checkAuthStatus() {
         viewModelScope.launch {
-            val currentUser = firebaseAuth.currentUser
-            _authState.value = if (currentUser != null) {
-                AuthState.Authenticated(
-                    userId = currentUser.uid,
-                    email = currentUser.email ?: ""
-                )
-            } else {
-                AuthState.Unauthenticated
+            try {
+                Log.d(TAG, "Checking auth status...")
+                val currentUser = firebaseAuth.currentUser
+                _authState.value = if (currentUser != null) {
+                    Log.d(TAG, "User is authenticated: ${currentUser.uid}")
+                    AuthState.Authenticated(
+                        userId = currentUser.uid,
+                        email = currentUser.email ?: ""
+                    )
+                } else {
+                    Log.d(TAG, "User is not authenticated")
+                    AuthState.Unauthenticated
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking auth status", e)
+                _authState.value = AuthState.Unauthenticated
             }
         }
     }
@@ -241,6 +262,61 @@ class AuthViewModel(
                 _authState.value = AuthState.Error(e.message ?: "Error during signout")
             }
         }
+    }
+
+    /**
+     * Send password reset email to user
+     *
+     * Process:
+     * 1. Validate email format using pattern matching
+     * 2. Set state to Loading
+     * 3. Call repository to send reset email
+     * 4. Update state based on result
+     * 5. Auto-reset to Idle after success/error
+     *
+     * @param email User's registered email address
+     */
+    fun sendPasswordResetEmail(email: String) {
+        if (email.isBlank()) {
+            _passwordResetState.value = PasswordResetState.Error("Email cannot be empty")
+            return
+        }
+
+        // Validate email format using Android's built-in email pattern
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            _passwordResetState.value = PasswordResetState.Error("Invalid email address format")
+            return
+        }
+
+        _passwordResetState.value = PasswordResetState.Loading
+        viewModelScope.launch {
+            try {
+                Log.d(TAG, "Sending password reset email to: $email")
+
+                authRepository.sendPasswordResetEmail(email)
+                    .onSuccess {
+                        Log.d(TAG, "Password reset email sent successfully")
+                        _passwordResetState.value = PasswordResetState.Success()
+                    }
+                    .onFailure { error ->
+                        Log.e(TAG, "Password reset failed", error)
+                        val errorMessage = error.message ?: "Failed to send password reset email"
+                        _passwordResetState.value = PasswordResetState.Error(errorMessage)
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Password reset exception", e)
+                _passwordResetState.value =
+                    PasswordResetState.Error(e.message ?: "An error occurred while resetting password")
+            }
+        }
+    }
+
+    /**
+     * Reset password reset state to Idle
+     * Call this when dialog is dismissed
+     */
+    fun resetPasswordResetState() {
+        _passwordResetState.value = PasswordResetState.Idle
     }
     
     companion object {

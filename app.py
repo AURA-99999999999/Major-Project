@@ -13,6 +13,7 @@ from services.music_service import MusicService
 from services.playlist_service import PlaylistService
 from services.user_service import UserService
 from services.recommendation_service import RecommendationService
+from services.music_filter import filter_music_tracks
 from ytmusicapi import YTMusic
 
 # Configure logging
@@ -106,26 +107,25 @@ def _normalize_artists(artists):
 
 
 def _build_trending_items(items, limit: int):
-    trending = []
-    for item in items:
-        video_id = item.get("videoId")
-        if not video_id:
-            continue
-
-        thumbnails = item.get("thumbnails") or item.get("thumbnail") or []
-        trending.append(
-            {
-                "title": item.get("title") or "",
-                "videoId": video_id,
-                "artists": _normalize_artists(item.get("artists")),
-                "thumbnail": _pick_best_thumbnail(thumbnails),
-                "playlistId": item.get("playlistId") or "",
-                "views": item.get("views") or "",
-            }
-        )
-        if len(trending) >= limit:
-            break
-    return trending
+    """
+    Filter and normalize trending items to ensure only real music tracks.
+    
+    Applies music-only content filtering using the production-grade
+    filter_music_tracks function to remove YouTube videos, interviews,
+    podcasts, trailers, etc.
+    
+    Args:
+        items: Raw items from YTMusic API
+        limit: Maximum number of items to return
+        
+    Returns:
+        List of cleaned, validated music track dictionaries
+    """
+    # Apply comprehensive music-only filtering
+    filtered_items = filter_music_tracks(items, ytmusic=None, include_validation=False)
+    
+    # Return top N items
+    return filtered_items[:limit]
 
 # Error handlers
 @app.errorhandler(404)
@@ -334,24 +334,57 @@ def get_recommendations():
 
 @app.route('/api/home', methods=['GET'])
 def get_home():
-    """Get home feed with trending from YTMusic"""
+    """
+    Get home feed with trending music tracks from YTMusic.
+    
+    Applies strict music-only filtering to ensure:
+    - No interviews, podcasts, or trailers
+    - No YouTube show content
+    - Valid artist information
+    - Clean thumbnails
+    - Minimum track duration
+    
+    Returns:
+    {
+        "source": "ytmusicapi",
+        "count": int,
+        "trending": [
+            {
+                "videoId": str,
+                "title": str,
+                "artists": [str, ...],
+                "thumbnail": str,
+                "album": str
+            },
+            ...
+        ]
+    }
+    """
     try:
         limit = 15
         cache_key = f"home:ytmusic:{limit}"
         cached = _cache_get(_home_cache, cache_key)
         if cached is not None:
+            logger.debug(f"Home cache hit: {cache_key}")
             return jsonify(cached)
 
+        logger.info("Fetching home trending from YTMusic")
         ytmusic = YTMusic()
         explore = ytmusic.get_explore()
         trending_items = ((explore or {}).get("trending") or {}).get("items") or []
+        
+        logger.info(f"YTMusic returned {len(trending_items)} raw trending items")
 
+        # Apply strict music-only filtering instead of simple field extraction
         trending = _build_trending_items(trending_items, limit)
+        
         response_payload = {
             "source": "ytmusicapi",
             "count": len(trending),
             "trending": trending,
         }
+        
+        logger.info(f"Home response: requested={limit} returned={len(trending)} cached=True")
         _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
 
         return jsonify(response_payload)
@@ -362,6 +395,55 @@ def get_home():
             "count": 0,
             "trending": [],
         })
+
+
+@app.route('/api/home/trending-tracks', methods=['GET'])
+def get_trending_tracks():
+    """
+    Get trending music tracks with strict filtering.
+    
+    Alias endpoint for /api/trending with same music-only validation.
+    Query Parameters:
+        limit: Number of trending tracks to return (default: 20, max: 100)
+    
+    Returns same format as /api/home with music-only filtered results.
+    """
+    try:
+        limit = int(request.args.get('limit', 20))
+        limit = min(max(limit, 1), 100)  # Clamp to 1-100
+        
+        cache_key = f"trending_tracks:{limit}"
+        cached = _cache_get(_home_cache, cache_key)
+        if cached is not None:
+            logger.debug(f"Trending tracks cache hit: limit={limit}")
+            return jsonify(cached)
+
+        logger.info(f"Fetching trending tracks: limit={limit}")
+        
+        # Use music_service for consistent trending fetch
+        trending_items = music_service.get_trending_songs(limit=limit * 2)  # Fetch extra
+        
+        # Already filtered by music_service, but normalize response format for consistency
+        response_payload = {
+            "source": "ytmusicapi",
+            "count": len(trending_items),
+            "results": trending_items[:limit],
+        }
+        
+        logger.info(f"Trending tracks response: requested={limit} returned={len(trending_items[:limit])}")
+        _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
+        
+        return jsonify(response_payload)
+    except ValueError as e:
+        logger.error(f"Invalid parameter in trending-tracks: {str(e)}")
+        return jsonify({"error": "Invalid parameters", "source": "ytmusicapi", "count": 0, "results": []}), 400
+    except Exception as e:
+        logger.error(f"Trending tracks error: {str(e)}", exc_info=True)
+        return jsonify({
+            "source": "ytmusicapi",
+            "count": 0,
+            "results": [],
+        }), 500
 
 
 @app.route('/api/home/trending-playlists', methods=['GET'])

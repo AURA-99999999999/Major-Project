@@ -73,12 +73,14 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.d(TAG, "MainActivity onCreate started")
         try {
             installSplashScreen()
         } catch (e: Exception) {
             Log.w(TAG, "Failed to install splash screen", e)
         }
         super.onCreate(savedInstanceState)
+        Log.d(TAG, "super.onCreate() completed")
 
         // Bind to music service
         try {

@@ -267,12 +267,12 @@ fun HomeScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Listen The",
+                            text = "Your Music",
                             fontSize = 16.sp,
                             color = TextSecondary
                         )
                         Text(
-                            text = "Latest Musics",
+                            text = "Your AURA",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
