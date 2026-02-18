@@ -79,6 +79,10 @@ fun RootNavGraph(
     val isPlaying by playerViewModel.isPlaying.collectAsState()
     val lastPlayedSong by playerViewModel.lastPlayedSong.collectAsState()
     
+    // Observe playback progress for seekbar
+    val currentPosition = musicService?.playerState?.collectAsState()?.value?.currentPosition ?: 0L
+    val duration = musicService?.playerState?.collectAsState()?.value?.duration ?: 0L
+    
     // Load lastPlayed song when user logs in
     LaunchedEffect(authState) {
         if (authState is AuthState.Authenticated) {
@@ -141,6 +145,8 @@ fun RootNavGraph(
                     MiniPlayerBar(
                         song = displaySong,
                         isPlaying = isPlaying,
+                        currentPosition = currentPosition,
+                        duration = duration,
                         onClick = {
                             // Navigate to full player
                             if (currentSong != null) {
@@ -156,6 +162,9 @@ fun RootNavGraph(
                         },
                         onSkipNext = {
                             musicService?.playNext()
+                        },
+                        onSeek = { position ->
+                            musicService?.seekTo(position)
                         }
                     )
                 }

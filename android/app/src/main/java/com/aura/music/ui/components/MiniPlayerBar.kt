@@ -24,6 +24,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -46,12 +48,14 @@ import com.aura.music.ui.theme.TextSecondary
  * Display:
  * - Thumbnail (left)
  * - Song title and artist (center)
+ * - Progress seekbar (below title/artist)
  * - Skip previous, Play/Pause, Skip next buttons (right)
  *
  * Behavior:
  * - Visible only when song is playing or last played exists
  * - Click to open full player
  * - Media control buttons to control playback
+ * - Seekbar allows scrubbing through the song
  * - Smooth animations (fade)
  *
  * Technical:
@@ -62,20 +66,26 @@ import com.aura.music.ui.theme.TextSecondary
  *
  * @param song The currently playing or last played song
  * @param isPlaying Current playback state
+ * @param currentPosition Current playback position in milliseconds
+ * @param duration Total duration of the song in milliseconds
  * @param onClick Callback when mini player is clicked (open full player)
  * @param onPlayPause Callback for play/pause button
  * @param onSkipPrevious Callback for skip previous button
  * @param onSkipNext Callback for skip next button
+ * @param onSeek Callback for seeking to a specific position
  * @param modifier Optional modifier for positioning
  */
 @Composable
 fun MiniPlayerBar(
     song: Song?,
     isPlaying: Boolean,
+    currentPosition: Long = 0L,
+    duration: Long = 0L,
     onClick: () -> Unit,
     onPlayPause: () -> Unit,
     onSkipPrevious: () -> Unit = {},
     onSkipNext: () -> Unit = {},
+    onSeek: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -88,7 +98,7 @@ fun MiniPlayerBar(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
+                    .height(84.dp)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
                     .clickable(enabled = true) { onClick() },
                 shape = RoundedCornerShape(12.dp),
@@ -98,14 +108,19 @@ fun MiniPlayerBar(
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(64.dp)
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
+                    // Main content row (thumbnail, song info, controls)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                     // Thumbnail
                     Box(
                         modifier = Modifier
@@ -208,7 +223,42 @@ fun MiniPlayerBar(
                         }
                     }
                 }
+
+                // Seekbar row
+                Slider(
+                    value = if (duration > 0) {
+                        (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    },
+                    onValueChange = { progress ->
+                        onSeek((progress * duration).toLong())
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(16.dp)
+                        .padding(horizontal = 4.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Primary,
+                        activeTrackColor = Primary,
+                        inactiveTrackColor = TextSecondary.copy(alpha = 0.3f)
+                    )
+                )
+                }
             }
         }
     }
+}
+
+/**
+ * Format time from milliseconds to MM:SS format
+ *
+ * @param milliseconds Time in milliseconds
+ * @return Formatted time string (e.g., "3:45")
+ */
+private fun formatTime(milliseconds: Long): String {
+    val totalSeconds = milliseconds / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format("%d:%02d", minutes, seconds)
 }
