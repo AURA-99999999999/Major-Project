@@ -2,6 +2,7 @@ package com.aura.music.auth.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -86,8 +87,17 @@ fun LoginScreen(
             verticalArrangement = Arrangement.Center
         ) {
 
+            // App Logo
+            Image(
+                painter = painterResource(id = R.drawable.ic_logo),
+                contentDescription = "Aura Logo",
+                modifier = Modifier
+                    .size(120.dp)
+                    .padding(bottom = 24.dp)
+            )
+
             Text(
-                text = "Welcome Back",
+                text = "Find your AURA!",
                 style = MaterialTheme.typography.headlineLarge,
                 modifier = Modifier.padding(bottom = 32.dp)
             )
