@@ -50,6 +50,12 @@ fun NavGraph(
         onNavigateToProfile = { navController.navigate(Screen.Profile.route) },
         onNavigateToPlaylistPreview = { playlistId ->
             navController.navigate("main/playlist-preview/$playlistId")
+        },
+        onNavigateToArtist = { browseId ->
+            navController.navigate(Screen.ArtistDetail.createRoute(browseId))
+        },
+        onNavigateToAlbum = { browseId ->
+            navController.navigate(Screen.AlbumDetail.createRoute(browseId))
         }
     )
 }
@@ -73,6 +79,12 @@ fun NavGraphBuilder.musicAppGraph(
             onNavigateToProfile = { navController.navigate(Screen.Profile.route) },
             onNavigateToPlaylistPreview = { playlistId ->
                 navController.navigate("main/playlist-preview/$playlistId")
+            },
+            onNavigateToArtist = { browseId ->
+                navController.navigate(Screen.ArtistDetail.createRoute(browseId))
+            },
+            onNavigateToAlbum = { browseId ->
+                navController.navigate(Screen.AlbumDetail.createRoute(browseId))
             }
         )
     }
@@ -98,7 +110,10 @@ fun NavGraphBuilder.musicAppGraph(
         LikedSongsScreen(
             musicService = musicService,
             onNavigateBack = { navController.popBackStack() },
-            onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
+            onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
+            onNavigateToAlbum = { browseId ->
+                navController.navigate(Screen.AlbumDetail.createRoute(browseId))
+            }
         )
     }
     
@@ -178,7 +193,10 @@ fun NavGraphBuilder.musicAppGraph(
             browseId = browseId,
             musicService = musicService,
             onNavigateBack = { navController.popBackStack() },
-            onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
+            onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
+            onNavigateToAlbum = { albumBrowseId ->
+                navController.navigate(Screen.AlbumDetail.createRoute(albumBrowseId))
+            }
         )
     }
     

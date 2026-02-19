@@ -261,6 +261,30 @@ class MusicRepository(
         }
     }
 
+    suspend fun getTopArtists(limit: Int = 10): Result<List<com.aura.music.data.remote.dto.TopArtistDto>> {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            safeLog { Log.w(TAG, "getTopArtists() - No authenticated user") }
+            return Result.success(emptyList())
+        }
+
+        return try {
+            safeLog { Log.d(TAG, "getTopArtists() uid=$uid limit=$limit") }
+            val response = api.getTopArtists(uid, limit)
+            if (response.success) {
+                safeLog { Log.d(TAG, "getTopArtists() success: ${response.count} artists") }
+                Result.success(response.artists)
+            } else {
+                val error = response.error ?: "Failed to fetch top artists"
+                safeLog { Log.w(TAG, "getTopArtists() failed: $error") }
+                Result.failure(Exception(error))
+            }
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getTopArtists() exception", e) }
+            Result.failure(e)
+        }
+    }
+
     suspend fun getTrendingPlaylists(limit: Int = 10): Result<List<com.aura.music.data.model.YTMusicPlaylist>> {
         return try {
             safeLog { Log.d(TAG, "getTrendingPlaylists() limit=$limit") }

@@ -871,6 +871,76 @@ def get_mood_playlists():
         })
 
 
+@app.route('/api/home/top-artists', methods=['GET'])
+def get_top_artists():
+    """
+    Get top artists for a user based on listening history.
+    
+    Returns top 5-10 artists with circular thumbnails for home screen display.
+    Authentication required.
+    
+    Returns:
+    {
+        "success": bool,
+        "artists": [
+            {
+                "browseId": str (channelId for navigation),
+                "name": str,
+                "thumbnail": str (circular image),
+                "subscribers": str (optional)
+            },
+            ...
+        ],
+        "count": int
+    }
+    """
+    try:
+        # Get user ID from request (authentication required)
+        uid = request.args.get('uid')
+        if not uid:
+            return jsonify({
+                'success': False,
+                'error': 'uid parameter required',
+                'artists': [],
+                'count': 0
+            }), 400
+        
+        limit = int(request.args.get('limit', 10))
+        
+        # Cache key includes user ID
+        cache_key = f"top_artists:{uid}:{limit}"
+        cached = _cache_get(_home_cache, cache_key)
+        if cached is not None:
+            logger.debug(f"Top artists cache hit: {cache_key}")
+            return jsonify(cached)
+        
+        logger.info(f"GET /api/home/top-artists - uid={uid} limit={limit}")
+        
+        # Get top artists from recommendation service
+        top_artists = recommendation_service.get_top_artists(uid, limit)
+        
+        response_payload = {
+            'success': True,
+            'artists': top_artists,
+            'count': len(top_artists)
+        }
+        
+        # Cache for 10 minutes (user preferences change gradually)
+        _cache_set(_home_cache, cache_key, response_payload, 600)
+        
+        logger.info(f"Returning {len(top_artists)} top artists for user {uid}")
+        return jsonify(response_payload)
+        
+    except Exception as e:
+        logger.error(f"Top artists error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'artists': [],
+            'count': 0
+        })
+
+
 @app.route('/api/playlist/<playlist_id>/songs', methods=['GET'])
 def get_ytmusic_playlist_songs(playlist_id):
     """Get songs from a YTMusic playlist"""

@@ -1170,3 +1170,94 @@ class RecommendationService:
             result.append(cleaned)
         logger.info("Final clean recommendations count=%s", len(result))
         return result
+    
+    def get_top_artists(self, uid: str, limit: int = 10) -> List[Dict]:
+        """
+        Get top artists for a user based on listening history.
+        
+        Args:
+            uid: User ID
+            limit: Number of top artists to return (default: 10)
+            
+        Returns:
+            List of artist dictionaries with metadata:
+            [
+                {
+                    'browseId': str (channelId),
+                    'name': str,
+                    'thumbnail': str,
+                    'subscribers': str (optional)
+                },
+                ...
+            ]
+        """
+        try:
+            logger.info(f"Getting top {limit} artists for user: {uid}")
+            
+            # 1. Fetch user signals and build weighted scores
+            user_signals = self._fetch_user_signals(uid)
+            user_plays = user_signals['plays']
+            user_liked = user_signals['liked']
+            
+            weighted_signals = self._build_weighted_signals(user_plays, user_liked)
+            artist_scores = weighted_signals['artist_scores']
+            
+            if not artist_scores:
+                logger.info("No artist scores found, returning empty list")
+                return []
+            
+            # 2. Get top artists by score
+            top_artist_names = [name for name, _ in sorted(
+                artist_scores.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:limit]]
+            
+            logger.info(f"Top artist names: {top_artist_names[:5]}")
+            
+            # 3. Fetch detailed metadata for each artist using search
+            top_artists_with_metadata = []
+            
+            for artist_name in top_artist_names:
+                try:
+                    # Search for the artist to get their channelId
+                    search_results = self.ytmusic.search(artist_name, filter='artists', limit=1)
+                    
+                    if search_results:
+                        artist = search_results[0]
+                        
+                        # Extract metadata
+                        browse_id = artist.get('browseId')
+                        name = artist.get('artist') or artist.get('name', artist_name)
+                        
+                        # Get best thumbnail
+                        thumbnails = artist.get('thumbnails', [])
+                        thumbnail = ''
+                        if thumbnails:
+                            best_thumb = max(thumbnails, key=lambda t: (t.get('width', 0) * t.get('height', 0)))
+                            thumbnail = best_thumb.get('url', '')
+                        
+                        subscribers = artist.get('subscribers', '')
+                        
+                        if browse_id:
+                            top_artists_with_metadata.append({
+                                'browseId': browse_id,
+                                'name': name,
+                                'thumbnail': thumbnail,
+                                'subscribers': subscribers
+                            })
+                            logger.debug(f"Added artist: {name} ({browse_id})")
+                        
+                        if len(top_artists_with_metadata) >= limit:
+                            break
+                            
+                except Exception as e:
+                    logger.warning(f"Failed to fetch metadata for artist '{artist_name}': {e}")
+                    continue
+            
+            logger.info(f"Returning {len(top_artists_with_metadata)} artists with metadata")
+            return top_artists_with_metadata
+            
+        except Exception as e:
+            logger.error(f"Error getting top artists: {str(e)}", exc_info=True)
+            return []

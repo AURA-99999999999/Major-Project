@@ -96,10 +96,13 @@ fun HomeScreen(
     onNavigateToPlaylists: () -> Unit,
     onNavigateToProfile: () -> Unit,
     onNavigateToPlaylistPreview: (String) -> Unit,
+    onNavigateToArtist: (String) -> Unit = {},
+    onNavigateToAlbum: (String) -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val recommendedSongs by viewModel.recommendedSongs.collectAsState()
+    val topArtists by viewModel.topArtists.collectAsState()
     val playlistViewModel: PlaylistViewModel = viewModel(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
@@ -328,6 +331,9 @@ fun HomeScreen(
                                     },
                                     onPlayNext = { song ->
                                         musicService?.insertNext(song)
+                                    },
+                                    onGoToAlbum = { song ->
+                                        song.albumId?.let { onNavigateToAlbum(it) }
                                     }
                                 )
                             }
@@ -371,6 +377,26 @@ fun HomeScreen(
                                         },
                                         onPlayNext = { song ->
                                             musicService?.insertNext(song)
+                                        },
+                                        onGoToAlbum = { song ->
+                                            song.albumId?.let { onNavigateToAlbum(it) }
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Top Artists Section (after Recommended For You)
+                            if (topArtists.isNotEmpty()) {
+                                item {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SectionHeader(title = "Your Top Artists")
+                                }
+
+                                item {
+                                    TopArtistsRow(
+                                        artists = topArtists,
+                                        onArtistClick = { artist ->
+                                            onNavigateToArtist(artist.browseId)
                                         }
                                     )
                                 }
@@ -480,7 +506,8 @@ private fun TrendingRow(
     onSongClick: (Song, Int) -> Unit,
     onToggleLike: (Song) -> Unit,
     onAddToPlaylist: (Song) -> Unit,
-    onPlayNext: (Song) -> Unit
+    onPlayNext: (Song) -> Unit,
+    onGoToAlbum: (Song) -> Unit
 ) {
     if (songs.isEmpty()) {
         EmptyStateCard(message = "No trending songs right now. Pull to refresh or try again later.")
@@ -497,7 +524,8 @@ private fun TrendingRow(
                 onSongClick = { onSongClick(song, index) },
                 onToggleLike = { onToggleLike(song) },
                 onAddToPlaylist = { onAddToPlaylist(song) },
-                onPlayNext = { onPlayNext(song) }
+                onPlayNext = { onPlayNext(song) },
+                onGoToAlbum = { onGoToAlbum(song) }
             )
         }
     }
@@ -510,7 +538,8 @@ private fun TrendingSongCard(
     onSongClick: () -> Unit,
     onToggleLike: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    onPlayNext: () -> Unit
+    onPlayNext: () -> Unit,
+    onGoToAlbum: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -585,6 +614,15 @@ private fun TrendingSongCard(
                         onAddToPlaylist()
                     }
                 )
+                if (song.albumId != null) {
+                    DropdownMenuItem(
+                        text = { Text("Go to Album") },
+                        onClick = {
+                            showMenu = false
+                            onGoToAlbum()
+                        }
+                    )
+                }
             }
         }
         Text(
@@ -802,6 +840,71 @@ private fun MoodPlaylistsRow(
             YTMusicPlaylistCard(
                 playlist = playlist,
                 onClick = { onPlaylistClick(playlist) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopArtistsRow(
+    artists: List<com.aura.music.data.remote.dto.TopArtistDto>,
+    onArtistClick: (com.aura.music.data.remote.dto.TopArtistDto) -> Unit
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp)
+    ) {
+        items(artists) { artist ->
+            TopArtistCard(
+                artist = artist,
+                onClick = { onArtistClick(artist) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopArtistCard(
+    artist: com.aura.music.data.remote.dto.TopArtistDto,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(100.dp)
+            .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Circular artist image
+        AsyncImage(
+            model = artist.thumbnail,
+            contentDescription = artist.name,
+            modifier = Modifier
+                .size(100.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(DarkSurfaceVariant),
+            contentScale = ContentScale.Crop
+        )
+
+        // Artist name
+        Text(
+            text = artist.name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        
+        // Subscribers (optional)
+        if (!artist.subscribers.isNullOrEmpty()) {
+            Text(
+                text = artist.subscribers,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

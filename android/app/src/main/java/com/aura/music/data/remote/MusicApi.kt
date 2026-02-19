@@ -15,6 +15,7 @@ import com.aura.music.data.remote.dto.RegisterRequest
 import com.aura.music.data.remote.dto.SearchResponseDto
 import com.aura.music.data.remote.dto.SearchSuggestionsDto
 import com.aura.music.data.remote.dto.SongDto
+import com.aura.music.data.remote.dto.TopArtistsResponse
 import com.aura.music.data.remote.dto.TrendingPlaylistsResponse
 import com.aura.music.data.remote.dto.UserDto
 import com.aura.music.data.remote.dto.YTMusicPlaylistDetailResponse
@@ -88,6 +89,13 @@ interface MusicApi {
         @Query("params") params: String,
         @Query("limit") limit: Int = 10
     ): MoodPlaylistsResponse
+
+    // Home: Top Artists (personalized)
+    @GET("home/top-artists")
+    suspend fun getTopArtists(
+        @Query("uid") uid: String,
+        @Query("limit") limit: Int = 10
+    ): TopArtistsResponse
 
     // YTMusic Playlist Songs
     @GET("playlist/{playlistId}/songs")

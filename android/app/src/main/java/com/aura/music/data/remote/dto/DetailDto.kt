@@ -50,6 +50,21 @@ data class ArtistAlbumDto(
     @SerializedName("type") val type: String? = null
 )
 
+// Top Artists Response (for home screen)
+data class TopArtistsResponse(
+    @SerializedName("success") val success: Boolean,
+    @SerializedName("artists") val artists: List<TopArtistDto> = emptyList(),
+    @SerializedName("count") val count: Int = 0,
+    @SerializedName("error") val error: String? = null
+)
+
+data class TopArtistDto(
+    @SerializedName("browseId") val browseId: String,
+    @SerializedName("name") val name: String,
+    @SerializedName("thumbnail") val thumbnail: String,
+    @SerializedName("subscribers") val subscribers: String? = null
+)
+
 // Playlist Detail Response
 data class PlaylistDetailResponse(
     @SerializedName("success") val success: Boolean,

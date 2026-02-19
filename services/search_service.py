@@ -177,6 +177,17 @@ class SearchService:
                 if not artist_names:
                     artist_names = ['Unknown Artist']
                 
+                # Extract album info including ID
+                album_data = item.get('album')
+                album_name = None
+                album_id = None
+                if album_data:
+                    if isinstance(album_data, dict):
+                        album_name = album_data.get('name')
+                        album_id = album_data.get('id')
+                    elif isinstance(album_data, str):
+                        album_name = album_data
+                
                 songs.append({
                     'videoId': video_id,
                     'title': title,
@@ -184,7 +195,8 @@ class SearchService:
                     'thumbnail': self._get_best_thumbnail(item.get('thumbnails', [])),
                     'duration': item.get('duration'),
                     'duration_seconds': item.get('duration_seconds'),
-                    'album': item.get('album', {}).get('name') if item.get('album') else None,
+                    'album': album_name,
+                    'albumId': album_id,
                     'year': item.get('year'),
                     'type': 'song'
                 })

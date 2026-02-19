@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.aura.music.data.model.MoodCategory
 import com.aura.music.data.model.Song
 import com.aura.music.data.model.YTMusicPlaylist
+import com.aura.music.data.remote.dto.TopArtistDto
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.player.MusicService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +36,9 @@ class HomeViewModel(
 
     private val _recommendedSongs = MutableStateFlow<List<Song>>(emptyList())
     val recommendedSongs: StateFlow<List<Song>> = _recommendedSongs.asStateFlow()
+
+    private val _topArtists = MutableStateFlow<List<TopArtistDto>>(emptyList())
+    val topArtists: StateFlow<List<TopArtistDto>> = _topArtists.asStateFlow()
 
     private var hasLoaded = false
     private var hasLoadedRecommendations = false
@@ -90,11 +94,29 @@ class HomeViewModel(
         viewModelScope.launch {
             val songs = repository.fetchUserRecommendations()
             _recommendedSongs.value = songs
+            
+            // Also load top artists alongside recommendations
+            loadTopArtists()
+        }
+    }
+
+    fun loadTopArtists() {
+        viewModelScope.launch {
+            val result = repository.getTopArtists(limit = 10)
+            result.fold(
+                onSuccess = { artists ->
+                    _topArtists.value = artists
+                },
+                onFailure = { _ ->
+                    _topArtists.value = emptyList()
+                }
+            )
         }
     }
 
     fun clearRecommendations() {
         _recommendedSongs.value = emptyList()
+        _topArtists.value = emptyList()
         hasLoadedRecommendations = false
     }
 

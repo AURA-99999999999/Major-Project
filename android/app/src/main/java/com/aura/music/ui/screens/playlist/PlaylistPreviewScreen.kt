@@ -86,7 +86,8 @@ fun PlaylistPreviewScreen(
     onNavigateBack: () -> Unit,
     onPlaySong: (List<Song>, Int) -> Unit,
     onPlayAll: (List<Song>) -> Unit,
-    onPlayNext: (Song) -> Unit
+    onPlayNext: (Song) -> Unit,
+    onNavigateToAlbum: (String) -> Unit
 ) {
     var uiState by remember { mutableStateOf<PlaylistPreviewUiState>(PlaylistPreviewUiState.Loading) }
     val playlistViewModel: PlaylistViewModel = viewModel(
@@ -200,7 +201,8 @@ fun PlaylistPreviewScreen(
                         onSongClick = onPlaySong,
                         onToggleLike = { song -> likedSongsViewModel.toggleLike(song) },
                         onSongOverflowClick = { song -> pendingSongForPlaylist = song },
-                        onPlayNext = onPlayNext
+                        onPlayNext = onPlayNext,
+                        onNavigateToAlbum = onNavigateToAlbum
                     )
                 }
                 is PlaylistPreviewUiState.Error -> {
@@ -234,7 +236,8 @@ private fun PlaylistContent(
     onSongClick: (List<Song>, Int) -> Unit,
     onToggleLike: (Song) -> Unit,
     onSongOverflowClick: (Song) -> Unit,
-    onPlayNext: (Song) -> Unit
+    onPlayNext: (Song) -> Unit,
+    onNavigateToAlbum: (String) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -255,7 +258,8 @@ private fun PlaylistContent(
                 isLiked = likedSongIds.contains(song.videoId),
                 onToggleLike = { onToggleLike(song) },
                 onAddToPlaylist = { onSongOverflowClick(song) },
-                onPlayNext = { onPlayNext(song) }
+                onPlayNext = { onPlayNext(song) },
+                onGoToAlbum = { song.albumId?.let { onNavigateToAlbum(it) } }
             )
         }
     }

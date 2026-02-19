@@ -9,6 +9,7 @@ data class Song(
     val duration: String? = null,
     val url: String? = null,
     val album: String? = null,
+    val albumId: String? = null,
     val artistId: String? = null
 ) {
     fun getArtistString(): String {

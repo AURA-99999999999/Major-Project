@@ -59,6 +59,7 @@ fun LikedSongsScreen(
     musicService: MusicService?,
     onNavigateBack: () -> Unit,
     onNavigateToPlayer: () -> Unit,
+    onNavigateToAlbum: (String) -> Unit,
     viewModel: LikedSongsViewModel = viewModel(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
@@ -165,7 +166,8 @@ fun LikedSongsScreen(
                                     onClick = { viewModel.prepareSongForPlayback(song) },
                                     onToggleLike = { viewModel.removeFromLikedSongs(song.videoId) },
                                     onAddToPlaylist = { pendingSongForPlaylist = song },
-                                    onPlayNext = { musicService?.insertNext(song) }
+                                    onPlayNext = { musicService?.insertNext(song) },
+                                    onGoToAlbum = { song.albumId?.let { onNavigateToAlbum(it) } }
                                 )
                             }
                         }

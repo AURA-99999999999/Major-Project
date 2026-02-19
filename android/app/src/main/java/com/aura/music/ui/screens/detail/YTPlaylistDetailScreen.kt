@@ -69,6 +69,7 @@ fun YTPlaylistDetailScreen(
     musicService: MusicService?,
     onNavigateBack: () -> Unit,
     onNavigateToPlayer: () -> Unit,
+    onNavigateToAlbum: (String) -> Unit,
     viewModel: YTPlaylistDetailViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -237,7 +238,8 @@ fun YTPlaylistDetailScreen(
                             onClick = { viewModel.playSongFromPlaylist(index) },
                             onToggleLike = { likedSongsViewModel.toggleLike(song) },
                             onAddToPlaylist = { pendingSongForPlaylist = song },
-                            onPlayNext = { musicService?.insertNext(song) }
+                            onPlayNext = { musicService?.insertNext(song) },
+                            onGoToAlbum = { song.albumId?.let { onNavigateToAlbum(it) } }
                         )
                     }
                 }
