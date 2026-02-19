@@ -97,6 +97,15 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onNavigateToAlbum = { browseId ->
+                    navController.navigate(Screen.AlbumDetail.createRoute(browseId))
+                },
+                onNavigateToArtist = { browseId ->
+                    navController.navigate(Screen.ArtistDetail.createRoute(browseId))
+                },
+                onNavigateToPlaylist = { browseId ->
+                    navController.navigate(Screen.YTPlaylistDetail.createRoute(browseId))
                 }
             )
 
@@ -273,6 +282,90 @@ fun NavGraphBuilder.mainGraph(
             )
 
             // If user logs out, return to auth
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+
+        // ==================== ALBUM DETAIL SCREEN ====================
+        composable(
+            route = Screen.AlbumDetail.route,
+            arguments = listOf(navArgument("browseId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val browseId = backStackEntry.arguments?.getString("browseId") ?: return@composable
+            com.aura.music.ui.screens.detail.AlbumDetailScreen(
+                browseId = browseId,
+                musicService = musicService,
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToPlayer = {
+                    navController.navigate("main/player")
+                }
+            )
+
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+
+        // ==================== ARTIST DETAIL SCREEN ====================
+        composable(
+            route = Screen.ArtistDetail.route,
+            arguments = listOf(navArgument("browseId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val browseId = backStackEntry.arguments?.getString("browseId") ?: return@composable
+            com.aura.music.ui.screens.detail.ArtistDetailScreen(
+                browseId = browseId,
+                musicService = musicService,
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToPlayer = {
+                    navController.navigate("main/player")
+                },
+                onNavigateToAlbum = { albumBrowseId ->
+                    navController.navigate(Screen.AlbumDetail.createRoute(albumBrowseId))
+                }
+            )
+
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+
+        // ==================== YOUTUBE PLAYLIST DETAIL SCREEN ====================
+        composable(
+            route = Screen.YTPlaylistDetail.route,
+            arguments = listOf(navArgument("browseId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val browseId = backStackEntry.arguments?.getString("browseId") ?: return@composable
+            com.aura.music.ui.screens.detail.YTPlaylistDetailScreen(
+                browseId = browseId,
+                musicService = musicService,
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToPlayer = {
+                    navController.navigate("main/player")
+                }
+            )
+
             LaunchedEffect(authState) {
                 if (authState is AuthState.Unauthenticated) {
                     navController.navigate("auth") {

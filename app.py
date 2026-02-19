@@ -13,6 +13,8 @@ from services.music_service import MusicService
 from services.playlist_service import PlaylistService
 from services.user_service import UserService
 from services.recommendation_service import RecommendationService
+from services.mood_service import MoodService
+from services.search_service import SearchService
 from services.music_filter import filter_music_tracks
 from ytmusicapi import YTMusic
 
@@ -53,9 +55,17 @@ except Exception as e:
 # Initialize recommendation service
 recommendation_service = RecommendationService(ytmusic, user_service)
 
+# Initialize mood service
+mood_service = MoodService(ytmusic)
+
+# Initialize search service
+search_service = SearchService(ytmusic)
+
 # Simple in-memory caches for home and search results
 HOME_CACHE_TTL_SECONDS = 45 * 60
+SEARCH_CACHE_TTL_SECONDS = 10 * 60  # 10 minutes for search
 _home_cache = {}
+_search_cache = {}
 
 
 def _cache_get(cache: dict, key: str):
@@ -180,56 +190,323 @@ def debug_ytmusic_trending():
 # ==================== MUSIC ENDPOINTS ====================
 
 @app.route('/api/search', methods=['GET'])
-def search_songs():
-    """Search for songs with basic metadata enrichment"""
+def search_all_categories():
+    """
+    Production-grade filtered search endpoint with:
+    - Parallel category searches (songs, albums, artists, playlists)
+    - Music-only filtering (NO videos/podcasts/interviews)
+    - Input validation (min 2 chars)
+    - LRU caching (10 min TTL)
+    - Thread-safe cache access
+    - Timeout protection (5s per category)
+    - Graceful partial failure handling
+    """
     try:
         query = request.args.get('query', '').strip()
-        limit = int(request.args.get('limit', 20))
-        filter_type = request.args.get('filter', 'songs')
         
+        # Validate query
         if not query:
-            return jsonify({'error': 'Query parameter is required'}), 400
+            return jsonify({
+                'success': False,
+                'error': 'Query parameter is required',
+                'songs': [],
+                'albums': [],
+                'artists': [],
+                'playlists': [],
+                'count': 0
+            }), 400
+        
+        # Minimum query length check
+        if len(query) < 2:
+            return jsonify({
+                'success': True,
+                'songs': [],
+                'albums': [],
+                'artists': [],
+                'playlists': [],
+                'count': 0,
+                'cached': False,
+                'query': query
+            })
+        
+        # Check cache first
+        cache_key = f"search_all:{query}"
+        cached = _cache_get(_search_cache, cache_key)
+        if cached is not None:
+            logger.info(f"✓ Cache HIT for search query: '{query}'")
+            cached['cached'] = True
+            return jsonify(cached)
+        
+        logger.info(f"✗ Cache MISS for search query: '{query}' - executing parallel search")
+        
+        # Execute parallel filtered search
+        results = search_service.search_all_categories(
+            query,
+            song_limit=5,
+            album_limit=5,
+            artist_limit=5,
+            playlist_limit=5
+        )
+        
+        response_payload = {
+            'success': True,
+            'songs': results['songs'],
+            'albums': results['albums'],
+            'artists': results['artists'],
+            'playlists': results['playlists'],
+            'count': results['count'],
+            'query': query,
+            'cached': False
+        }
+        
+        # Cache the result (10 minutes TTL)
+        _cache_set(_search_cache, cache_key, response_payload, SEARCH_CACHE_TTL_SECONDS)
+        
+        return jsonify(response_payload)
+        
+    except Exception as e:
+        logger.error(f"Search error: {str(e)}", exc_info=True)
+        # Graceful error response (no 500s)
+        return jsonify({
+            'success': False,
+            'error': 'Search failed. Please try again.',
+            'songs': [],
+            'albums': [],
+            'artists': [],
+            'playlists': [],
+            'count': 0,
+            'query': query if 'query' in locals() else ''
+        }), 200  # Return 200 to prevent client network errors
 
-        # Enhanced logging for Android connectivity debugging
-        client_ip = request.remote_addr
-        user_agent = request.headers.get('User-Agent', 'Unknown')
-        logger.info(
-            "========================================"
-        )
-        logger.info(
-            "SEARCH REQUEST RECEIVED"
-        )
-        logger.info(
-            "Query: %s | Limit: %s | Filter: %s",
-            query, limit, filter_type
-        )
-        logger.info(
-            "Client IP: %s | User-Agent: %s",
-            client_ip, user_agent
-        )
-        logger.info(
-            "Request URL: %s",
-            request.url
-        )
-        logger.info(
-            "========================================"
-        )
+
+@app.route('/api/search/suggestions', methods=['GET'])
+def search_suggestions():
+    """
+    Lightweight search suggestions endpoint for autocomplete
+    - Min 2 chars to trigger
+    - Returns plain text suggestions
+    - Fast response (no caching needed due to YTMusic speed)
+    """
+    try:
+        query = request.args.get('q', '').strip()
         
-        # Get raw results from music service
-        logger.info("📥 Fetching from music API...")
-        results = music_service.search_songs(query, limit=limit, filter_type=filter_type)
-        logger.info(f"📋 Raw results: {len(results)} songs found")
-        logger.info(f"Raw data sample: {results[0] if results else 'No results'}")
+        if not query or len(query) < 2:
+            return jsonify({
+                'success': True,
+                'suggestions': []
+            })
         
-        # No enrichment: return raw results from streaming API
+        suggestions = search_service.get_search_suggestions(query)
+        
         return jsonify({
             'success': True,
-            'results': results,
-            'count': len(results)
+            'suggestions': suggestions
         })
+        
     except Exception as e:
-        logger.error(f"Search error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Search suggestions error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'suggestions': [],
+            'error': 'Failed to get suggestions'
+        }), 200  # Always return 200 to prevent client errors
+        
+    except ValueError as e:
+        logger.warning(f"Invalid limit parameter: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Invalid limit parameter',
+            'results': [],
+            'count': 0
+        }), 400
+        
+    except Exception as e:
+        # Never crash - always return graceful response
+        logger.error(f"Search error for '{query}': {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Search temporarily unavailable',
+            'results': [],
+            'count': 0
+        }), 200  # Return 200 to avoid network error on client
+
+
+# ==================== DETAIL ENDPOINTS (Album/Artist/Playlist) ====================
+
+@app.route('/api/album/<browse_id>', methods=['GET'])
+def get_album_details(browse_id):
+    """
+    Get album details with filtered songs
+    - Returns album metadata
+    - Returns filtered music-only tracks
+    - Cached for 30 minutes
+    """
+    try:
+        if not browse_id:
+            return jsonify({
+                'success': False,
+                'error': 'Browse ID is required'
+            }), 400
+        
+        logger.info(f"GET /api/album/{browse_id}")
+        
+        # Check cache
+        cache_key = f"album:{browse_id}"
+        cached = _cache_get(_search_cache, cache_key)
+        if cached:
+            logger.info(f"✓ Cache hit for album {browse_id}")
+            cached['cached'] = True
+            return jsonify(cached)
+        
+        # Import detail service (lazy load)
+        from services.detail_service import DetailService
+        detail_service = DetailService(ytmusic)
+        
+        # Fetch album details
+        album = detail_service.get_album_details(browse_id)
+        
+        if not album:
+            return jsonify({
+                'success': False,
+                'error': 'Album not found'
+            }), 404
+        
+        response = {
+            'success': True,
+            'album': album,
+            'cached': False
+        }
+        
+        # Cache for 30 minutes
+        _cache_set(_search_cache, cache_key, response, 1800)
+        
+        logger.info(f"✓ Album loaded: {album['title']} - {album['trackCount']} songs")
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Album detail error for {browse_id}: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Failed to load album details'
+        }), 500
+
+
+@app.route('/api/artist/<browse_id>', methods=['GET'])
+def get_artist_details(browse_id):
+    """
+    Get artist details with top songs and albums
+    - Returns artist metadata
+    - Returns filtered top songs
+    - Returns artist albums
+    - Cached for 30 minutes
+    """
+    try:
+        if not browse_id:
+            return jsonify({
+                'success': False,
+                'error': 'Browse ID is required'
+            }), 400
+        
+        logger.info(f"GET /api/artist/{browse_id}")
+        
+        # Check cache
+        cache_key = f"artist:{browse_id}"
+        cached = _cache_get(_search_cache, cache_key)
+        if cached:
+            logger.info(f"✓ Cache hit for artist {browse_id}")
+            cached['cached'] = True
+            return jsonify(cached)
+        
+        # Import detail service (lazy load)
+        from services.detail_service import DetailService
+        detail_service = DetailService(ytmusic)
+        
+        # Fetch artist details
+        artist = detail_service.get_artist_details(browse_id)
+        
+        if not artist:
+            return jsonify({
+                'success': False,
+                'error': 'Artist not found'
+            }), 404
+        
+        response = {
+            'success': True,
+            'artist': artist,
+            'cached': False
+        }
+        
+        # Cache for 30 minutes
+        _cache_set(_search_cache, cache_key, response, 1800)
+        
+        logger.info(f"✓ Artist loaded: {artist['name']} - {len(artist['topSongs'])} songs")
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Artist detail error for {browse_id}: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Failed to load artist details'
+        }), 500
+
+
+@app.route('/api/playlist/<browse_id>', methods=['GET'])
+def get_playlist_details(browse_id):
+    """
+    Get playlist details with filtered songs
+    - Returns playlist metadata
+    - Returns filtered music-only tracks
+    - Cached for 30 minutes
+    """
+    try:
+        if not browse_id:
+            return jsonify({
+                'success': False,
+                'error': 'Browse ID is required'
+            }), 400
+        
+        logger.info(f"GET /api/playlist/{browse_id}")
+        
+        # Check cache
+        cache_key = f"playlist:{browse_id}"
+        cached = _cache_get(_search_cache, cache_key)
+        if cached:
+            logger.info(f"✓ Cache hit for playlist {browse_id}")
+            cached['cached'] = True
+            return jsonify(cached)
+        
+        # Import detail service (lazy load)
+        from services.detail_service import DetailService
+        detail_service = DetailService(ytmusic)
+        
+        # Fetch playlist details
+        playlist = detail_service.get_playlist_details(browse_id)
+        
+        if not playlist:
+            return jsonify({
+                'success': False,
+                'error': 'Playlist not found'
+            }), 404
+        
+        response = {
+            'success': True,
+            'playlist': playlist,
+            'cached': False
+        }
+        
+        # Cache for 30 minutes
+        _cache_set(_search_cache, cache_key, response, 1800)
+        
+        logger.info(f"✓ Playlist loaded: {playlist['title']} - {playlist['trackCount']} songs")
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Playlist detail error for {browse_id}: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Failed to load playlist details'
+        }), 500
+
 
 # ==================== SONG STREAMING ENDPOINT ====================
 
@@ -502,57 +779,44 @@ def get_trending_playlists():
 
 @app.route('/api/home/moods', methods=['GET'])
 def get_mood_categories():
-    """Get mood and genre categories from YTMusic"""
+    """Get mood and genre categories from YTMusic
+    
+    Returns only 'Genres' and 'Moods & moments' sections.
+    Cached for 30 minutes.
+    """
     try:
-        cache_key = "mood_categories"
-        cached = _cache_get(_home_cache, cache_key)
-        if cached is not None:
-            return jsonify(cached)
-
-        ytmusic = YTMusic()
-        mood_sections = ytmusic.get_mood_categories()
+        logger.info("GET /api/home/moods - Fetching mood categories")
+        
+        # Use MoodService with built-in caching
+        result = mood_service.get_mood_categories()
+        
+        # Flatten sections into categories list for Android client
+        categories = []
         
         # Predefined colors for visual appeal (cycle through these)
         colors = ['#4A90E2', '#E74C3C', '#9B59B6', '#27AE60', '#34495E', 
                   '#E91E63', '#607D8B', '#FFC107', '#FF9800', '#00BCD4',
                   '#3498DB', '#E67E22', '#1ABC9C', '#F39C12', '#8E44AD']
         
-        categories = []
         color_index = 0
-        
-        # Flatten all sections into a single list
-        # Prioritize "Moods & moments" and "For you" sections
-        priority_sections = ['Moods & moments', 'For you', 'Genres']
-        
-        for section_name in priority_sections:
-            if section_name in mood_sections:
-                for item in mood_sections[section_name]:
-                    categories.append({
-                        'title': item.get('title', ''),
-                        'params': item.get('params', ''),
-                        'color': colors[color_index % len(colors)]
-                    })
-                    color_index += 1
-        
-        # Add any remaining sections not in priority list
-        for section_name, items in mood_sections.items():
-            if section_name not in priority_sections:
-                for item in items:
-                    categories.append({
-                        'title': item.get('title', ''),
-                        'params': item.get('params', ''),
-                        'color': colors[color_index % len(colors)]
-                    })
-                    color_index += 1
+        for section in result.get('sections', []):
+            for category in section.get('categories', []):
+                categories.append({
+                    'title': category['title'],
+                    'params': category['params'],
+                    'color': colors[color_index % len(colors)]
+                })
+                color_index += 1
         
         response_payload = {
             'success': True,
             'categories': categories,
             'count': len(categories)
         }
-        _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
         
+        logger.info(f"Returning {len(categories)} mood categories")
         return jsonify(response_payload)
+        
     except Exception as e:
         logger.error(f"Mood categories error: {str(e)}", exc_info=True)
         return jsonify({
@@ -564,51 +828,40 @@ def get_mood_categories():
 
 @app.route('/api/home/mood-playlists', methods=['GET'])
 def get_mood_playlists():
-    """Get playlists for a specific mood/genre"""
+    """Get playlists for a specific mood/genre
+    
+    Query params:
+        - params: Required. The params string from mood category
+        - limit: Optional. Number of playlists to return (default 10, max 15)
+        
+    Cached for 15 minutes per unique params+limit combination.
+    """
     try:
         params = request.args.get('params', '').strip()
         if not params:
-            return jsonify({'error': 'params parameter is required'}), 400
+            return jsonify({
+                'success': False,
+                'error': 'params parameter is required',
+                'playlists': [],
+                'count': 0
+            }), 400
         
-        limit = int(request.args.get('limit', 10))
-        cache_key = f"mood_playlists:{params}:{limit}"
-        cached = _cache_get(_home_cache, cache_key)
-        if cached is not None:
-            return jsonify(cached)
-
-        ytmusic = YTMusic()
-        try:
-            mood_data = ytmusic.get_mood_playlists(params)
-        except KeyError as e:
-            logger.warning(
-                "Mood playlists parser mismatch; returning empty list. Missing key: %s",
-                str(e)
-            )
-            mood_data = []
+        limit = min(int(request.args.get('limit', 10)), 15)  # Cap at 15
         
-        playlists = []
-        for item in (mood_data or [])[:limit]:
-            playlist_id = item.get('playlistId') or item.get('browseId')
-            if not playlist_id:
-                continue
-            
-            thumbnails = item.get('thumbnails') or []
-            playlists.append({
-                'playlistId': playlist_id,
-                'title': item.get('title') or '',
-                'description': item.get('description') or '',
-                'thumbnail': _pick_best_thumbnail(thumbnails),
-                'author': item.get('author') or 'YouTube Music',
-            })
+        logger.info(f"GET /api/home/mood-playlists - params={params[:30]}... limit={limit}")
+        
+        # Use MoodService with built-in caching
+        result = mood_service.get_mood_playlists(params, limit)
         
         response_payload = {
             'success': True,
-            'playlists': playlists,
-            'count': len(playlists)
+            'playlists': result.get('playlists', []),
+            'count': result.get('count', 0)
         }
-        _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
         
+        logger.info(f"Returning {result.get('count', 0)} mood playlists")
         return jsonify(response_payload)
+        
     except Exception as e:
         logger.error(f"Mood playlists error: {str(e)}", exc_info=True)
         return jsonify({

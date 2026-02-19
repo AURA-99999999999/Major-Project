@@ -4,28 +4,33 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aura.music.BuildConfig
+import com.aura.music.data.model.SearchResults
 import com.aura.music.data.model.Song
 import com.aura.music.data.repository.MusicRepository
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import retrofit2.HttpException
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+
+/**
+ * Sealed class representing search states
+ * Only shows errors on final requests, not during typing
+ */
+sealed class SearchState {
+    object Idle : SearchState()
+    object Loading : SearchState()
+    data class Success(val results: SearchResults) : SearchState()
+    object Empty : SearchState()
+    data class Error(val message: String) : SearchState()
+}
 
 data class SearchUiState(
     val query: String = "",
-    val results: List<Song> = emptyList(),
-    val isLoading: Boolean = false,
+    val searchState: SearchState = SearchState.Idle,
+    val suggestions: List<String> = emptyList(),
     val isPlaybackPreparing: Boolean = false,
-    val error: String? = null,
     val lastPlayedSongId: String? = null
 )
 
@@ -43,48 +48,128 @@ class SearchViewModel(
     private val _events = MutableSharedFlow<SearchEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<SearchEvent> = _events
 
-    private var searchJob: Job? = null
+    // Query flow for debouncing and distinct filtering
+    private val _queryFlow = MutableStateFlow("")
+    
+    // Suggestions flow with faster debounce (300ms)
+    private val _suggestionsFlow = MutableStateFlow("")
 
-    fun search(rawQuery: String) {
-        _uiState.update { it.copy(query = rawQuery) }
-
-        val query = rawQuery.trim()
-        searchJob?.cancel()
-        searchJob = viewModelScope.launch {
-            if (query.isBlank()) {
-                logDebug("search() - blank query, clearing results")
-                _uiState.update { it.copy(results = emptyList(), isLoading = false, error = null) }
-                return@launch
-            }
-
-            delay(350) // Debounce typing noise
-            _uiState.update { it.copy(isLoading = true, error = null) }
-
-            repository.searchSongs(query, 50)
-                .onSuccess { songs ->
-                    logDebug("search() success for '$query' with ${songs.size} songs")
-                    _uiState.update { it.copy(results = songs, isLoading = false) }
-
-                    if (songs.isEmpty()) {
-                        _events.emit(SearchEvent.ShowMessage("No results for \"$query\""))
+    init {
+        // Production-grade search pipeline with:
+        // - 400ms debounce (prevents API spam)
+        // - Min length filter (>=2 chars)
+        // - Distinct filtering (prevents duplicate queries)
+        // - flatMapLatest (auto-cancels old requests)
+        viewModelScope.launch {
+            _queryFlow
+                .debounce(400) // Wait 400ms after user stops typing
+                .filter { it.trim().length >= 2 } // Minimum 2 characters
+                .distinctUntilChanged() // Only trigger if query actually changed
+                .flatMapLatest { query -> // Auto-cancel previous search
+                    flow {
+                        logDebug("Searching for: '$query'")
+                        emit(SearchState.Loading)
+                        
+                        try {
+                            val result = repository.searchAllCategories(query.trim())
+                            result.fold(
+                                onSuccess = { searchResults ->
+                                    logDebug("Search success: ${searchResults.count} total results for '$query'")
+                                    emit(
+                                        if (searchResults.isEmpty()) SearchState.Empty
+                                        else SearchState.Success(searchResults)
+                                    )
+                                },
+                                onFailure = { e ->
+                                    // Silent failure during typing - only log
+                                    logError("Search failed for '$query'", e)
+                                    emit(SearchState.Error(mapNetworkError(e)))
+                                }
+                            )
+                        } catch (e: Exception) {
+                            logError("Search exception for '$query'", e)
+                            emit(SearchState.Error("Search failed. Please try again."))
+                        }
                     }
                 }
-                .onFailure { e ->
-                    val message = mapNetworkError(e)
-                    logError("search() failed for '$query': $message", e)
-                    _uiState.update { it.copy(isLoading = false, error = message) }
-                    _events.emit(SearchEvent.ShowMessage(message))
+                .catch { e ->
+                    logError("Flow error", e)
+                    emit(SearchState.Error("Unexpected error occurred"))
                 }
+                .collect { state ->
+                    _uiState.update { it.copy(searchState = state) }
+                }
+        }
+        
+        // Suggestions pipeline - faster debounce (300ms)
+        viewModelScope.launch {
+            _suggestionsFlow
+                .debounce(300)
+                .filter { it.trim().length >= 2 }
+                .distinctUntilChanged()
+                .flatMapLatest { query ->
+                    flow {
+                        try {
+                            val result = repository.getSearchSuggestions(query.trim())
+                            result.fold(
+                                onSuccess = { suggestions ->
+                                    emit(suggestions)
+                                },
+                                onFailure = {
+                                    emit(emptyList())
+                                }
+                            )
+                        } catch (e: Exception) {
+                            emit(emptyList())
+                        }
+                    }
+                }
+                .catch {
+                    emit(emptyList())
+                }
+                .collect { suggestions ->
+                    _uiState.update { it.copy(suggestions = suggestions) }
+                }
+        }
+    }
+
+    fun search(rawQuery: String) {
+        val trimmed = rawQuery.trim()
+        _uiState.update { it.copy(query = rawQuery) }
+        
+        // Clear results immediately if query is too short
+        if (trimmed.isEmpty()) {
+            _uiState.update { it.copy(searchState = SearchState.Idle, suggestions = emptyList()) }
+            _queryFlow.value = ""
+            _suggestionsFlow.value = ""
+        } else if (trimmed.length == 1) {
+            // Don't search, but don't clear either - just wait
+            _uiState.update { it.copy(searchState = SearchState.Idle, suggestions = emptyList()) }
+            _queryFlow.value = trimmed
+            _suggestionsFlow.value = ""
+        } else {
+            // Valid query - let the flows handle it
+            _queryFlow.value = trimmed
+            _suggestionsFlow.value = trimmed
         }
     }
 
     fun prepareSongForPlayback(song: Song) {
         viewModelScope.launch {
             logDebug("prepareSongForPlayback() videoId=${song.videoId}")
-            _uiState.update { it.copy(isPlaybackPreparing = true, error = null) }
+            _uiState.update { it.copy(isPlaybackPreparing = true) }
 
-            val songs = _uiState.value.results
+            val currentState = _uiState.value
+            val searchState = currentState.searchState
+            
+            if (searchState !is SearchState.Success) {
+                _uiState.update { it.copy(isPlaybackPreparing = false) }
+                return@launch
+            }
+            
+            val songs = searchState.results.songs
             val index = songs.indexOfFirst { it.videoId == song.videoId }
+            
             if (index < 0) {
                 _uiState.update { it.copy(isPlaybackPreparing = false) }
                 return@launch
@@ -102,7 +187,8 @@ class SearchViewModel(
 
     fun clearSearch() {
         logDebug("clearSearch() called")
-        searchJob?.cancel()
+        _queryFlow.value = ""
+        _suggestionsFlow.value = ""
         _uiState.value = SearchUiState()
     }
 

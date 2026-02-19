@@ -38,6 +38,15 @@ class ViewModelFactory(
             modelClass.isAssignableFrom(PlayerViewModel::class.java) -> {
                 PlayerViewModel(firestoreRepository) as T
             }
+            modelClass.isAssignableFrom(AlbumDetailViewModel::class.java) -> {
+                AlbumDetailViewModel(musicRepository) as T
+            }
+            modelClass.isAssignableFrom(ArtistDetailViewModel::class.java) -> {
+                ArtistDetailViewModel(musicRepository) as T
+            }
+            modelClass.isAssignableFrom(YTPlaylistDetailViewModel::class.java) -> {
+                YTPlaylistDetailViewModel(musicRepository) as T
+            }
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }

@@ -1,14 +1,19 @@
 package com.aura.music.data.remote
 
+import com.aura.music.data.remote.dto.AlbumDetailResponse
 import com.aura.music.data.remote.dto.ApiResponse
+import com.aura.music.data.remote.dto.ArtistDetailResponse
 import com.aura.music.data.remote.dto.HealthDto
 import com.aura.music.data.remote.dto.HomeResponseDto
 import com.aura.music.data.remote.dto.LoginRequest
 import com.aura.music.data.remote.dto.MoodCategoriesResponse
 import com.aura.music.data.remote.dto.MoodPlaylistsResponse
+import com.aura.music.data.remote.dto.PlaylistDetailResponse
 import com.aura.music.data.remote.dto.PlaylistDto
 import com.aura.music.data.remote.dto.RecommendationResponse
 import com.aura.music.data.remote.dto.RegisterRequest
+import com.aura.music.data.remote.dto.SearchResponseDto
+import com.aura.music.data.remote.dto.SearchSuggestionsDto
 import com.aura.music.data.remote.dto.SongDto
 import com.aura.music.data.remote.dto.TrendingPlaylistsResponse
 import com.aura.music.data.remote.dto.UserDto
@@ -25,13 +30,29 @@ interface MusicApi {
     @GET("health")
     suspend fun getHealth(): HealthDto
 
-    // Search
+    // Search - Multi-category filtered search
     @GET("search")
-    suspend fun searchSongs(
-        @Query("query") query: String,
-        @Query("limit") limit: Int = 20,
-        @Query("filter") filter: String = "songs"
-    ): ApiResponse<SongDto>
+    suspend fun searchAllCategories(
+        @Query("query") query: String
+    ): SearchResponseDto
+
+    // Search Suggestions
+    @GET("search/suggestions")
+    suspend fun getSearchSuggestions(
+        @Query("q") query: String
+    ): SearchSuggestionsDto
+
+    // Album Details
+    @GET("album/{browseId}")
+    suspend fun getAlbumDetails(@Path("browseId") browseId: String): AlbumDetailResponse
+
+    // Artist Details
+    @GET("artist/{browseId}")
+    suspend fun getArtistDetails(@Path("browseId") browseId: String): ArtistDetailResponse
+
+    // YTMusic Playlist Details
+    @GET("playlist/{browseId}")
+    suspend fun getYTPlaylistDetails(@Path("browseId") browseId: String): PlaylistDetailResponse
 
     // Song details
     @GET("song/{videoId}")

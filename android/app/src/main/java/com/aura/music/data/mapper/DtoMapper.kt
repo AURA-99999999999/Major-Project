@@ -1,9 +1,17 @@
 package com.aura.music.data.mapper
 
+import com.aura.music.data.model.Album
+import com.aura.music.data.model.Artist
 import com.aura.music.data.model.Playlist
+import com.aura.music.data.model.PlaylistSearchResult
+import com.aura.music.data.model.SearchResults
 import com.aura.music.data.model.Song
 import com.aura.music.data.model.User
+import com.aura.music.data.remote.dto.AlbumDto
+import com.aura.music.data.remote.dto.ArtistDto
 import com.aura.music.data.remote.dto.PlaylistDto
+import com.aura.music.data.remote.dto.PlaylistSearchDto
+import com.aura.music.data.remote.dto.SearchResponseDto
 import com.aura.music.data.remote.dto.SongDto
 import com.aura.music.data.remote.dto.UserDto
 import com.google.gson.JsonElement
@@ -82,6 +90,64 @@ fun Song.toSongDtoMap(): Map<String, Any> {
         "url" to (url ?: ""),
         "album" to (album ?: ""),
         "artistId" to (artistId ?: "")
+    )
+}
+
+// Album mappers
+fun AlbumDto.toAlbum(): Album {
+    return Album(
+        browseId = browseId,
+        title = title,
+        artists = artists ?: emptyList(),
+        thumbnail = thumbnail,
+        year = year,
+        type = type
+    )
+}
+
+fun List<AlbumDto>.toAlbums(): List<Album> {
+    return map { it.toAlbum() }
+}
+
+// Artist mappers
+fun ArtistDto.toArtist(): Artist {
+    return Artist(
+        browseId = browseId,
+        name = name,
+        thumbnail = thumbnail,
+        subscribers = subscribers
+    )
+}
+
+fun List<ArtistDto>.toArtists(): List<Artist> {
+    return map { it.toArtist() }
+}
+
+// Playlist search result mappers
+fun PlaylistSearchDto.toPlaylistSearchResult(): PlaylistSearchResult {
+    return PlaylistSearchResult(
+        browseId = browseId ?: playlistId,
+        playlistId = playlistId,
+        title = title,
+        author = author ?: "YouTube Music",
+        thumbnail = thumbnail,
+        itemCount = itemCount
+    )
+}
+
+fun List<PlaylistSearchDto>.toPlaylistSearchResults(): List<PlaylistSearchResult> {
+    return map { it.toPlaylistSearchResult() }
+}
+
+// Search results mapper
+fun SearchResponseDto.toSearchResults(): SearchResults {
+    return SearchResults(
+        songs = songs?.toSongs() ?: emptyList(),
+        albums = albums?.toAlbums() ?: emptyList(),
+        artists = artists?.toArtists() ?: emptyList(),
+        playlists = playlists?.toPlaylistSearchResults() ?: emptyList(),
+        count = count ?: 0,
+        query = query ?: ""
     )
 }
 

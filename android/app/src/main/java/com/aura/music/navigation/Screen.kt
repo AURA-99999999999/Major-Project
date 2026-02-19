@@ -15,6 +15,15 @@ sealed class Screen(val route: String) {
     object PlaylistDetail : Screen("playlist_detail/{playlistId}") {
         fun createRoute(playlistId: String) = "playlist_detail/$playlistId"
     }
+    object AlbumDetail : Screen("album_detail/{browseId}") {
+        fun createRoute(browseId: String) = "album_detail/$browseId"
+    }
+    object ArtistDetail : Screen("artist_detail/{browseId}") {
+        fun createRoute(browseId: String) = "artist_detail/$browseId"
+    }
+    object YTPlaylistDetail : Screen("yt_playlist_detail/{browseId}") {
+        fun createRoute(browseId: String) = "yt_playlist_detail/$browseId"
+    }
     object Profile : Screen("profile")
 }
 

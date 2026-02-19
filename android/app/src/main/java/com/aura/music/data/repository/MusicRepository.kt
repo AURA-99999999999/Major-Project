@@ -3,12 +3,14 @@ package com.aura.music.data.repository
 import android.util.Log
 import com.aura.music.data.mapper.toPlaylist
 import com.aura.music.data.mapper.toPlaylists
+import com.aura.music.data.mapper.toSearchResults
 import com.aura.music.data.mapper.toSong
 import com.aura.music.data.mapper.toSongDtoMap
 import com.aura.music.data.mapper.toSongs
 import com.aura.music.data.mapper.toUser
 import com.aura.music.data.model.HomeData
 import com.aura.music.data.model.Playlist
+import com.aura.music.data.model.SearchResults
 import com.aura.music.data.model.Song
 import com.aura.music.data.model.User
 import com.aura.music.data.remote.MusicApi
@@ -24,7 +26,7 @@ class MusicRepository(
         return try {
             safeLog { 
                 Log.d(TAG, "========================================")
-                Log.d(TAG, "searchSongs() called")
+                Log.d(TAG, "searchSongs() called (DEPRECATED - use searchAllCategories)")
                 Log.d(TAG, "Query: $query")
                 Log.d(TAG, "Limit: $limit")
                 Log.d(TAG, "========================================")
@@ -37,15 +39,17 @@ class MusicRepository(
             } catch (e: Exception) {
                 safeLog { Log.w(TAG, "searchSongs() - Firestore logSearch threw", e) }
             }
-            val response = api.searchSongs(query, limit)
-            if (response.success && response.results != null) {
+            
+            // Use new multi-category search but only return songs for backward compatibility
+            val response = api.searchAllCategories(query)
+            if (response.success && response.songs != null) {
                 safeLog { 
                     Log.d(TAG, "========================================")
                     Log.d(TAG, "searchSongs() SUCCESS")
-                    Log.d(TAG, "Results count: ${response.results.size}")
+                    Log.d(TAG, "Results count: ${response.songs.size}")
                     Log.d(TAG, "========================================")
                 }
-                Result.success(response.results.toSongs())
+                Result.success(response.songs.toSongs())
             } else {
                 val error = response.error ?: "Search failed"
                 safeLog { 
@@ -65,6 +69,132 @@ class MusicRepository(
                 Log.e(TAG, "Stack trace:", e)
                 Log.e(TAG, "========================================")
             }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun searchAllCategories(query: String): Result<SearchResults> {
+        return try {
+            safeLog { 
+                Log.d(TAG, "========================================")
+                Log.d(TAG, "searchAllCategories() called")
+                Log.d(TAG, "Query: $query")
+                Log.d(TAG, "========================================")
+            }
+            try {
+                firestoreLogger.logSearch(query)
+                    .onFailure { error ->
+                        safeLog { Log.w(TAG, "searchAllCategories() - Firestore logSearch failed", error) }
+                    }
+            } catch (e: Exception) {
+                safeLog { Log.w(TAG, "searchAllCategories() - Firestore logSearch threw", e) }
+            }
+            
+            val response = api.searchAllCategories(query)
+            if (response.success) {
+                val searchResults = response.toSearchResults()
+                safeLog { 
+                    Log.d(TAG, "========================================")
+                    Log.d(TAG, "searchAllCategories() SUCCESS")
+                    Log.d(TAG, "Songs: ${searchResults.songs.size}")
+                    Log.d(TAG, "Albums: ${searchResults.albums.size}")
+                    Log.d(TAG, "Artists: ${searchResults.artists.size}")
+                    Log.d(TAG, "Playlists: ${searchResults.playlists.size}")
+                    Log.d(TAG, "Total: ${searchResults.count}")
+                    Log.d(TAG, "========================================")
+                }
+                Result.success(searchResults)
+            } else {
+                val error = response.error ?: "Search failed"
+                safeLog { 
+                    Log.w(TAG, "========================================")
+                    Log.w(TAG, "searchAllCategories() API ERROR")
+                    Log.w(TAG, "Error: $error")
+                    Log.w(TAG, "========================================")
+                }
+                Result.failure(Exception(error))
+            }
+        } catch (e: Exception) {
+            safeLog { 
+                Log.e(TAG, "========================================")
+                Log.e(TAG, "searchAllCategories() EXCEPTION")
+                Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
+                Log.e(TAG, "Exception message: ${e.message}")
+                Log.e(TAG, "Stack trace:", e)
+                Log.e(TAG, "========================================")
+            }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getSearchSuggestions(query: String): Result<List<String>> {
+        return try {
+            safeLog { Log.d(TAG, "getSearchSuggestions() query=$query") }
+            val response = api.getSearchSuggestions(query)
+            if (response.success && response.suggestions != null) {
+                safeLog { Log.d(TAG, "getSearchSuggestions() success: ${response.suggestions.size} suggestions") }
+                Result.success(response.suggestions)
+            } else {
+                val error = response.error ?: "Failed to get suggestions"
+                safeLog { Log.w(TAG, "getSearchSuggestions() error: $error") }
+                Result.failure(Exception(error))
+            }
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getSearchSuggestions() exception", e) }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getAlbumDetails(browseId: String): Result<com.aura.music.data.remote.dto.AlbumDetailDto> {
+        return try {
+            safeLog { Log.d(TAG, "getAlbumDetails() browseId=$browseId") }
+            val response = api.getAlbumDetails(browseId)
+            if (response.success && response.album != null) {
+                safeLog { Log.d(TAG, "getAlbumDetails() success: ${response.album.title}") }
+                Result.success(response.album)
+            } else {
+                val error = response.error ?: "Failed to get album details"
+                safeLog { Log.w(TAG, "getAlbumDetails() failed: $error") }
+                Result.failure(Exception(error))
+            }
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getAlbumDetails() exception", e) }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getArtistDetails(browseId: String): Result<com.aura.music.data.remote.dto.ArtistDetailDto> {
+        return try {
+            safeLog { Log.d(TAG, "getArtistDetails() browseId=$browseId") }
+            val response = api.getArtistDetails(browseId)
+            if (response.success && response.artist != null) {
+                safeLog { Log.d(TAG, "getArtistDetails() success: ${response.artist.name}") }
+                Result.success(response.artist)
+            } else {
+                val error = response.error ?: "Failed to get artist details"
+                safeLog { Log.w(TAG, "getArtistDetails() failed: $error") }
+                Result.failure(Exception(error))
+            }
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getArtistDetails() exception", e) }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getYTPlaylistDetails(browseId: String): Result<com.aura.music.data.remote.dto.PlaylistDetailDto> {
+        return try {
+            safeLog { Log.d(TAG, "getYTPlaylistDetails() browseId=$browseId") }
+            val response = api.getYTPlaylistDetails(browseId)
+            if (response.success && response.playlist != null) {
+                safeLog { Log.d(TAG, "getYTPlaylistDetails() success: ${response.playlist.title}") }
+                Result.success(response.playlist)
+            } else {
+                val error = response.error ?: "Failed to get playlist details"
+                safeLog { Log.w(TAG, "getYTPlaylistDetails() failed: $error") }
+                Result.failure(Exception(error))
+            }
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getYTPlaylistDetails() exception", e) }
             Result.failure(e)
         }
     }

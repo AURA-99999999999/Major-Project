@@ -81,7 +81,16 @@ fun NavGraphBuilder.musicAppGraph(
         SearchScreen(
             musicService = musicService,
             onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
-            onNavigateBack = { navController.popBackStack() }
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToAlbum = { browseId ->
+                navController.navigate(Screen.AlbumDetail.createRoute(browseId))
+            },
+            onNavigateToArtist = { browseId ->
+                navController.navigate(Screen.ArtistDetail.createRoute(browseId))
+            },
+            onNavigateToPlaylist = { browseId ->
+                navController.navigate(Screen.YTPlaylistDetail.createRoute(browseId))
+            }
         )
     }
 
@@ -122,6 +131,51 @@ fun NavGraphBuilder.musicAppGraph(
         val playlistId = backStackEntry.arguments?.getString("playlistId") ?: ""
         PlaylistDetailScreen(
             playlistId = playlistId,
+            musicService = musicService,
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
+        )
+    }
+    
+    // ==================== ALBUM DETAIL SCREEN ====================
+    composable(
+        route = Screen.AlbumDetail.route,
+        arguments = listOf(navArgument("browseId") { type = androidx.navigation.NavType.StringType })
+    ) { backStackEntry ->
+        val browseId = backStackEntry.arguments?.getString("browseId") ?: return@composable
+        com.aura.music.ui.screens.detail.AlbumDetailScreen(
+            browseId = browseId,
+            musicService = musicService,
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
+        )
+    }
+
+    // ==================== ARTIST DETAIL SCREEN ====================
+    composable(
+        route = Screen.ArtistDetail.route,
+        arguments = listOf(navArgument("browseId") { type = androidx.navigation.NavType.StringType })
+    ) { backStackEntry ->
+        val browseId = backStackEntry.arguments?.getString("browseId") ?: return@composable
+        com.aura.music.ui.screens.detail.ArtistDetailScreen(
+            browseId = browseId,
+            musicService = musicService,
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
+            onNavigateToAlbum = { albumBrowseId ->
+                navController.navigate(Screen.AlbumDetail.createRoute(albumBrowseId))
+            }
+        )
+    }
+
+    // ==================== YOUTUBE PLAYLIST DETAIL SCREEN ====================
+    composable(
+        route = Screen.YTPlaylistDetail.route,
+        arguments = listOf(navArgument("browseId") { type = androidx.navigation.NavType.StringType })
+    ) { backStackEntry ->
+        val browseId = backStackEntry.arguments?.getString("browseId") ?: return@composable
+        com.aura.music.ui.screens.detail.YTPlaylistDetailScreen(
+            browseId = browseId,
             musicService = musicService,
             onNavigateBack = { navController.popBackStack() },
             onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
