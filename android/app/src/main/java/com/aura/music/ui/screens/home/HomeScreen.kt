@@ -97,7 +97,6 @@ fun HomeScreen(
     onNavigateToProfile: () -> Unit,
     onNavigateToPlaylistPreview: (String) -> Unit,
     onNavigateToArtist: (String) -> Unit = {},
-    onNavigateToAlbum: (String) -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -331,9 +330,6 @@ fun HomeScreen(
                                     },
                                     onPlayNext = { song ->
                                         musicService?.insertNext(song)
-                                    },
-                                    onGoToAlbum = { song ->
-                                        song.albumId?.let { onNavigateToAlbum(it) }
                                     }
                                 )
                             }
@@ -377,9 +373,6 @@ fun HomeScreen(
                                         },
                                         onPlayNext = { song ->
                                             musicService?.insertNext(song)
-                                        },
-                                        onGoToAlbum = { song ->
-                                            song.albumId?.let { onNavigateToAlbum(it) }
                                         }
                                     )
                                 }
@@ -506,8 +499,7 @@ private fun TrendingRow(
     onSongClick: (Song, Int) -> Unit,
     onToggleLike: (Song) -> Unit,
     onAddToPlaylist: (Song) -> Unit,
-    onPlayNext: (Song) -> Unit,
-    onGoToAlbum: (Song) -> Unit
+    onPlayNext: (Song) -> Unit
 ) {
     if (songs.isEmpty()) {
         EmptyStateCard(message = "No trending songs right now. Pull to refresh or try again later.")
@@ -524,8 +516,7 @@ private fun TrendingRow(
                 onSongClick = { onSongClick(song, index) },
                 onToggleLike = { onToggleLike(song) },
                 onAddToPlaylist = { onAddToPlaylist(song) },
-                onPlayNext = { onPlayNext(song) },
-                onGoToAlbum = { onGoToAlbum(song) }
+                onPlayNext = { onPlayNext(song) }
             )
         }
     }
@@ -538,8 +529,7 @@ private fun TrendingSongCard(
     onSongClick: () -> Unit,
     onToggleLike: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    onPlayNext: () -> Unit,
-    onGoToAlbum: () -> Unit
+    onPlayNext: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -614,15 +604,6 @@ private fun TrendingSongCard(
                         onAddToPlaylist()
                     }
                 )
-                if (song.albumId != null) {
-                    DropdownMenuItem(
-                        text = { Text("Go to Album") },
-                        onClick = {
-                            showMenu = false
-                            onGoToAlbum()
-                        }
-                    )
-                }
             }
         }
         Text(

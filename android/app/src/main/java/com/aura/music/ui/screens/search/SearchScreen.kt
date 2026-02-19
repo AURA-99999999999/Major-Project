@@ -313,8 +313,7 @@ fun SearchScreen(
                                         onClick = { viewModel.prepareSongForPlayback(song) },
                                         onToggleLike = { likedSongsViewModel.toggleLike(song) },
                                         onAddToPlaylist = { pendingSongForPlaylist = song },
-                                        onPlayNext = { musicService?.insertNext(song) },
-                                        onGoToAlbum = { song.albumId?.let { onNavigateToAlbum(it) } }
+                                        onPlayNext = { musicService?.insertNext(song) }
                                     )
                                 }
                                 

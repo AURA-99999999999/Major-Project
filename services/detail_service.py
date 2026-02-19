@@ -325,24 +325,12 @@ class DetailService:
                 if not artist_names:
                     artist_names = ['Unknown Artist']
                 
-                # Extract album info including ID
-                album_data = song.get('album')
-                album_name = None
-                album_id = None
-                if album_data:
-                    if isinstance(album_data, dict):
-                        album_name = album_data.get('name')
-                        album_id = album_data.get('id')
-                    elif isinstance(album_data, str):
-                        album_name = album_data
-                
                 songs.append({
                     'videoId': video_id,
                     'title': title,
                     'artists': artist_names,
                     'thumbnail': self._get_best_thumbnail(song.get('thumbnails', [])),
-                    'album': album_name,
-                    'albumId': album_id,
+                    'album': song.get('album', {}).get('name') if song.get('album') else None,
                     'duration': song.get('duration'),
                     'duration_seconds': song.get('duration_seconds'),
                     'year': song.get('year'),
@@ -402,24 +390,12 @@ class DetailService:
                 if not artist_names:
                     artist_names = ['Unknown Artist']
                 
-                # Extract album info including ID
-                album_data = track.get('album')
-                album_name = None
-                album_id = None
-                if album_data:
-                    if isinstance(album_data, dict):
-                        album_name = album_data.get('name')
-                        album_id = album_data.get('id')
-                    elif isinstance(album_data, str):
-                        album_name = album_data
-                
                 songs.append({
                     'videoId': video_id,
                     'title': title,
                     'artists': artist_names,
                     'thumbnail': self._get_best_thumbnail(track.get('thumbnails', [])),
-                    'album': album_name,
-                    'albumId': album_id,
+                    'album': track.get('album', {}).get('name') if track.get('album') else None,
                     'duration': track.get('duration'),
                     'duration_seconds': track.get('duration_seconds'),
                     'type': 'song'

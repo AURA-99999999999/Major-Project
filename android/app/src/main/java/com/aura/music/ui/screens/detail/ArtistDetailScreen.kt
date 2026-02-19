@@ -239,8 +239,7 @@ fun ArtistDetailScreen(
                                 onClick = { viewModel.playSongFromArtist(index) },
                                 onToggleLike = { likedSongsViewModel.toggleLike(song) },
                                 onAddToPlaylist = { pendingSongForPlaylist = song },
-                                onPlayNext = { musicService?.insertNext(song) },
-                                onGoToAlbum = { song.albumId?.let { onNavigateToAlbum(it) } }
+                                onPlayNext = { musicService?.insertNext(song) }
                             )
                         }
                     }

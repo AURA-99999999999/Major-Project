@@ -32,17 +32,6 @@ class MusicService:
             formatted_results = []
             
             for result in results:
-                # Extract album info including ID
-                album_data = result.get('album')
-                album_name = None
-                album_id = None
-                if album_data:
-                    if isinstance(album_data, dict):
-                        album_name = album_data.get('name')
-                        album_id = album_data.get('id')
-                    elif isinstance(album_data, str):
-                        album_name = album_data
-                
                 formatted_results.append({
                     'videoId': result.get('videoId'),
                     'title': result.get('title', 'Unknown'),
@@ -50,8 +39,7 @@ class MusicService:
                     'thumbnail': self._get_best_thumbnail(result.get('thumbnails', [])),
                     'duration': result.get('duration'),  # Keep as string (e.g., "4:28")
                     'duration_seconds': result.get('duration_seconds'),  # Numeric duration
-                    'album': album_name,
-                    'albumId': album_id,
+                    'album': result.get('album', {}).get('name') if result.get('album') else None,
                     'year': result.get('year'),
                 })
             

@@ -53,9 +53,6 @@ fun NavGraph(
         },
         onNavigateToArtist = { browseId ->
             navController.navigate(Screen.ArtistDetail.createRoute(browseId))
-        },
-        onNavigateToAlbum = { browseId ->
-            navController.navigate(Screen.AlbumDetail.createRoute(browseId))
         }
     )
 }
@@ -82,9 +79,6 @@ fun NavGraphBuilder.musicAppGraph(
             },
             onNavigateToArtist = { browseId ->
                 navController.navigate(Screen.ArtistDetail.createRoute(browseId))
-            },
-            onNavigateToAlbum = { browseId ->
-                navController.navigate(Screen.AlbumDetail.createRoute(browseId))
             }
         )
     }
@@ -110,10 +104,7 @@ fun NavGraphBuilder.musicAppGraph(
         LikedSongsScreen(
             musicService = musicService,
             onNavigateBack = { navController.popBackStack() },
-            onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
-            onNavigateToAlbum = { browseId ->
-                navController.navigate(Screen.AlbumDetail.createRoute(browseId))
-            }
+            onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
         )
     }
     
@@ -193,10 +184,7 @@ fun NavGraphBuilder.musicAppGraph(
             browseId = browseId,
             musicService = musicService,
             onNavigateBack = { navController.popBackStack() },
-            onNavigateToPlayer = { navController.navigate(Screen.Player.route) },
-            onNavigateToAlbum = { albumBrowseId ->
-                navController.navigate(Screen.AlbumDetail.createRoute(albumBrowseId))
-            }
+            onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
         )
     }
     

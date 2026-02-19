@@ -77,9 +77,6 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onNavigateToArtist = { browseId ->
                     navController.navigate(Screen.ArtistDetail.createRoute(browseId))
-                },
-                onNavigateToAlbum = { browseId ->
-                    navController.navigate("main/album_detail/$browseId")
                 }
             )
 
@@ -213,9 +210,6 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onNavigateToPlayer = {
                     navController.navigate("main/player")
-                },
-                onNavigateToAlbum = { browseId ->
-                    navController.navigate("main/album_detail/$browseId")
                 }
             )
 
@@ -260,9 +254,6 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onPlayNext = { song ->
                     musicService?.insertNext(song)
-                },
-                onNavigateToAlbum = { browseId ->
-                    navController.navigate("main/album_detail/$browseId")
                 }
             )
 
@@ -375,9 +366,6 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onNavigateToPlayer = {
                     navController.navigate("main/player")
-                },
-                onNavigateToAlbum = { albumBrowseId ->
-                    navController.navigate("main/album_detail/$albumBrowseId")
                 }
             )
 
