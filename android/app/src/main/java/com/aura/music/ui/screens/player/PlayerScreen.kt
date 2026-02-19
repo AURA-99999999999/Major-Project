@@ -290,30 +290,30 @@ fun PlayerScreen(
                             when {
                                 isShuffle -> {
                                     musicService?.setShuffleEnabled(false)
-                                    musicService?.setRepeatMode(PlayerRepeatMode.ALL)
+                                    musicService?.setRepeatMode(PlayerRepeatMode.REPEAT_ALL)
                                 }
-                                repeatMode == PlayerRepeatMode.ALL -> {
-                                    musicService?.setRepeatMode(PlayerRepeatMode.ONE)
+                                repeatMode == PlayerRepeatMode.REPEAT_ALL -> {
+                                    musicService?.setRepeatMode(PlayerRepeatMode.REPEAT_ONE)
                                     musicService?.setShuffleEnabled(false)
                                 }
-                                repeatMode == PlayerRepeatMode.ONE -> {
-                                    musicService?.setRepeatMode(PlayerRepeatMode.OFF)
+                                repeatMode == PlayerRepeatMode.REPEAT_ONE -> {
+                                    musicService?.setRepeatMode(PlayerRepeatMode.NONE)
                                     musicService?.setShuffleEnabled(true)
                                 }
                                 else -> {
                                     musicService?.setShuffleEnabled(false)
-                                    musicService?.setRepeatMode(PlayerRepeatMode.ALL)
+                                    musicService?.setRepeatMode(PlayerRepeatMode.REPEAT_ALL)
                                 }
                             }
                         }
                     ) {
                         val modeIcon = when {
                             playerState.shuffleEnabled -> Icons.Filled.Shuffle
-                            playerState.repeatMode == PlayerRepeatMode.ONE -> Icons.Filled.RepeatOne
+                            playerState.repeatMode == PlayerRepeatMode.REPEAT_ONE -> Icons.Filled.RepeatOne
                             else -> Icons.Filled.Repeat
                         }
                         val isActive = playerState.shuffleEnabled ||
-                            playerState.repeatMode != PlayerRepeatMode.OFF
+                            playerState.repeatMode != PlayerRepeatMode.NONE
 
                         Icon(
                             imageVector = modeIcon,

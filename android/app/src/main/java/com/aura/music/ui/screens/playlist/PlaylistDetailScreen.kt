@@ -104,8 +104,8 @@ fun PlaylistDetailScreen(
         viewModel.events.collectLatest { event ->
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is PlaylistEvent.PlaySong -> {
-                    musicService?.playResolvedSong(event.song, false, "playlist")
+                is PlaylistEvent.PlayQueue -> {
+                    musicService?.setQueueAndPlay(event.songs, event.startIndex, "playlist")
                     onNavigateToPlayer()
                 }
             }
@@ -116,7 +116,7 @@ fun PlaylistDetailScreen(
         likedSongsViewModel.events.collectLatest { event ->
             when (event) {
                 is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is LikedSongsEvent.PlaySong -> Unit
+                is LikedSongsEvent.PlayQueue -> Unit
             }
         }
     }
@@ -220,7 +220,8 @@ fun PlaylistDetailScreen(
                                     onClick = { viewModel.prepareSongForPlayback(song) },
                                     isLiked = likedSongsState.likedSongIds.contains(song.videoId),
                                     onToggleLike = { likedSongsViewModel.toggleLike(song.toSong()) },
-                                    onRemove = { viewModel.removeSongFromPlaylist(playlistId, song.videoId) }
+                                    onRemove = { viewModel.removeSongFromPlaylist(playlistId, song.videoId) },
+                                    onPlayNext = { musicService?.insertNext(song.toSong()) }
                                 )
                             }
                         }
@@ -261,7 +262,8 @@ private fun PlaylistSongRow(
     onClick: () -> Unit,
     isLiked: Boolean,
     onToggleLike: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onPlayNext: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -321,6 +323,13 @@ private fun PlaylistSongRow(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false }
             ) {
+                DropdownMenuItem(
+                    text = { Text("Play Next") },
+                    onClick = {
+                        showMenu = false
+                        onPlayNext()
+                    }
+                )
                 DropdownMenuItem(
                     text = {
                         Text(

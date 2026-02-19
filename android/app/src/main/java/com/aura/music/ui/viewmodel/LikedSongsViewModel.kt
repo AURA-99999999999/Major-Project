@@ -29,7 +29,7 @@ data class LikedSongsUiState(
 
 sealed interface LikedSongsEvent {
     data class ShowMessage(val message: String) : LikedSongsEvent
-    data class PlaySong(val song: Song) : LikedSongsEvent
+    data class PlayQueue(val songs: List<Song>, val startIndex: Int) : LikedSongsEvent
 }
 
 class LikedSongsViewModel(
@@ -135,29 +135,16 @@ class LikedSongsViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isPlaybackPreparing = true, error = null)
 
-            val resolvedSong = musicRepository.getSong(song.videoId)
-                .getOrNull()
-                ?.let { mergeMetadataFromFallback(it, song) }
-
-            if (resolvedSong == null || resolvedSong.url.isNullOrBlank()) {
+            val songs = _uiState.value.songs
+            val index = songs.indexOfFirst { it.videoId == song.videoId }
+            if (index < 0) {
                 _uiState.value = _uiState.value.copy(isPlaybackPreparing = false)
-                _events.tryEmit(LikedSongsEvent.ShowMessage("Stream URL missing for ${song.title}"))
                 return@launch
             }
 
             _uiState.value = _uiState.value.copy(isPlaybackPreparing = false)
-            _events.tryEmit(LikedSongsEvent.PlaySong(resolvedSong))
+            _events.tryEmit(LikedSongsEvent.PlayQueue(songs, index))
         }
-    }
-
-    private fun mergeMetadataFromFallback(resolved: Song, fallback: Song): Song {
-        return resolved.copy(
-            title = if (fallback.title.isNotBlank()) fallback.title else resolved.title,
-            artist = fallback.artist ?: resolved.artist,
-            artists = if (!fallback.artists.isNullOrEmpty()) fallback.artists else resolved.artists,
-            thumbnail = fallback.thumbnail ?: resolved.thumbnail,
-            album = fallback.album ?: resolved.album
-        )
     }
 
     companion object {

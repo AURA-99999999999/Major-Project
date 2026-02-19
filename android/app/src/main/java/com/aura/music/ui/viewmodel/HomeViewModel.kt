@@ -46,21 +46,11 @@ class HomeViewModel(
         }
     }
 
-    fun playSongByVideoId(videoId: String) {
-        if (videoId.isBlank()) return
+    fun playSongFromList(songs: List<Song>, startIndex: Int, source: String) {
+        if (songs.isEmpty()) return
+        if (startIndex !in songs.indices) return
         val service = musicService ?: return
-        val state = service.playerState.value
-        if (state.currentSong?.videoId == videoId && state.isPlaying) return
-
-        viewModelScope.launch {
-            val fallbackSong = findSongByVideoId(videoId)
-            val resolvedSong = repository.getSong(videoId)
-                .getOrNull()
-                ?.let { mergeMetadataFromFallback(it, fallbackSong) }
-
-            if (resolvedSong == null || resolvedSong.url.isNullOrBlank()) return@launch
-            service.playResolvedSong(resolvedSong, false, "trending")
-        }
+        service.setQueueAndPlay(songs, startIndex, source)
     }
 
     fun loadHomeData() {
@@ -143,27 +133,5 @@ class HomeViewModel(
         }
     }
 
-    private fun findSongByVideoId(videoId: String): Song? {
-        val state = _uiState.value
-        if (state is HomeUiState.Success) {
-            return (state.trending + state.recommendations)
-                .firstOrNull { it.videoId == videoId }
-        }
-        val recommended = _recommendedSongs.value
-        if (recommended.isNotEmpty()) {
-            return recommended.firstOrNull { it.videoId == videoId }
-        }
-        return null
-    }
-
-    private fun mergeMetadataFromFallback(resolved: Song, fallback: Song?): Song {
-        if (fallback == null) return resolved
-        return resolved.copy(
-            title = if (fallback.title.isNotBlank()) fallback.title else resolved.title,
-            artist = fallback.artist ?: resolved.artist,
-            artists = if (!fallback.artists.isNullOrEmpty()) fallback.artists else resolved.artists,
-            thumbnail = fallback.thumbnail ?: resolved.thumbnail
-        )
-    }
 }
 

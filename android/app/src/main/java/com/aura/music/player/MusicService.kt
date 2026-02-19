@@ -11,7 +11,6 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import com.aura.music.MainActivity
 import com.aura.music.data.model.Song
 import com.aura.music.data.model.withFallbackMetadata
 import com.aura.music.data.repository.FirestoreRepository
@@ -33,6 +32,8 @@ class MusicService : MediaSessionService() {
     private var exoPlayer: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val queueManager = PlaybackQueueManager
+    private val smartAutoplayManager by lazy { SmartAutoplayManager(repository) }
 
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
@@ -144,9 +145,7 @@ class MusicService : MediaSessionService() {
                             Player.STATE_READY -> {
                                 _playerState.update { it.copy(isLoading = false) }
                             }
-                            Player.STATE_ENDED -> {
-                                handleTrackEnd()
-                            }
+                            Player.STATE_ENDED -> handleSongCompletion()
                         }
                     }
 
@@ -196,34 +195,36 @@ class MusicService : MediaSessionService() {
         }
     }
 
-    fun playSong(song: Song, addToQueue: Boolean = false, source: String = "unknown") {
-        serviceScope.launch {
-            try {
-                _playerState.update { it.copy(isLoading = true, error = null) }
-                val resolvedSong = resolveSong(song)
-                playResolvedSongInternal(resolvedSong, addToQueue, source)
-            } catch (e: Exception) {
-                Log.e(TAG, "playSong() failed", e)
-                _playerState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = e.message ?: "Failed to play song"
-                    )
-                }
-            }
+    fun setQueueAndPlay(songs: List<Song>, startIndex: Int, source: String = "unknown") {
+        if (songs.isEmpty()) {
+            stopPlaybackGracefully()
+            return
         }
+
+        smartAutoplayManager.resetForUserAction()
+        queueManager.setQueue(songs, startIndex)
+        Log.d(TAG, "Queue set size=${songs.size} startIndex=$startIndex source=$source")
+        playCurrentFromQueue(source)
     }
 
-    fun playResolvedSong(song: Song, addToQueue: Boolean = false, source: String = "unknown") {
+    fun playCurrentFromQueue(source: String = "unknown") {
         serviceScope.launch {
+            val current = queueManager.getCurrentSong()
+            if (current == null) {
+                stopPlaybackGracefully()
+                return@launch
+            }
+
             try {
                 _playerState.update { it.copy(isLoading = true, error = null) }
-                if (song.url.isNullOrBlank()) {
-                    throw IllegalStateException("Stream URL missing for ${song.title}")
+                val resolvedSong = if (current.url.isNullOrBlank()) {
+                    resolveSong(current)
+                } else {
+                    current
                 }
-                playResolvedSongInternal(song, addToQueue, source)
+                playResolvedSongInternal(resolvedSong, source)
             } catch (e: Exception) {
-                Log.e(TAG, "playResolvedSong() failed", e)
+                Log.e(TAG, "playCurrentFromQueue() failed", e)
                 _playerState.update {
                     it.copy(
                         isLoading = false,
@@ -245,40 +246,27 @@ class MusicService : MediaSessionService() {
     }
 
     fun playNext() {
-        val queue = _playerState.value.queue
-        val shuffle = _playerState.value.shuffleEnabled
-        val repeatMode = _playerState.value.repeatMode
-
-        when {
-            queue.isNotEmpty() -> {
-                val nextSong = if (shuffle) {
-                    queue.random()
-                } else {
-                    queue.first()
-                }
-                _playerState.update {
-                    it.copy(queue = it.queue.filter { song -> song.videoId != nextSong.videoId })
-                }
-                playSong(nextSong)
-            }
-            repeatMode == RepeatMode.ALL && _playerState.value.history.isNotEmpty() -> {
-                playSong(_playerState.value.history.first())
-            }
-            else -> {
-                stopPlayback()
-            }
+        Log.d(TAG, "Next triggered")
+        val next = queueManager.moveToNext()
+        if (next == null) {
+            stopPlaybackGracefully()
+            return
         }
+        playCurrentFromQueue(currentPlaybackSource)
     }
 
     fun playPrevious() {
-        val history = _playerState.value.history
-        if (history.isNotEmpty()) {
-            val prevSong = history.first()
-            _playerState.update { it.copy(history = history.drop(1)) }
-            playSong(prevSong)
-        } else {
+        val previous = queueManager.moveToPrevious()
+        if (previous == null) {
             exoPlayer?.seekTo(0)
+            return
         }
+        playCurrentFromQueue(currentPlaybackSource)
+    }
+
+    fun insertNext(song: Song) {
+        queueManager.insertNext(song)
+        Log.d(TAG, "Play Next inserted videoId=${song.videoId}")
     }
 
     fun seekTo(position: Long) {
@@ -289,20 +277,20 @@ class MusicService : MediaSessionService() {
     }
 
     fun setRepeatMode(mode: RepeatMode) {
+        queueManager.setRepeatMode(mode)
         _playerState.update { it.copy(repeatMode = mode) }
-        exoPlayer?.repeatMode = when (mode) {
-            RepeatMode.OFF -> Player.REPEAT_MODE_OFF
-            RepeatMode.ALL -> Player.REPEAT_MODE_ALL
-            RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-        }
+        exoPlayer?.repeatMode = Player.REPEAT_MODE_OFF
     }
 
     fun toggleShuffle() {
-        _playerState.update { it.copy(shuffleEnabled = !it.shuffleEnabled) }
+        val enabled = !queueManager.isShuffleEnabled()
+        setShuffleEnabled(enabled)
     }
 
     fun setShuffleEnabled(enabled: Boolean) {
+        queueManager.setShuffle(enabled)
         _playerState.update { it.copy(shuffleEnabled = enabled) }
+        Log.d(TAG, "Shuffle enabled=$enabled")
     }
 
     fun setVolume(volume: Float) {
@@ -310,50 +298,55 @@ class MusicService : MediaSessionService() {
         exoPlayer?.volume = volume
     }
 
-    fun addToQueue(song: Song) {
-        _playerState.update { state ->
-            if (!state.queue.any { it.videoId == song.videoId }) {
-                state.copy(queue = state.queue + song)
-            } else {
-                state
-            }
-        }
-    }
-
-    fun removeFromQueue(videoId: String) {
-        _playerState.update { it.copy(queue = it.queue.filter { song -> song.videoId != videoId }) }
-    }
-
     fun clearQueue() {
-        _playerState.update { it.copy(queue = emptyList()) }
+        queueManager.clearQueue()
     }
 
-    fun playPlaylist(songs: List<Song>) {
-        if (songs.isEmpty()) return
-        val first = songs.first()
-        val rest = songs.drop(1)
-        _playerState.update { it.copy(queue = rest) }
-        playSong(first)
-    }
-
-    private fun handleTrackEnd() {
-        val repeatMode = _playerState.value.repeatMode
-        when (repeatMode) {
-            RepeatMode.ONE -> {
-                exoPlayer?.seekTo(0)
-                exoPlayer?.play()
+    private fun handleSongCompletion() {
+        when (queueManager.getRepeatMode()) {
+            RepeatMode.REPEAT_ONE -> {
+                Log.d(TAG, "Repeat one triggered")
+                playCurrentFromQueue(currentPlaybackSource)
             }
-            RepeatMode.ALL, RepeatMode.OFF -> {
-                playNext()
+            RepeatMode.REPEAT_ALL -> {
+                Log.d(TAG, "Repeat all triggered")
+                val next = queueManager.moveToNext()
+                if (next != null) {
+                    playCurrentFromQueue(currentPlaybackSource)
+                } else {
+                    stopPlaybackGracefully()
+                }
+            }
+            RepeatMode.NONE -> {
+                val next = queueManager.moveToNext()
+                if (next != null) {
+                    playCurrentFromQueue(currentPlaybackSource)
+                } else {
+                    attemptSmartAutoplay()
+                }
             }
         }
     }
 
-    private fun stopPlayback() {
+    private fun attemptSmartAutoplay() {
+        serviceScope.launch {
+            val autoplayQueue = smartAutoplayManager.getAutoplayQueue()
+            if (autoplayQueue.isNotEmpty()) {
+                queueManager.setQueue(autoplayQueue, 0)
+                Log.d(TAG, "Smart autoplay queue set size=${autoplayQueue.size}")
+                playCurrentFromQueue("smart_autoplay")
+            } else {
+                stopPlaybackGracefully()
+            }
+        }
+    }
+
+    private fun stopPlaybackGracefully() {
         exoPlayer?.stop()
         _playerState.update {
             it.copy(
                 isPlaying = false,
+                isLoading = false,
                 currentPosition = 0L
             )
         }
@@ -395,25 +388,11 @@ class MusicService : MediaSessionService() {
             }
     }
 
-    private fun playResolvedSongInternal(resolvedSong: Song, addToQueue: Boolean, source: String) {
+    private fun playResolvedSongInternal(resolvedSong: Song, source: String) {
         currentPlaybackSource = source.ifBlank { "unknown" }
-        val currentSong = _playerState.value.currentSong
-        if (currentSong != null && currentSong.videoId != resolvedSong.videoId) {
-            _playerState.update {
-                it.copy(history = listOf(currentSong) + it.history.take(49))
-            }
-        }
 
         val mediaItem = MediaItem.fromUri(resolvedSong.url!!)
         exoPlayer?.let { player ->
-            if (addToQueue && currentSong != null) {
-                val queue = _playerState.value.queue
-                if (!queue.any { it.videoId == resolvedSong.videoId }) {
-                    _playerState.update { it.copy(queue = queue + resolvedSong) }
-                }
-                return
-            }
-
             player.setMediaItem(mediaItem)
             player.prepare()
             player.play()

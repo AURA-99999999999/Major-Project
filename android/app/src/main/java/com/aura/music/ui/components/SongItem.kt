@@ -46,7 +46,8 @@ fun SongItem(
     onClick: () -> Unit,
     isLiked: Boolean = false,
     onToggleLike: (() -> Unit)? = null,
-    onAddToPlaylist: (() -> Unit)? = null
+    onAddToPlaylist: (() -> Unit)? = null,
+    onPlayNext: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -104,7 +105,7 @@ fun SongItem(
             )
         }
 
-        if (onToggleLike != null || onAddToPlaylist != null) {
+        if (onToggleLike != null || onAddToPlaylist != null || onPlayNext != null) {
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
@@ -117,6 +118,15 @@ fun SongItem(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    if (onPlayNext != null) {
+                        DropdownMenuItem(
+                            text = { Text("Play Next") },
+                            onClick = {
+                                showMenu = false
+                                onPlayNext()
+                            }
+                        )
+                    }
                     if (onToggleLike != null) {
                         DropdownMenuItem(
                             text = {

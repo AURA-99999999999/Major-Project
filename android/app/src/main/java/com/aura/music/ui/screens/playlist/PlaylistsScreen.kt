@@ -98,7 +98,7 @@ fun PlaylistsScreen(
         viewModel.events.collectLatest { event ->
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is PlaylistEvent.PlaySong -> Unit
+                is PlaylistEvent.PlayQueue -> Unit
             }
         }
     }
@@ -107,7 +107,7 @@ fun PlaylistsScreen(
         likedSongsViewModel.events.collectLatest { event ->
             when (event) {
                 is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is LikedSongsEvent.PlaySong -> Unit
+                is LikedSongsEvent.PlayQueue -> Unit
             }
         }
     }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
@@ -82,8 +83,8 @@ fun LikedSongsScreen(
         viewModel.events.collectLatest { event ->
             when (event) {
                 is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is LikedSongsEvent.PlaySong -> {
-                    musicService?.playResolvedSong(event.song, false, "liked_songs")
+                is LikedSongsEvent.PlayQueue -> {
+                    musicService?.setQueueAndPlay(event.songs, event.startIndex, "liked_songs")
                     onNavigateToPlayer()
                 }
             }
@@ -94,7 +95,7 @@ fun LikedSongsScreen(
         playlistViewModel.events.collectLatest { event ->
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is PlaylistEvent.PlaySong -> Unit
+                is PlaylistEvent.PlayQueue -> Unit
             }
         }
     }
@@ -155,7 +156,7 @@ fun LikedSongsScreen(
                             contentPadding = PaddingValues(bottom = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(uiState.songs) { song ->
+                            itemsIndexed(uiState.songs) { _, song ->
                                 SongItem(
                                     song = song,
                                     isPlaying = musicService?.playerState?.value?.currentSong?.videoId == song.videoId &&
@@ -163,7 +164,8 @@ fun LikedSongsScreen(
                                     isLiked = true,
                                     onClick = { viewModel.prepareSongForPlayback(song) },
                                     onToggleLike = { viewModel.removeFromLikedSongs(song.videoId) },
-                                    onAddToPlaylist = { pendingSongForPlaylist = song }
+                                    onAddToPlaylist = { pendingSongForPlaylist = song },
+                                    onPlayNext = { musicService?.insertNext(song) }
                                 )
                             }
                         }

@@ -47,6 +47,7 @@ class RecommendationService:
     # Cache TTL in seconds
     CACHE_TTL_ARTIST = 3600    # 1 hour
     CACHE_TTL_RELATED = 1800   # 30 minutes
+    CACHE_TTL_USER_SIGNALS = 300  # 5 minutes
 
     # Validation limits and filters
     VALIDATION_SCAN_LIMIT = 25
@@ -76,6 +77,8 @@ class RecommendationService:
         # Cache: {key: (data, timestamp)}
         self.cache_artist: Dict[str, Tuple[Dict, float]] = {}
         self.cache_related: Dict[str, Tuple[List, float]] = {}
+        self.cache_user_signals: Dict[str, Tuple[Dict[str, List[Dict]], float]] = {}
+        self.cache_user_artists: Dict[str, Tuple[Set[str], float]] = {}
         
         self.max_workers = 3  # Limit concurrent ytmusic calls
         self._firestore_db = None
@@ -179,13 +182,51 @@ class RecommendationService:
                 all_consumed,
                 limit
             )
-            
-            # 5. Apply diversity constraints to prevent artist/album dominance
-            final_recommendations = self._apply_diversity_constraints(
+
+            logger.info("Initial candidates: %s", len(ranked_recommendations))
+
+            user_artists = self._build_user_artist_set(uid, user_plays, user_liked)
+            filtered_recommendations = self._filter_by_user_artists(
                 ranked_recommendations,
-                max_per_artist=2,
-                max_per_album=3
+                user_artists
             )
+
+            trending_recommendations = None
+            if not filtered_recommendations:
+                trending_recommendations = trending_recommendations or self._get_trending_fallback()
+                filtered_recommendations = self._deduplicate_and_filter(
+                    trending_recommendations,
+                    all_consumed,
+                    limit
+                )
+
+            logger.info("After scoring: %s", len(filtered_recommendations))
+
+            target_count = max(limit, 25)
+            target_count = min(target_count, 30)
+
+            final_recommendations = self._apply_diversity_constraints(
+                filtered_recommendations,
+                target_count=target_count
+            )
+
+            logger.info("After diversity re-rank: %s", len(final_recommendations))
+
+            if len(final_recommendations) < 15:
+                trending_recommendations = trending_recommendations or self._get_trending_fallback()
+                ranked_trending = self._deduplicate_and_filter(
+                    trending_recommendations,
+                    all_consumed,
+                    target_count
+                )
+                if ranked_trending:
+                    final_recommendations = self._backfill_results(
+                        final_recommendations,
+                        ranked_trending,
+                        target_count
+                    )
+
+            logger.info("Final returned: %s", len(final_recommendations))
             
             logger.info(f"Generated {len(final_recommendations)} final recommendations for {uid}")
             
@@ -242,19 +283,76 @@ class RecommendationService:
             Dict with 'plays' and 'liked' keys containing song lists
         """
         try:
+            cached = self.cache_user_signals.get(uid)
+            if cached:
+                cached_value, timestamp = cached
+                if time.time() - timestamp < self.CACHE_TTL_USER_SIGNALS:
+                    return cached_value
+
             plays = self._fetch_user_plays(uid)
             liked = self._fetch_user_liked_songs(uid)
-            
-            return {
+            result = {
                 'plays': plays,
                 'liked': liked
             }
+            self.cache_user_signals[uid] = (result, time.time())
+            return result
         except Exception as e:
             logger.error(f"Failed to fetch user signals for {uid}: {str(e)}")
             return {
                 'plays': [],
                 'liked': []
             }
+
+    def _normalize_artist_name(self, artist_name: str) -> str:
+        return artist_name.strip().lower()
+
+    def _extract_artist_names(self, artists_field) -> List[str]:
+        names: List[str] = []
+        if isinstance(artists_field, list):
+            for artist in artists_field:
+                if isinstance(artist, dict):
+                    name = artist.get('name', '')
+                else:
+                    name = str(artist)
+                if name:
+                    names.append(name)
+        elif isinstance(artists_field, str) and artists_field:
+            names.append(artists_field)
+        return names
+
+    def _build_user_artist_set(self, uid: str, plays: List[Dict], liked: List[Dict]) -> Set[str]:
+        cached = self.cache_user_artists.get(uid)
+        if cached:
+            cached_set, timestamp = cached
+            if time.time() - timestamp < self.CACHE_TTL_USER_SIGNALS:
+                return cached_set
+
+        artists: Set[str] = set()
+        for entry in plays + liked:
+            for name in self._extract_artist_names(entry.get('artists', [])):
+                normalized = self._normalize_artist_name(name)
+                if normalized:
+                    artists.add(normalized)
+
+        self.cache_user_artists[uid] = (artists, time.time())
+        return artists
+
+    def _filter_by_user_artists(self, recommendations: List[Dict], user_artists: Set[str]) -> List[Dict]:
+        if not recommendations or not user_artists:
+            return []
+
+        filtered: List[Dict] = []
+        for song in recommendations:
+            artists_field = song.get('artists', [])
+            names = self._extract_artist_names(artists_field)
+            if not names:
+                continue
+            normalized = {self._normalize_artist_name(name) for name in names if name}
+            if normalized.intersection(user_artists):
+                filtered.append(song)
+
+        return filtered
     
     def _calculate_time_decay_weight(self, play_timestamp: Optional[float]) -> float:
         """
@@ -832,11 +930,14 @@ class RecommendationService:
     def _apply_diversity_constraints(
         self,
         recommendations: List[Dict],
-        max_per_artist: int = 2,
-        max_per_album: int = 3
+        target_count: int = 25,
+        artist_repeat_penalty: float = 0.15,
+        album_repeat_penalty: float = 0.1,
+        max_consecutive_artist: int = 2,
+        max_total_per_artist: int = 3
     ) -> List[Dict]:
         """
-        Apply diversity constraints to recommendations to prevent artist/album dominance.
+        Apply soft diversity re-ranking to reduce artist/album dominance without removing songs.
         
         Args:
             recommendations: Ranked list of song recommendations
@@ -848,73 +949,161 @@ class RecommendationService:
         """
         if not recommendations:
             return []
-        
-        artist_count = {}  # {artist_name: count}
-        album_count = {}   # {album_name: count}
-        diverse_results = []
-        
+
         try:
+            scored: List[Dict] = []
+            artist_occurrence = {}
+            album_occurrence = {}
+
             for song in recommendations:
-                # Handle missing fields safely
                 artists = song.get('artists', [])
                 album = song.get('album', '')
-                
-                # Normalize artists to list of strings
+
                 if not isinstance(artists, list):
                     artists = [str(artists)] if artists else []
-                
-                # Check artist constraints
-                artist_limit_exceeded = False
+
+                normalized_artists = []
                 for artist in artists:
-                    # Normalize artist name
                     if isinstance(artist, dict):
-                        artist_name = artist.get('name', '').strip()
+                        name = artist.get('name', '').strip()
                     else:
-                        artist_name = str(artist).strip()
-                    
-                    if not artist_name:
-                        continue
-                    
-                    # Check if this artist has reached the limit
-                    if artist_count.get(artist_name, 0) >= max_per_artist:
-                        artist_limit_exceeded = True
-                        break
-                
-                if artist_limit_exceeded:
-                    continue
-                
-                # Check album constraint
+                        name = str(artist).strip()
+                    if name:
+                        normalized_artists.append(name)
+
                 album_name = str(album).strip() if album else ''
-                if album_name and album_count.get(album_name, 0) >= max_per_album:
-                    continue
-                
-                # Song passes all diversity constraints - add it
-                diverse_results.append(song)
-                
-                # Update counters
-                for artist in artists:
-                    if isinstance(artist, dict):
-                        artist_name = artist.get('name', '').strip()
-                    else:
-                        artist_name = str(artist).strip()
-                    
-                    if artist_name:
-                        artist_count[artist_name] = artist_count.get(artist_name, 0) + 1
-                
+
+                artist_repeat_count = 0
+                for name in normalized_artists:
+                    artist_repeat_count = max(artist_repeat_count, artist_occurrence.get(name, 0))
+
+                album_repeat_count = album_occurrence.get(album_name, 0) if album_name else 0
+
+                base_score = float(song.get('_score', 0))
+                final_score = base_score - (artist_repeat_penalty * artist_repeat_count)
+                final_score -= (album_repeat_penalty * album_repeat_count)
+
+                scored.append({
+                    **song,
+                    '_final_score': final_score
+                })
+
+                for name in normalized_artists:
+                    artist_occurrence[name] = artist_occurrence.get(name, 0) + 1
                 if album_name:
-                    album_count[album_name] = album_count.get(album_name, 0) + 1
-            
-            logger.info(
-                f"Diversity applied: {len(recommendations)} → {len(diverse_results)} "
-                f"(artists constrained: {len(artist_count)}, albums constrained: {len(album_count)})"
+                    album_occurrence[album_name] = album_occurrence.get(album_name, 0) + 1
+
+            scored.sort(key=lambda x: x.get('_final_score', 0), reverse=True)
+
+            reranked = self._apply_sliding_window_diversity(
+                scored,
+                max_consecutive_artist=max_consecutive_artist,
+                max_total_per_artist=max_total_per_artist
             )
-            
-            return diverse_results
-            
+
+            for item in reranked:
+                item.pop('_final_score', None)
+
+            return reranked[:target_count]
+
         except Exception as e:
             logger.error(f"Error applying diversity constraints: {str(e)}", exc_info=True)
-            # Fail gracefully - return original recommendations
-            return recommendations
+            return recommendations[:target_count]
+
+    def _apply_sliding_window_diversity(
+        self,
+        recommendations: List[Dict],
+        max_consecutive_artist: int,
+        max_total_per_artist: int
+    ) -> List[Dict]:
+        if not recommendations:
+            return []
+
+        remaining = recommendations[:]
+        result: List[Dict] = []
+        artist_counts = {}
+        consecutive_artist = None
+        consecutive_count = 0
+
+        while remaining:
+            chosen_index = None
+            for idx, song in enumerate(remaining):
+                artists = song.get('artists', [])
+                if not isinstance(artists, list):
+                    artists = [str(artists)] if artists else []
+
+                primary_artist = None
+                for artist in artists:
+                    if isinstance(artist, dict):
+                        name = artist.get('name', '').strip()
+                    else:
+                        name = str(artist).strip()
+                    if name:
+                        primary_artist = name
+                        break
+
+                if primary_artist is None:
+                    chosen_index = idx
+                    break
+
+                total_count = artist_counts.get(primary_artist, 0)
+                if total_count >= max_total_per_artist:
+                    continue
+
+                if primary_artist == consecutive_artist and consecutive_count >= max_consecutive_artist:
+                    continue
+
+                chosen_index = idx
+                break
+
+            if chosen_index is None:
+                chosen_index = 0
+
+            chosen = remaining.pop(chosen_index)
+            result.append(chosen)
+
+            artists = chosen.get('artists', [])
+            if not isinstance(artists, list):
+                artists = [str(artists)] if artists else []
+            primary_artist = None
+            for artist in artists:
+                if isinstance(artist, dict):
+                    name = artist.get('name', '').strip()
+                else:
+                    name = str(artist).strip()
+                if name:
+                    primary_artist = name
+                    break
+
+            if primary_artist:
+                artist_counts[primary_artist] = artist_counts.get(primary_artist, 0) + 1
+                if primary_artist == consecutive_artist:
+                    consecutive_count += 1
+                else:
+                    consecutive_artist = primary_artist
+                    consecutive_count = 1
+            else:
+                consecutive_artist = None
+                consecutive_count = 0
+
+        return result
+
+    def _backfill_results(
+        self,
+        current: List[Dict],
+        fallback: List[Dict],
+        target_count: int
+    ) -> List[Dict]:
+        existing_ids = {song.get('videoId') for song in current if song.get('videoId')}
+        for song in fallback:
+            video_id = song.get('videoId')
+            if not video_id or video_id in existing_ids:
+                continue
+            current.append(song)
+            existing_ids.add(video_id)
+            if len(current) >= target_count:
+                break
+        return current
     
     def _deduplicate_and_filter(
         self,

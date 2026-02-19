@@ -30,7 +30,7 @@ data class SearchUiState(
 )
 
 sealed interface SearchEvent {
-    data class PlaySong(val song: Song) : SearchEvent
+    data class PlayQueue(val songs: List<Song>, val startIndex: Int) : SearchEvent
     data class ShowMessage(val message: String) : SearchEvent
 }
 
@@ -83,29 +83,20 @@ class SearchViewModel(
             logDebug("prepareSongForPlayback() videoId=${song.videoId}")
             _uiState.update { it.copy(isPlaybackPreparing = true, error = null) }
 
-            val resolvedSong = repository.getSong(song.videoId)
-                .onFailure { throwable ->
-                    val message = mapNetworkError(throwable)
-                    logError("prepareSongForPlayback() failed", throwable)
-                    _events.emit(SearchEvent.ShowMessage(message))
-                }
-                .getOrNull()
-                ?.let { mergeMetadataFromFallback(it, song) }
-
-            if (resolvedSong == null || resolvedSong.url.isNullOrBlank()) {
+            val songs = _uiState.value.results
+            val index = songs.indexOfFirst { it.videoId == song.videoId }
+            if (index < 0) {
                 _uiState.update { it.copy(isPlaybackPreparing = false) }
-                if (resolvedSong == null) return@launch
-                _events.emit(SearchEvent.ShowMessage("Stream URL missing for ${song.title}"))
                 return@launch
             }
 
             _uiState.update {
                 it.copy(
                     isPlaybackPreparing = false,
-                    lastPlayedSongId = resolvedSong.videoId
+                    lastPlayedSongId = song.videoId
                 )
             }
-            _events.emit(SearchEvent.PlaySong(resolvedSong))
+            _events.emit(SearchEvent.PlayQueue(songs, index))
         }
     }
 
@@ -179,13 +170,5 @@ class SearchViewModel(
             safeLog { Log.e(TAG, message, throwable) }
     }
 
-    private fun mergeMetadataFromFallback(resolved: Song, fallback: Song): Song {
-        return resolved.copy(
-            title = if (fallback.title.isNotBlank()) fallback.title else resolved.title,
-            artist = fallback.artist ?: resolved.artist,
-            artists = if (!fallback.artists.isNullOrEmpty()) fallback.artists else resolved.artists,
-            thumbnail = fallback.thumbnail ?: resolved.thumbnail
-        )
-    }
 }
 

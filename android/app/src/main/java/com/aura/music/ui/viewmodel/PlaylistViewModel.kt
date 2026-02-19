@@ -31,7 +31,7 @@ data class PlaylistUiState(
 
 sealed interface PlaylistEvent {
     data class ShowMessage(val message: String) : PlaylistEvent
-    data class PlaySong(val song: Song) : PlaylistEvent
+    data class PlayQueue(val songs: List<Song>, val startIndex: Int) : PlaylistEvent
 }
 
 class PlaylistViewModel(
@@ -194,30 +194,16 @@ class PlaylistViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isPlaybackPreparing = true, error = null)
 
-            val fallback = song.toSong()
-            val resolved = musicRepository.getSong(song.videoId)
-                .getOrNull()
-                ?.let { mergeMetadataFromFallback(it, fallback) }
-
-            if (resolved == null || resolved.url.isNullOrBlank()) {
+            val songs = _uiState.value.songs.map { it.toSong() }
+            val index = songs.indexOfFirst { it.videoId == song.videoId }
+            if (index < 0) {
                 _uiState.value = _uiState.value.copy(isPlaybackPreparing = false)
-                _events.tryEmit(PlaylistEvent.ShowMessage("Stream URL missing for ${song.title}"))
                 return@launch
             }
 
             _uiState.value = _uiState.value.copy(isPlaybackPreparing = false)
-            _events.tryEmit(PlaylistEvent.PlaySong(resolved))
+            _events.tryEmit(PlaylistEvent.PlayQueue(songs, index))
         }
-    }
-
-    private fun mergeMetadataFromFallback(resolved: Song, fallback: Song): Song {
-        return resolved.copy(
-            title = if (fallback.title.isNotBlank()) fallback.title else resolved.title,
-            artist = fallback.artist ?: resolved.artist,
-            artists = if (!fallback.artists.isNullOrEmpty()) fallback.artists else resolved.artists,
-            thumbnail = fallback.thumbnail ?: resolved.thumbnail,
-            album = fallback.album ?: resolved.album
-        )
     }
 
     companion object {

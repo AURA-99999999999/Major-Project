@@ -2,7 +2,7 @@ package com.aura.music.ui.viewmodel
 
 import com.aura.music.data.model.Song
 import com.aura.music.data.repository.MusicRepository
-import com.aura.music.ui.viewmodel.SearchEvent.PlaySong
+import com.aura.music.ui.viewmodel.SearchEvent.PlayQueue
 import com.aura.music.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -59,13 +59,14 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `prepareSongForPlayback emits event when stream resolved`() = runTest {
+    fun `prepareSongForPlayback emits queue event for selected song`() = runTest {
         val searchSong = stubSong(url = null)
-        val resolvedSong = stubSong(url = "https://cdn.example.com/audio.mp3")
-
-        coEvery { repository.getSong(searchSong.videoId) } returns Result.success(resolvedSong)
+        coEvery { repository.searchSongs(any(), any()) } returns Result.success(listOf(searchSong))
 
         val viewModel = SearchViewModel(repository)
+        viewModel.search("Monica")
+        advanceTimeBy(400)
+        advanceUntilIdle()
 
         val eventDeferred = async { viewModel.events.first() }
 
@@ -73,9 +74,10 @@ class SearchViewModelTest {
         advanceUntilIdle()
 
         val event = eventDeferred.await()
-        assertTrue(event is PlaySong)
-        if (event is PlaySong) {
-            assertEquals("https://cdn.example.com/audio.mp3", event.song.url)
+        assertTrue(event is PlayQueue)
+        if (event is PlayQueue) {
+            assertEquals(0, event.startIndex)
+            assertEquals(searchSong.videoId, event.songs.first().videoId)
         }
     }
 }

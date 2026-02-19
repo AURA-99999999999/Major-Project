@@ -10,17 +10,9 @@ data class PlayerState(
     val duration: Long = 0L,
     val bufferedPosition: Long = 0L,
     val isLoading: Boolean = false,
-    val repeatMode: RepeatMode = RepeatMode.OFF,
+    val repeatMode: RepeatMode = RepeatMode.NONE,
     val shuffleEnabled: Boolean = false,
     val volume: Float = 1.0f,
-    val queue: List<Song> = emptyList(),
-    val history: List<Song> = emptyList(),
     val error: String? = null
 )
-
-enum class RepeatMode {
-    OFF,
-    ALL,
-    ONE
-}
 

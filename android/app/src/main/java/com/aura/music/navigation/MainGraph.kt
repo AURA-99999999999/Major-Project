@@ -1,7 +1,6 @@
 package com.aura.music.navigation
 
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
@@ -21,7 +20,6 @@ import com.aura.music.ui.screens.playlist.PlaylistPreviewScreen
 import com.aura.music.ui.screens.liked.LikedSongsScreen
 import com.aura.music.ui.screens.profile.ProfileScreen
 import com.aura.music.ui.viewmodel.ViewModelFactory
-import kotlinx.coroutines.launch
 
 /**
  * MainGraph - Navigation graph for the main music app
@@ -225,7 +223,6 @@ fun NavGraphBuilder.mainGraph(
             val playlistId = backStackEntry.arguments?.getString("playlistId") ?: ""
             val context = LocalContext.current
             val repository = ViewModelFactory.getMusicRepository(context.applicationContext as android.app.Application)
-            val coroutineScope = rememberCoroutineScope()
             
             PlaylistPreviewScreen(
                 playlistId = playlistId,
@@ -233,55 +230,18 @@ fun NavGraphBuilder.mainGraph(
                 onNavigateBack = {
                     navController.popBackStack()
                 },
-                onPlaySong = { song ->
-                    // Play the single song
-                    musicService?.let { service ->
-                        val state = service.playerState.value
-                        if (state.currentSong?.videoId == song.videoId && state.isPlaying) return@let
-                        
-                        // Resolve song with streaming URL
-                        coroutineScope.launch {
-                            val resolvedSong = repository.getSong(song.videoId).getOrNull()
-                            if (resolvedSong != null && !resolvedSong.url.isNullOrBlank()) {
-                                service.playResolvedSong(
-                                    resolvedSong.copy(
-                                        title = song.title,
-                                        artist = song.artist,
-                                        artists = song.artists,
-                                        thumbnail = song.thumbnail
-                                    ),
-                                    false,
-                                    "ytmusic_playlist"
-                                )
-                                navController.navigate("main/player")
-                            }
-                        }
-                    }
+                onPlaySong = { songs, index ->
+                    if (songs.isEmpty() || index !in songs.indices) return@PlaylistPreviewScreen
+                    musicService?.setQueueAndPlay(songs, index, "ytmusic_playlist")
+                    navController.navigate("main/player")
                 },
                 onPlayAll = { songs ->
-                    // Play all songs from the playlist
                     if (songs.isEmpty()) return@PlaylistPreviewScreen
-                    
-                    musicService?.let { service ->
-                        // Play first song and queue the rest
-                        coroutineScope.launch {
-                            val firstSong = songs.first()
-                            val resolvedSong = repository.getSong(firstSong.videoId).getOrNull()
-                            if (resolvedSong != null && !resolvedSong.url.isNullOrBlank()) {
-                                service.playResolvedSong(
-                                    resolvedSong.copy(
-                                        title = firstSong.title,
-                                        artist = firstSong.artist,
-                                        artists = firstSong.artists,
-                                        thumbnail = firstSong.thumbnail
-                                    ),
-                                    false,
-                                    "ytmusic_playlist"
-                                )
-                                navController.navigate("main/player")
-                            }
-                        }
-                    }
+                    musicService?.setQueueAndPlay(songs, 0, "ytmusic_playlist")
+                    navController.navigate("main/player")
+                },
+                onPlayNext = { song ->
+                    musicService?.insertNext(song)
                 }
             )
 

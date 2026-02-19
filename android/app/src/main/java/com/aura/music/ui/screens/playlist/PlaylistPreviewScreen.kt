@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -83,8 +84,9 @@ fun PlaylistPreviewScreen(
     playlistId: String,
     repository: MusicRepository,
     onNavigateBack: () -> Unit,
-    onPlaySong: (Song) -> Unit,
-    onPlayAll: (List<Song>) -> Unit
+    onPlaySong: (List<Song>, Int) -> Unit,
+    onPlayAll: (List<Song>) -> Unit,
+    onPlayNext: (Song) -> Unit
 ) {
     var uiState by remember { mutableStateOf<PlaylistPreviewUiState>(PlaylistPreviewUiState.Loading) }
     val playlistViewModel: PlaylistViewModel = viewModel(
@@ -121,7 +123,7 @@ fun PlaylistPreviewScreen(
         playlistViewModel.events.collectLatest { event ->
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is PlaylistEvent.PlaySong -> Unit
+                is PlaylistEvent.PlayQueue -> Unit
             }
         }
     }
@@ -130,7 +132,7 @@ fun PlaylistPreviewScreen(
         likedSongsViewModel.events.collectLatest { event ->
             when (event) {
                 is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is LikedSongsEvent.PlaySong -> Unit
+                is LikedSongsEvent.PlayQueue -> Unit
             }
         }
     }
@@ -197,7 +199,8 @@ fun PlaylistPreviewScreen(
                         likedSongIds = likedSongsState.likedSongIds,
                         onSongClick = onPlaySong,
                         onToggleLike = { song -> likedSongsViewModel.toggleLike(song) },
-                        onSongOverflowClick = { song -> pendingSongForPlaylist = song }
+                        onSongOverflowClick = { song -> pendingSongForPlaylist = song },
+                        onPlayNext = onPlayNext
                     )
                 }
                 is PlaylistPreviewUiState.Error -> {
@@ -228,9 +231,10 @@ fun PlaylistPreviewScreen(
 private fun PlaylistContent(
     playlist: YTMusicPlaylistDetail,
     likedSongIds: Set<String>,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (List<Song>, Int) -> Unit,
     onToggleLike: (Song) -> Unit,
-    onSongOverflowClick: (Song) -> Unit
+    onSongOverflowClick: (Song) -> Unit,
+    onPlayNext: (Song) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -243,14 +247,15 @@ private fun PlaylistContent(
         }
 
         // Songs
-        items(playlist.songs) { song ->
+        itemsIndexed(playlist.songs) { index, song ->
             SongItem(
                 song = song,
                 isPlaying = false,
-                onClick = { onSongClick(song) },
+                onClick = { onSongClick(playlist.songs, index) },
                 isLiked = likedSongIds.contains(song.videoId),
                 onToggleLike = { onToggleLike(song) },
-                onAddToPlaylist = { onSongOverflowClick(song) }
+                onAddToPlaylist = { onSongOverflowClick(song) },
+                onPlayNext = { onPlayNext(song) }
             )
         }
     }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
@@ -137,7 +138,7 @@ fun HomeScreen(
         playlistViewModel.events.collectLatest { event ->
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is PlaylistEvent.PlaySong -> Unit
+                is PlaylistEvent.PlayQueue -> Unit
             }
         }
     }
@@ -146,7 +147,7 @@ fun HomeScreen(
         likedSongsViewModel.events.collectLatest { event ->
             when (event) {
                 is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is LikedSongsEvent.PlaySong -> Unit
+                is LikedSongsEvent.PlayQueue -> Unit
             }
         }
     }
@@ -315,8 +316,8 @@ fun HomeScreen(
                                 TrendingRow(
                                     songs = state.trending,
                                     likedSongIds = likedSongsState.likedSongIds,
-                                    onSongClick = { song ->
-                                        viewModel.playSongByVideoId(song.videoId)
+                                    onSongClick = { song, index ->
+                                        viewModel.playSongFromList(state.trending, index, "trending")
                                         onNavigateToPlayer()
                                     },
                                     onToggleLike = { song ->
@@ -324,6 +325,9 @@ fun HomeScreen(
                                     },
                                     onAddToPlaylist = { song ->
                                         pendingSongForPlaylist = song
+                                    },
+                                    onPlayNext = { song ->
+                                        musicService?.insertNext(song)
                                     }
                                 )
                             }
@@ -355,8 +359,8 @@ fun HomeScreen(
                                     TrendingRow(
                                         songs = recommendedSongs,
                                         likedSongIds = likedSongsState.likedSongIds,
-                                        onSongClick = { song ->
-                                            viewModel.playSongByVideoId(song.videoId)
+                                        onSongClick = { song, index ->
+                                            viewModel.playSongFromList(recommendedSongs, index, "recommendations")
                                             onNavigateToPlayer()
                                         },
                                         onToggleLike = { song ->
@@ -364,6 +368,9 @@ fun HomeScreen(
                                         },
                                         onAddToPlaylist = { song ->
                                             pendingSongForPlaylist = song
+                                        },
+                                        onPlayNext = { song ->
+                                            musicService?.insertNext(song)
                                         }
                                     )
                                 }
@@ -470,9 +477,10 @@ private fun SectionHeader(
 private fun TrendingRow(
     songs: List<Song>,
     likedSongIds: Set<String>,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Song, Int) -> Unit,
     onToggleLike: (Song) -> Unit,
-    onAddToPlaylist: (Song) -> Unit
+    onAddToPlaylist: (Song) -> Unit,
+    onPlayNext: (Song) -> Unit
 ) {
     if (songs.isEmpty()) {
         EmptyStateCard(message = "No trending songs right now. Pull to refresh or try again later.")
@@ -482,13 +490,14 @@ private fun TrendingRow(
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(songs) { song ->
+        itemsIndexed(songs) { index, song ->
             TrendingSongCard(
                 song = song,
                 isLiked = likedSongIds.contains(song.videoId),
-                onSongClick = { onSongClick(song) },
+                onSongClick = { onSongClick(song, index) },
                 onToggleLike = { onToggleLike(song) },
-                onAddToPlaylist = { onAddToPlaylist(song) }
+                onAddToPlaylist = { onAddToPlaylist(song) },
+                onPlayNext = { onPlayNext(song) }
             )
         }
     }
@@ -500,7 +509,8 @@ private fun TrendingSongCard(
     isLiked: Boolean,
     onSongClick: () -> Unit,
     onToggleLike: () -> Unit,
-    onAddToPlaylist: () -> Unit
+    onAddToPlaylist: () -> Unit,
+    onPlayNext: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -550,6 +560,13 @@ private fun TrendingSongCard(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false }
             ) {
+                DropdownMenuItem(
+                    text = { Text("Play Next") },
+                    onClick = {
+                        showMenu = false
+                        onPlayNext()
+                    }
+                )
                 DropdownMenuItem(
                     text = {
                         Text(

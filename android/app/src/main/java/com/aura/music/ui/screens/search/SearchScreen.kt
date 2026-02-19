@@ -90,8 +90,8 @@ fun SearchScreen(
     LaunchedEffect(viewModel, musicService) {
         viewModel.events.collectLatest { event ->
             when (event) {
-                is SearchEvent.PlaySong -> {
-                    musicService?.playResolvedSong(event.song, false, "search")
+                is SearchEvent.PlayQueue -> {
+                    musicService?.setQueueAndPlay(event.songs, event.startIndex, "search")
                     onNavigateToPlayer()
                 }
                 is SearchEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
@@ -115,7 +115,7 @@ fun SearchScreen(
         playlistViewModel.events.collectLatest { event ->
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is PlaylistEvent.PlaySong -> Unit
+                is PlaylistEvent.PlayQueue -> Unit
             }
         }
     }
@@ -124,7 +124,7 @@ fun SearchScreen(
         likedSongsViewModel.events.collectLatest { event ->
             when (event) {
                 is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is LikedSongsEvent.PlaySong -> Unit
+                is LikedSongsEvent.PlayQueue -> Unit
             }
         }
     }
@@ -248,7 +248,8 @@ fun SearchScreen(
                                     isLiked = likedSongsState.likedSongIds.contains(song.videoId),
                                     onClick = { viewModel.prepareSongForPlayback(song) },
                                     onToggleLike = { likedSongsViewModel.toggleLike(song) },
-                                    onAddToPlaylist = { pendingSongForPlaylist = song }
+                                    onAddToPlaylist = { pendingSongForPlaylist = song },
+                                    onPlayNext = { musicService?.insertNext(song) }
                                 )
                             }
                         }
