@@ -250,6 +250,79 @@ class PlaylistRepository(
         }
     }
 
+    /**
+     * Saves a daily mix as a playlist in the library
+     * - Prevents duplicate saves by checking if mix already exists
+     * - Creates a new playlist with the mix name and type
+     * - Adds all songs from the mix to the playlist
+     * - Tracks it as a generated mix type for engagement analytics
+     */
+    suspend fun saveMixToLibrary(mixId: String, mixName: String, songs: List<Song>): Result<String> {
+        return try {
+            val userId = requireUserId()
+            val playlistsRef = firestore.collection(COLLECTION_USERS)
+                .document(userId)
+                .collection(SUBCOLLECTION_PLAYLISTS)
+
+            // Check if this mix is already saved
+            val existingMix = playlistsRef
+                .whereEqualTo("mixId", mixId)
+                .get()
+                .await()
+                .documents
+                .firstOrNull()
+
+            if (existingMix != null) {
+                return Result.success(existingMix.id)
+            }
+
+            // Create new playlist document
+            val playlistRef = playlistsRef.document()
+            val playlistPayload = mapOf(
+                FIELD_NAME to mixName.trim(),
+                FIELD_CREATED_AT to FieldValue.serverTimestamp(),
+                FIELD_SONG_COUNT to songs.size,
+                "mixId" to mixId,
+                "type" to "generated_mix",
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+
+            firestore.runTransaction { transaction ->
+                // Create the playlist
+                transaction.set(playlistRef, playlistPayload)
+
+                // Add all songs to the playlist
+                songs.forEach { song ->
+                    val songRef = playlistRef.collection(SUBCOLLECTION_SONGS)
+                        .document(song.videoId)
+
+                    val artists = when {
+                        !song.artists.isNullOrEmpty() -> song.artists
+                        !song.artist.isNullOrBlank() -> listOf(song.artist)
+                        else -> emptyList()
+                    }
+
+                    val songPayload = mapOf(
+                        FIELD_VIDEO_ID to song.videoId,
+                        FIELD_TITLE to song.title,
+                        FIELD_ALBUM to (song.album ?: ""),
+                        FIELD_ARTISTS to artists,
+                        FIELD_THUMBNAIL to (song.thumbnail ?: ""),
+                        FIELD_ADDED_AT to FieldValue.serverTimestamp()
+                    )
+
+                    transaction.set(songRef, songPayload, SetOptions.merge())
+                }
+            }.await()
+
+            Log.i(TAG, "saveMixToLibrary() succeeded for mix: $mixName")
+            Result.success(playlistRef.id)
+        } catch (e: Exception) {
+            Log.e(TAG, "saveMixToLibrary() failed", e)
+            Result.failure(e)
+        }
+    }
+
     private fun requireUserId(): String {
         val userId = auth.currentUser?.uid
         require(!userId.isNullOrBlank()) { "User not authenticated" }

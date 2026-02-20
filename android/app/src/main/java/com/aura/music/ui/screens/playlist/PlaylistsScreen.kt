@@ -53,12 +53,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import com.aura.music.data.model.UserPlaylist
 import com.aura.music.player.MusicService
-import com.aura.music.ui.theme.DarkBackground
-import com.aura.music.ui.theme.DarkSurface
-import com.aura.music.ui.theme.DarkSurfaceVariant
 import com.aura.music.ui.theme.Primary
-import com.aura.music.ui.theme.TextPrimary
-import com.aura.music.ui.theme.TextSecondary
 import com.aura.music.ui.viewmodel.LikedSongsEvent
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
@@ -234,7 +229,7 @@ private fun LibraryPlaylistCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick),
-        color = DarkSurfaceVariant
+        color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -278,7 +273,7 @@ private fun LikedSongsCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick),
-        color = DarkSurfaceVariant
+        color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Row(
             modifier = Modifier.padding(16.dp),

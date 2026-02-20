@@ -56,11 +56,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import com.aura.music.player.MusicService
 import com.aura.music.ui.components.SongItem
-import com.aura.music.ui.theme.DarkBackground
-import com.aura.music.ui.theme.DarkSurface
 import com.aura.music.ui.theme.Primary
-import com.aura.music.ui.theme.TextPrimary
-import com.aura.music.ui.theme.TextSecondary
 import com.aura.music.ui.viewmodel.LikedSongsEvent
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
@@ -483,7 +479,7 @@ fun AlbumItem(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
-            containerColor = DarkSurface
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         ),
         shape = RoundedCornerShape(12.dp)
     ) {
@@ -559,7 +555,7 @@ fun ArtistItem(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
-            containerColor = DarkSurface
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         ),
         shape = RoundedCornerShape(12.dp)
     ) {
@@ -621,7 +617,7 @@ fun PlaylistSearchItem(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
-            containerColor = DarkSurface
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         ),
         shape = RoundedCornerShape(12.dp)
     ) {

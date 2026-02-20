@@ -31,6 +31,7 @@ import com.aura.music.ui.screens.playlist.PlaylistPreviewScreen
 import com.aura.music.ui.screens.liked.LikedSongsScreen
 import com.aura.music.ui.screens.profile.ProfileScreen
 import com.aura.music.ui.screens.theme.ThemeSettingsScreen
+import com.aura.music.ui.screens.dailymix.DailyMixDetailScreen
 import com.aura.music.ui.theme.ThemeManager
 import com.aura.music.ui.viewmodel.ViewModelFactory
 
@@ -94,6 +95,9 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onNavigateToArtist = { browseId ->
                     navController.navigate(Screen.ArtistDetail.createRoute(browseId))
+                },
+                onNavigateToDailyMix = { mixKey ->
+                    navController.navigate(Screen.DailyMixDetail.createRoute(mixKey))
                 }
             )
 
@@ -432,6 +436,33 @@ fun NavGraphBuilder.mainGraph(
             val browseId = backStackEntry.arguments?.getString("browseId") ?: return@composable
             com.aura.music.ui.screens.detail.YTPlaylistDetailScreen(
                 browseId = browseId,
+                musicService = musicService,
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToPlayer = {
+                    navController.navigate("main/player")
+                }
+            )
+
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+
+        // ==================== DAILY MIX DETAIL SCREEN ====================
+        composable(
+            route = Screen.DailyMixDetail.route,
+            arguments = listOf(navArgument("mixKey") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val mixKey = backStackEntry.arguments?.getString("mixKey") ?: return@composable
+            DailyMixDetailScreen(
+                mixKey = mixKey,
                 musicService = musicService,
                 onNavigateBack = {
                     navController.popBackStack()

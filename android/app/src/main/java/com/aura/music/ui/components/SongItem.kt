@@ -32,10 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.aura.music.data.model.Song
-import com.aura.music.ui.theme.DarkSurfaceVariant
 import com.aura.music.ui.theme.Primary
-import com.aura.music.ui.theme.TextPrimary
-import com.aura.music.ui.theme.TextSecondary
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 
@@ -80,7 +77,7 @@ fun SongItem(
                 Icon(
                     painter = painterResource(android.R.drawable.ic_media_play),
                     contentDescription = null,
-                    tint = TextSecondary
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -92,7 +89,7 @@ fun SongItem(
             Text(
                 text = song.title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = if (isPlaying) Primary else TextPrimary,
+                color = if (isPlaying) Primary else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -111,7 +108,7 @@ fun SongItem(
                     Icon(
                         imageVector = Icons.Filled.MoreVert,
                         contentDescription = "More options",
-                        tint = TextSecondary
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 DropdownMenu(

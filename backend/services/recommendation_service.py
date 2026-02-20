@@ -48,6 +48,8 @@ class RecommendationService:
     CACHE_TTL_ARTIST = 3600    # 1 hour
     CACHE_TTL_RELATED = 1800   # 30 minutes
     CACHE_TTL_USER_SIGNALS = 300  # 5 minutes
+    CACHE_TTL_RECOMMENDATIONS = 3600  # 1 hour - cache final recommendation results
+    CACHE_TTL_USER_PROFILE = 1800  # 30 minutes - cache user taste profile
 
     # Validation limits and filters
     VALIDATION_SCAN_LIMIT = 25
@@ -79,6 +81,8 @@ class RecommendationService:
         self.cache_related: Dict[str, Tuple[List, float]] = {}
         self.cache_user_signals: Dict[str, Tuple[Dict[str, List[Dict]], float]] = {}
         self.cache_user_artists: Dict[str, Tuple[Set[str], float]] = {}
+        self.cache_recommendations: Dict[str, Tuple[Dict, float]] = {}  # Cache final recommendations
+        self.cache_user_profile: Dict[str, Tuple[Dict, float]] = {}  # Cache user taste profile (weighted signals)
         
         self.max_workers = 3  # Limit concurrent ytmusic calls
         self._firestore_db = None
@@ -132,6 +136,15 @@ class RecommendationService:
             Dict with recommended songs
         """
         try:
+            # Check cache first for instant response
+            cache_key = f"recommendations_{uid}_{limit}"
+            cached = self.cache_recommendations.get(cache_key)
+            if cached:
+                cached_value, timestamp = cached
+                if time.time() - timestamp < self.CACHE_TTL_RECOMMENDATIONS:
+                    logger.info(f"Returning cached recommendations for {uid} (age: {int(time.time() - timestamp)}s)")
+                    return cached_value
+            
             logger.info(f"Generating recommendations for user: {uid}")
             
             # 1. Fetch user signals (plays + liked songs)
@@ -151,8 +164,8 @@ class RecommendationService:
             liked_ids: Set[str] = {s.get('videoId') for s in user_liked if s.get('videoId')}
             all_consumed: Set[str] = played_ids | liked_ids
 
-            # 2. Build weighted signals (liked songs have 2x weight)
-            weighted_signals = self._build_weighted_signals(user_plays, user_liked)
+            # 2. Build weighted signals (liked songs have 2x weight) - with caching
+            weighted_signals = self._build_weighted_signals_cached(uid, user_plays, user_liked)
             top_artists = weighted_signals['top_artists']
             top_albums = weighted_signals['top_albums']
             
@@ -160,15 +173,27 @@ class RecommendationService:
             print(f"[RECOMMENDER] Top weighted artists: {top_artists}")
             print(f"[RECOMMENDER] Top weighted albums: {top_albums}")
 
-            # 3. Gather recommendations using search queries
+            # 3. Gather recommendations using search queries - PARALLEL EXECUTION
             recommendations: Dict[str, Dict] = {}  # {videoId: song_data}
 
             if user_plays or user_liked:
                 search_queries = self._build_search_queries(top_artists, top_albums)
-                for query in search_queries:
-                    search_results = self._search_songs(query, limit=10)
-                    self._merge_recommendations(recommendations, search_results, 'search')
-                logger.info(f"Added {len(recommendations)} from search queries")
+                
+                # Execute all search queries in parallel for faster results
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    futures = {
+                        executor.submit(self._search_songs, query, 10): query
+                        for query in search_queries
+                    }
+                    
+                    for future in as_completed(futures):
+                        try:
+                            search_results = future.result()
+                            self._merge_recommendations(recommendations, search_results, 'search')
+                        except Exception as e:
+                            logger.warning(f"Error in parallel search query: {str(e)}")
+                
+                logger.info(f"Added {len(recommendations)} from {len(search_queries)} parallel search queries")
 
             # Trending fallback layer (cold-start)
             if len(user_plays) < 1 and len(user_liked) < 1:
@@ -230,11 +255,17 @@ class RecommendationService:
             
             logger.info(f"Generated {len(final_recommendations)} final recommendations for {uid}")
             
-            return {
+            result = {
                 'count': len(final_recommendations),
                 'source': 'recommendation_engine',
                 'results': final_recommendations
             }
+            
+            # Cache the result for faster subsequent loads
+            self.cache_recommendations[cache_key] = (result, time.time())
+            logger.info(f"Cached recommendations for {uid} (TTL: {self.CACHE_TTL_RECOMMENDATIONS}s)")
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error generating recommendations for {uid}: {str(e)}", exc_info=True)
@@ -537,6 +568,44 @@ class RecommendationService:
                 'top_artists': [],
                 'top_albums': []
             }
+    
+    def _build_weighted_signals_cached(
+        self,
+        uid: str,
+        plays: List[Dict],
+        liked_songs: List[Dict]
+    ) -> Dict:
+        """
+        Cached version of _build_weighted_signals for better performance.
+        
+        Caches the user taste profile (weighted artist/album preferences) to avoid
+        recomputing on every request. Cache TTL: 30 minutes.
+        
+        Args:
+            uid: User ID for cache key
+            plays: List of played songs with timestamps
+            liked_songs: List of liked songs with timestamps
+            
+        Returns:
+            Dict containing weighted artist_scores, album_scores, top_artists, top_albums
+        """
+        # Check cache first
+        cache_key = f"profile_{uid}"
+        cached = self.cache_user_profile.get(cache_key)
+        if cached:
+            cached_value, timestamp = cached
+            if time.time() - timestamp < self.CACHE_TTL_USER_PROFILE:
+                logger.info(f"Using cached user profile for {uid} (age: {int(time.time() - timestamp)}s)")
+                return cached_value
+        
+        # Compute fresh profile
+        result = self._build_weighted_signals(plays, liked_songs)
+        
+        # Cache the result
+        self.cache_user_profile[cache_key] = (result, time.time())
+        logger.info(f"Cached user profile for {uid} (TTL: {self.CACHE_TTL_USER_PROFILE}s)")
+        
+        return result
     
     def _extract_top_artists_and_albums(self, plays: List[Dict]) -> Tuple[List[str], List[str]]:
         """
@@ -1260,4 +1329,41 @@ class RecommendationService:
             
         except Exception as e:
             logger.error(f"Error getting top artists: {str(e)}", exc_info=True)
-            return []
+            return []    
+    def prefetch_recommendations_async(self, uid: str, limit: int = 20) -> None:
+        """
+        Background prefetch for recommendations (Pro Optimization).
+        
+        This method can be triggered when a user plays a song to pre-warm
+        the recommendation cache for the next home screen load.
+        
+        Runs in background - does not block the current request.
+        
+        Usage:
+            # In your play tracking endpoint:
+            from threading import Thread
+            Thread(target=recommendation_service.prefetch_recommendations_async, 
+                   args=(user_id,), daemon=True).start()
+        
+        Args:
+            uid: User ID
+            limit: Number of recommendations to prefetch
+        """
+        try:
+            # Check if already cached and fresh
+            cache_key = f"recommendations_{uid}_{limit}"
+            cached = self.cache_recommendations.get(cache_key)
+            if cached:
+                _, timestamp = cached
+                # Only prefetch if cache is older than 10 minutes
+                if time.time() - timestamp < 600:
+                    logger.info(f"Skipping prefetch for {uid} - cache is fresh")
+                    return
+            
+            logger.info(f"Background prefetch: Warming recommendation cache for {uid}")
+            self.get_recommendations(uid, limit)
+            logger.info(f"Background prefetch: Successfully cached recommendations for {uid}")
+            
+        except Exception as e:
+            # Silent failure - this is background prefetch, don't affect user experience
+            logger.warning(f"Background prefetch failed for {uid}: {str(e)}")

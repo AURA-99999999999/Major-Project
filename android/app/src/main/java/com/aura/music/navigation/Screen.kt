@@ -24,6 +24,9 @@ sealed class Screen(val route: String) {
     object YTPlaylistDetail : Screen("yt_playlist_detail/{browseId}") {
         fun createRoute(browseId: String) = "yt_playlist_detail/$browseId"
     }
+    object DailyMixDetail : Screen("daily_mix_detail/{mixKey}") {
+        fun createRoute(mixKey: String) = "daily_mix_detail/$mixKey"
+    }
     object Profile : Screen("profile")
 }
 

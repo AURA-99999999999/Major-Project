@@ -285,6 +285,31 @@ class MusicRepository(
         }
     }
 
+    suspend fun getDailyMixes(refresh: Boolean = false): Result<com.aura.music.data.remote.dto.DailyMixResponse> {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            safeLog { Log.w(TAG, "getDailyMixes() - No authenticated user") }
+            return Result.failure(Exception("User not authenticated"))
+        }
+
+        return try {
+            safeLog { Log.d(TAG, "getDailyMixes() uid=$uid refresh=$refresh") }
+            val response = api.getDailyMixes(uid, refresh)
+            
+            safeLog { 
+                Log.d(TAG, "getDailyMixes() success - " +
+                    "daily1=${response.mixes?.dailyMix1?.count ?: 0}, " +
+                    "daily2=${response.mixes?.dailyMix2?.count ?: 0}, " +
+                    "discover=${response.mixes?.discoverMix?.count ?: 0}, " +
+                    "mood=${response.mixes?.moodMix?.count ?: 0}")
+            }
+            Result.success(response)
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getDailyMixes() exception", e) }
+            Result.failure(e)
+        }
+    }
+
     suspend fun getTrendingPlaylists(limit: Int = 10): Result<List<com.aura.music.data.model.YTMusicPlaylist>> {
         return try {
             safeLog { Log.d(TAG, "getTrendingPlaylists() limit=$limit") }

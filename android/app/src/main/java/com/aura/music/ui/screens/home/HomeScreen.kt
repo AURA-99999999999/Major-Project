@@ -46,6 +46,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -58,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
@@ -87,6 +90,9 @@ import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import kotlinx.coroutines.flow.collectLatest
 import com.aura.music.ui.screens.playlist.PlaylistPickerBottomSheet
+import com.aura.music.ui.components.home.DailyMixesSection
+import com.aura.music.ui.components.ShimmerSongItem
+import com.aura.music.ui.components.ShimmerRecommendedSection
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,6 +105,7 @@ fun HomeScreen(
     onNavigateToProfile: () -> Unit,
     onNavigateToPlaylistPreview: (String) -> Unit,
     onNavigateToArtist: (String) -> Unit = {},
+    onNavigateToDailyMix: (String) -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val context = LocalContext.current
@@ -108,6 +115,8 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val recommendedSongs by viewModel.recommendedSongs.collectAsState()
     val topArtists by viewModel.topArtists.collectAsState()
+    val sectionLoadingState by viewModel.sectionLoadingState.collectAsState()
+    val mixEvents by viewModel.mixEvents.collectAsState()
     val playlistViewModel: PlaylistViewModel = viewModel(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
@@ -147,6 +156,21 @@ fun HomeScreen(
             when (event) {
                 is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
                 is PlaylistEvent.PlayQueue -> Unit
+            }
+        }
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.mixEvents.collectLatest { event ->
+            when (event) {
+                is com.aura.music.ui.viewmodel.MixEvent.ShowMessage -> {
+                    snackbarHostState.showSnackbar(event.message)
+                }
+                is com.aura.music.ui.viewmodel.MixEvent.MixSaved -> {
+                    // Mix saved successfully
+                    viewModel.clearMixEvent()
+                }
+                null -> { }
             }
         }
     }
@@ -314,8 +338,71 @@ fun HomeScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // Trending Songs Section
-                            item { SectionHeader(title = "Trending Now") }
+                            // Recommended For You Section (TOP) - Progressive Rendering
+                            // Show shimmer while loading, fade in when ready
+                            if (sectionLoadingState.isRecommendationsLoading) {
+                                item {
+                                    ShimmerRecommendedSection()
+                                }
+                            } else if (recommendedSongs.isNotEmpty()) {
+                                item {
+                                    SectionHeader(
+                                        title = "Recommended For You"
+                                    )
+                                }
+
+                                item {
+                                    RecommendationsWithFadeIn(
+                                        songs = recommendedSongs,
+                                        likedSongIds = likedSongsState.likedSongIds,
+                                        onSongClick = { song, index ->
+                                            viewModel.playSongFromList(recommendedSongs, index, "recommendations")
+                                            onNavigateToPlayer()
+                                        },
+                                        onToggleLike = { song ->
+                                            likedSongsViewModel.toggleLike(song)
+                                        },
+                                        onAddToPlaylist = { song ->
+                                            pendingSongForPlaylist = song
+                                        },
+                                        onPlayNext = { song ->
+                                            musicService?.insertNext(song)
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Daily Mixes Section - "Made for You" personalized playlists (SECOND)
+                            if (authState is AuthState.Authenticated) {
+                                item {
+                                    DailyMixesSection(
+                                        userId = authState.userId,
+                                        onPlayMix = { mixKey, songs ->
+                                            if (songs.isNotEmpty()) {
+                                                viewModel.playSongFromList(songs, 0, mixKey)
+                                                onNavigateToPlayer()
+                                            }
+                                        },
+                                        onNavigateToMix = { mixKey, mixName, songs ->
+                                            // Navigate to dedicated mix detail screen
+                                            onNavigateToDailyMix(mixKey)
+                                        },
+                                        onShufflePlayMix = { mixKey, songs ->
+                                            viewModel.shufflePlayMix(mixKey, songs)
+                                            onNavigateToPlayer()
+                                        },
+                                        onSaveMix = { mixKey, mixName, songs ->
+                                            viewModel.saveMixToLibrary(mixKey, mixName, songs)
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Trending Now Section (THIRD)
+                            item { 
+                                Spacer(modifier = Modifier.height(8.dp))
+                                SectionHeader(title = "Trending Now") 
+                            }
 
                             item {
                                 TrendingRow(
@@ -354,34 +441,7 @@ fun HomeScreen(
                                 }
                             }
 
-                            if (recommendedSongs.isNotEmpty()) {
-                                item {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    SectionHeader(title = "Recommended For You")
-                                }
-
-                                item {
-                                    TrendingRow(
-                                        songs = recommendedSongs,
-                                        likedSongIds = likedSongsState.likedSongIds,
-                                        onSongClick = { song, index ->
-                                            viewModel.playSongFromList(recommendedSongs, index, "recommendations")
-                                            onNavigateToPlayer()
-                                        },
-                                        onToggleLike = { song ->
-                                            likedSongsViewModel.toggleLike(song)
-                                        },
-                                        onAddToPlaylist = { song ->
-                                            pendingSongForPlaylist = song
-                                        },
-                                        onPlayNext = { song ->
-                                            musicService?.insertNext(song)
-                                        }
-                                    )
-                                }
-                            }
-
-                            // Top Artists Section (after Recommended For You)
+                            // Top Artists Section (after Daily Mixes)
                             if (topArtists.isNotEmpty()) {
                                 item {
                                     Spacer(modifier = Modifier.height(8.dp))
@@ -470,11 +530,12 @@ fun HomeScreen(
 @Composable
 private fun SectionHeader(
     title: String,
+    modifier: Modifier = Modifier,
     actionText: String? = null,
     onActionClick: (() -> Unit)? = null
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -502,7 +563,8 @@ private fun TrendingRow(
     onSongClick: (Song, Int) -> Unit,
     onToggleLike: (Song) -> Unit,
     onAddToPlaylist: (Song) -> Unit,
-    onPlayNext: (Song) -> Unit
+    onPlayNext: (Song) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     if (songs.isEmpty()) {
         EmptyStateCard(message = "No trending songs right now. Pull to refresh or try again later.")
@@ -510,6 +572,7 @@ private fun TrendingRow(
     }
 
     LazyRow(
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         itemsIndexed(songs) { index, song ->
@@ -617,6 +680,33 @@ private fun TrendingSongCard(
             overflow = TextOverflow.Ellipsis
         )
     }
+}
+
+@Composable
+private fun RecommendationsWithFadeIn(
+    songs: List<Song>,
+    likedSongIds: Set<String>,
+    onSongClick: (Song, Int) -> Unit,
+    onToggleLike: (Song) -> Unit,
+    onAddToPlaylist: (Song) -> Unit,
+    onPlayNext: (Song) -> Unit
+) {
+    // Fade-in animation - runs in Composable context
+    val alpha by animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = tween(durationMillis = 300),
+        label = "recommendationsFadeIn"
+    )
+    
+    TrendingRow(
+        modifier = Modifier.graphicsLayer(alpha = alpha),
+        songs = songs,
+        likedSongIds = likedSongIds,
+        onSongClick = onSongClick,
+        onToggleLike = onToggleLike,
+        onAddToPlaylist = onAddToPlaylist,
+        onPlayNext = onPlayNext
+    )
 }
 
 @Composable

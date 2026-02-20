@@ -164,7 +164,7 @@ def _get_duration_seconds(duration_raw) -> Optional[int]:
     return None
 
 
-def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: bool = True) -> List[Dict]:
+def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: bool = True, source: str = "search") -> List[Dict]:
     """
     Filter and normalize a list of items to ensure only real music tracks are returned.
     
@@ -179,13 +179,15 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
     2. title exists and non-empty, passes blocklist filter
     3. artists list exists and not empty
     4. thumbnail exists and not empty (or can be generated)
-    5. duration > 60 seconds
+    5. duration > 60 seconds (relaxed for trusted sources)
     6. (Optional) musicVideoType in ALLOWED_MUSIC_VIDEO_TYPES
     
     Args:
         items: List of raw items from YTMusic API
         ytmusic: YTMusic instance for validation calls (optional)
         include_validation: Whether to validate musicVideoType if ytmusic available (default True)
+        source: Source of tracks for context-aware filtering (default "search")
+                Options: "search", "artist", "album", "recommendation", "mix", "trending"
         
     Returns:
         List of cleaned, validated music track dictionaries with normalized format.
@@ -202,6 +204,11 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
     if not items or not isinstance(items, list):
         logger.warning(f"filter_music_tracks called with invalid items: {type(items)}")
         return []
+    
+    # Determine if source is trusted (relaxed validation rules)
+    trusted_sources = {"artist", "album", "recommendation", "mix", "trending"}
+    allow_missing_duration = source in trusted_sources
+    allow_missing_album = source in trusted_sources
     
     filtered_results = []
     rejected_count = 0
@@ -252,12 +259,19 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
         # 5. Validate duration (only if data is available)
         # For shallow validation (trending/explore data), duration may not be available
         # For deep validation, we should have duration from get_song() or search results
+        # Trusted sources (artist, album, recommendation, mix) allow missing duration
         duration_seconds = _get_duration_seconds(item.get('duration') or item.get('duration_seconds'))
-        if include_validation:  # Deep validation mode - duration is required
-            if duration_seconds is None or duration_seconds <= MIN_DURATION_SECONDS:
-                logger.debug(f"Item {video_id}: Invalid/short duration {duration_seconds}s")
-                rejected_count += 1
-                continue
+        if include_validation:  # Deep validation mode
+            if not allow_missing_duration:  # Strict mode for search/unknown sources
+                if duration_seconds is None or duration_seconds <= MIN_DURATION_SECONDS:
+                    logger.debug(f"Item {video_id}: Invalid/short duration {duration_seconds}s")
+                    rejected_count += 1
+                    continue
+            else:  # Relaxed mode for trusted sources
+                if duration_seconds is not None and duration_seconds <= MIN_DURATION_SECONDS:
+                    logger.debug(f"Item {video_id}: Short duration {duration_seconds}s")
+                    rejected_count += 1
+                    continue
         # Shallow validation mode (trending): skip duration check if not available
         # These items are pre-curated by YTMusic so duration validation is less critical
         
@@ -280,7 +294,7 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
         filtered_results.append(cleaned_item)
     
     logger.info(
-        f"filter_music_tracks: input_count={len(items)} output_count={len(filtered_results)} "
+        f"filter_music_tracks: source={source} input_count={len(items)} output_count={len(filtered_results)} "
         f"rejected={rejected_count} validation_enabled={include_validation}"
     )
     

@@ -13,6 +13,7 @@ from services.music_service import MusicService
 from services.playlist_service import PlaylistService
 from services.user_service import UserService
 from services.recommendation_service import RecommendationService
+from services.daily_mix_service import DailyMixService
 from services.mood_service import MoodService
 from services.search_service import SearchService
 from services.music_filter import filter_music_tracks
@@ -54,6 +55,9 @@ except Exception as e:
 
 # Initialize recommendation service
 recommendation_service = RecommendationService(ytmusic, user_service)
+
+# Initialize daily mix service
+daily_mix_service = DailyMixService(ytmusic, recommendation_service, user_service)
 
 # Initialize mood service
 mood_service = MoodService(ytmusic)
@@ -606,6 +610,126 @@ def get_recommendations():
             'source': 'recommendation_engine',
             'results': [],
             'error': 'Failed to generate recommendations'
+        }), 500
+
+
+@app.route('/api/daily-mixes', methods=['GET'])
+def get_daily_mixes():
+    """
+    Get personalized daily mixes for a user.
+    
+    Generates 4 curated playlists:
+    1. Favorites Mix - Songs from user's top artists
+    2. Similar Artists Mix - Songs from related artists  
+    3. Discover Mix - Trending + new + fresh content
+    4. Mood Mix - Contextual listening based on time of day
+    
+    Query Parameters:
+        uid: User ID (required)
+        refresh: Force refresh cache (optional, default false)
+    
+    Returns:
+        {
+            "userId": "...",
+            "timestamp": "...",
+            "cached": true/false,
+            "mixes": {
+                "dailyMix1": {
+                    "name": "Favorites Mix",
+                    "description": "Songs from your most-played artists",
+                    "count": 30,
+                    "songs": [...]
+                },
+                "dailyMix2": {
+                    "name": "Similar Artists Mix",
+                    "description": "Albums from artists like your favorites",
+                    "count": 30,
+                    "songs": [...]
+                },
+                "discoverMix": {
+                    "name": "Discover Mix",
+                    "description": "Fresh music tailored to your taste",
+                    "count": 30,
+                    "songs": [...]
+                },
+                "moodMix": {
+                    "name": "Mood Mix",
+                    "description": "Perfect for [time of day]",
+                    "count": 30,
+                    "songs": [...]
+                }
+            }
+        }
+    """
+    try:
+        # Get user ID from query parameters
+        uid = request.args.get('uid')
+        if not uid:
+            return jsonify({'error': 'uid parameter is required'}), 400
+        
+        refresh = request.args.get('refresh', 'false').lower() == 'true'
+        
+        logger.info(f"Daily mixes request for user {uid}, refresh={refresh}")
+        
+        # Clear cache if refresh requested
+        if refresh:
+            daily_mix_service.clear_cache(uid)
+            logger.info(f"Cache cleared for user {uid}")
+        
+        # Generate daily mixes
+        mixes = daily_mix_service.get_daily_mixes(uid)
+        
+        # Format response with metadata
+        response = {
+            'userId': uid,
+            'timestamp': int(time.time()),  # Convert to integer to avoid JSON parsing issues
+            'cached': not refresh,
+            'mixes': {
+                'dailyMix1': {
+                    'name': 'Favorites Mix',
+                    'description': 'Songs from your most-played artists',
+                    'count': len(mixes.get('dailyMix1', [])),
+                    'songs': mixes.get('dailyMix1', [])
+                },
+                'dailyMix2': {
+                    'name': 'Similar Artists Mix',
+                    'description': 'Albums from artists like your favorites',
+                    'count': len(mixes.get('dailyMix2', [])),
+                    'songs': mixes.get('dailyMix2', [])
+                },
+                'discoverMix': {
+                    'name': 'Discover Mix',
+                    'description': 'Fresh music tailored to your taste',
+                    'count': len(mixes.get('discoverMix', [])),
+                    'songs': mixes.get('discoverMix', [])
+                },
+                'moodMix': {
+                    'name': 'Mood Mix',
+                    'description': f'Perfect for listening right now',
+                    'count': len(mixes.get('moodMix', [])),
+                    'songs': mixes.get('moodMix', [])
+                }
+            }
+        }
+        
+        logger.info(f"Returning daily mixes: "
+                   f"favorites={len(mixes['dailyMix1'])}, "
+                   f"similar={len(mixes['dailyMix2'])}, "
+                   f"discover={len(mixes['discoverMix'])}, "
+                   f"mood={len(mixes['moodMix'])}")
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        logger.error(f"Daily mixes error: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Failed to generate daily mixes',
+            'mixes': {
+                'dailyMix1': {'name': 'Favorites Mix', 'songs': [], 'count': 0},
+                'dailyMix2': {'name': 'Similar Artists Mix', 'songs': [], 'count': 0},
+                'discoverMix': {'name': 'Discover Mix', 'songs': [], 'count': 0},
+                'moodMix': {'name': 'Mood Mix', 'songs': [], 'count': 0}
+            }
         }), 500
 
 

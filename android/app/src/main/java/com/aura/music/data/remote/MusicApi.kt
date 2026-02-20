@@ -3,6 +3,7 @@ package com.aura.music.data.remote
 import com.aura.music.data.remote.dto.AlbumDetailResponse
 import com.aura.music.data.remote.dto.ApiResponse
 import com.aura.music.data.remote.dto.ArtistDetailResponse
+import com.aura.music.data.remote.dto.DailyMixResponse
 import com.aura.music.data.remote.dto.HealthDto
 import com.aura.music.data.remote.dto.HomeResponseDto
 import com.aura.music.data.remote.dto.LoginRequest
@@ -96,6 +97,13 @@ interface MusicApi {
         @Query("uid") uid: String,
         @Query("limit") limit: Int = 10
     ): TopArtistsResponse
+
+    // Daily Mixes - 4 personalized playlists: Favorites, Similar Artists, Discover, Mood
+    @GET("daily-mixes")
+    suspend fun getDailyMixes(
+        @Query("uid") uid: String,
+        @Query("refresh") refresh: Boolean = false
+    ): DailyMixResponse
 
     // YTMusic Playlist Songs
     @GET("playlist/{playlistId}/songs")
