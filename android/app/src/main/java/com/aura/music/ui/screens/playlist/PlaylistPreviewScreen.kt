@@ -141,13 +141,13 @@ fun PlaylistPreviewScreen(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Playlist", color = TextPrimary) },
+                title = { Text("Playlist", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = TextPrimary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
@@ -162,7 +162,7 @@ fun PlaylistPreviewScreen(
                 if (songs.isNotEmpty()) {
                     FloatingActionButton(
                         onClick = { onPlayAll(songs) },
-                        containerColor = Primary
+                        containerColor = MaterialTheme.colorScheme.primary
                     ) {
                         Icon(
                             imageVector = Icons.Filled.PlayArrow,
@@ -180,7 +180,7 @@ fun PlaylistPreviewScreen(
                 .padding(paddingValues)
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(DarkBackground, DarkSurface)
+                        colors = listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)
                     )
                 )
         ) {
@@ -190,7 +190,7 @@ fun PlaylistPreviewScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = Primary)
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     }
                 }
                 is PlaylistPreviewUiState.Success -> {
@@ -288,7 +288,7 @@ private fun PlaylistHeader(playlist: YTMusicPlaylistDetail) {
             text = playlist.title,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(horizontal = 16.dp)
         )
 
@@ -300,17 +300,17 @@ private fun PlaylistHeader(playlist: YTMusicPlaylistDetail) {
             Text(
                 text = playlist.author,
                 fontSize = 14.sp,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
                 text = "•",
                 fontSize = 14.sp,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
                 text = "${playlist.songs.size} songs",
                 fontSize = 14.sp,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
@@ -319,7 +319,7 @@ private fun PlaylistHeader(playlist: YTMusicPlaylistDetail) {
             Text(
                 text = playlist.description,
                 fontSize = 14.sp,
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis

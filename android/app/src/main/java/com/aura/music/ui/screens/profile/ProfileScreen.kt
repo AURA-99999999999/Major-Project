@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ExitToApp
 import androidx.compose.material.icons.outlined.QueueMusic
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ListItem
@@ -48,11 +49,18 @@ import com.aura.music.player.MusicService
 import com.aura.music.ui.theme.DarkBackground
 import com.aura.music.ui.theme.DarkSurface
 import com.aura.music.ui.theme.DarkSurfaceVariant
+import com.aura.music.ui.theme.DarkTextPrimary
+import com.aura.music.ui.theme.DarkTextSecondary
+import com.aura.music.ui.theme.GradientBackground
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.theme.ThemeManager
 import com.google.firebase.auth.FirebaseAuth
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
+import com.aura.music.ui.viewmodel.ViewModelFactory
 
 @Composable
 fun ProfileScreen(
@@ -60,8 +68,14 @@ fun ProfileScreen(
     onNavigateBack: () -> Unit,
     onNavigateToPlaylists: () -> Unit = {},
     onNavigateToLikedSongs: () -> Unit = {},
-    authViewModel: AuthViewModel = viewModel()
+    onNavigateToThemeSettings: () -> Unit = {},
+    authViewModel: AuthViewModel = viewModel(),
+    themeManager: ThemeManager? = null
 ) {
+    val context = LocalContext.current
+    val actualThemeManager: ThemeManager = themeManager ?: viewModel(factory = ViewModelFactory.create(context.applicationContext as android.app.Application))
+    val themeState by actualThemeManager.themeState.collectAsState()
+    
     var userName by remember { mutableStateOf("User") }
 
     val currentUser = FirebaseAuth.getInstance().currentUser
@@ -69,14 +83,11 @@ fun ProfileScreen(
     val userEmail = currentUser?.email ?: "No email"
     val photoUrl = currentUser?.photoUrl
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(DarkBackground, DarkSurface)
-                )
-            )
+    GradientBackground(
+        gradientTheme = themeState.gradientTheme,
+        isDark = themeState.themeMode != com.aura.music.ui.theme.ThemeMode.LIGHT,
+        hasDynamicColors = themeState.currentDynamicColors.dominant != null,
+        dynamicColorsEnabled = themeState.dynamicAlbumColors
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -90,7 +101,7 @@ fun ProfileScreen(
                         .height(220.dp)
                         .background(
                             brush = Brush.verticalGradient(
-                                colors = listOf(Primary, DarkSurface)
+                                colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.surface)
                             )
                         ),
                     contentAlignment = Alignment.BottomCenter
@@ -119,12 +130,12 @@ fun ProfileScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(DarkSurfaceVariant),
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         text = userName.firstOrNull()?.uppercase() ?: "U",
-                                        color = TextPrimary,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 32.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -134,13 +145,13 @@ fun ProfileScreen(
 
                         Text(
                             text = userName,
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onBackground,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = userEmail,
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 14.sp,
                             textAlign = TextAlign.Center
                         )
@@ -156,7 +167,7 @@ fun ProfileScreen(
                         .padding(horizontal = 16.dp)
                         .fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
-                    color = DarkSurfaceVariant,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     tonalElevation = 2.dp
                 ) {
                     Column(
@@ -179,6 +190,12 @@ fun ProfileScreen(
                             icon = Icons.Outlined.QueueMusic,
                             label = "Liked Songs",
                             onClick = onNavigateToLikedSongs
+                        )
+
+                        ProfileActionRow(
+                            icon = Icons.Outlined.Palette,
+                            label = "Theme Settings",
+                            onClick = onNavigateToThemeSettings
                         )
 
                         ProfileActionRow(
@@ -209,7 +226,7 @@ private fun ProfileActionRow(
 ) {
     ListItem(
         headlineContent = {
-            Text(text = label, color = TextPrimary, fontWeight = FontWeight.Medium)
+            Text(text = label, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Medium)
         },
         leadingContent = {
             Surface(
@@ -221,7 +238,7 @@ private fun ProfileActionRow(
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = TextPrimary
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -230,7 +247,7 @@ private fun ProfileActionRow(
             Icon(
                 imageVector = Icons.Outlined.ChevronRight,
                 contentDescription = null,
-                tint = TextSecondary.copy(alpha = 0.7f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
         },
         modifier = Modifier

@@ -7,6 +7,7 @@ import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
 import com.aura.music.di.ServiceLocator
+import com.aura.music.ui.theme.ThemeManager
 
 /**
  * Factory for creating ViewModels with manual dependency injection
@@ -46,6 +47,9 @@ class ViewModelFactory(
             }
             modelClass.isAssignableFrom(YTPlaylistDetailViewModel::class.java) -> {
                 YTPlaylistDetailViewModel(musicRepository) as T
+            }
+            modelClass.isAssignableFrom(ThemeManager::class.java) -> {
+                ThemeManager(application) as T
             }
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }

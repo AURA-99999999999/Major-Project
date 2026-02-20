@@ -124,13 +124,13 @@ fun PlaylistDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = "Playlist", color = TextPrimary) },
+                title = { Text(text = "Playlist", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = TextPrimary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
@@ -139,7 +139,7 @@ fun PlaylistDetailScreen(
                         Icon(
                             imageVector = Icons.Filled.MoreVert,
                             contentDescription = "Playlist options",
-                            tint = TextPrimary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     DropdownMenu(
@@ -155,7 +155,7 @@ fun PlaylistDetailScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
@@ -163,7 +163,7 @@ fun PlaylistDetailScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Brush.verticalGradient(colors = listOf(DarkBackground, DarkSurface)))
+                .background(Brush.verticalGradient(colors = listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
                 .padding(innerPadding)
         ) {
             Column(
@@ -176,7 +176,7 @@ fun PlaylistDetailScreen(
                     value = editableName,
                     onValueChange = { editableName = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Playlist name", color = TextSecondary) },
+                    label = { Text("Playlist name", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     trailingIcon = {
                         val currentName = uiState.currentPlaylist?.name.orEmpty()
                         val canSave = editableName.trim().isNotBlank() && editableName.trim() != currentName
@@ -206,7 +206,7 @@ fun PlaylistDetailScreen(
                     uiState.songs.isEmpty() -> {
                         Text(
                             text = "No songs in this playlist yet.",
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
@@ -271,7 +271,7 @@ private fun PlaylistSongRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(DarkSurfaceVariant)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
             .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -296,7 +296,7 @@ private fun PlaylistSongRow(
             Text(
                 text = song.title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = FontWeight.Medium
@@ -305,7 +305,7 @@ private fun PlaylistSongRow(
             Text(
                 text = song.artists.joinToString(", ").ifBlank { "Unknown artist" },
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

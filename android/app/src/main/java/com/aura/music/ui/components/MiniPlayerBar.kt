@@ -104,7 +104,7 @@ fun MiniPlayerBar(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = DarkSurfaceVariant,
-                    contentColor = TextPrimary
+                    contentColor = MaterialTheme.colorScheme.onBackground
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
@@ -126,7 +126,7 @@ fun MiniPlayerBar(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(DarkSurface)
+                            .background(MaterialTheme.colorScheme.surface)
                     ) {
                         if (!song.thumbnail.isNullOrBlank()) {
                             AsyncImage(
@@ -141,13 +141,13 @@ fun MiniPlayerBar(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(DarkSurface),
+                                    .background(MaterialTheme.colorScheme.surface),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     "♪",
                                     style = MaterialTheme.typography.headlineSmall,
-                                    color = Primary
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -163,14 +163,14 @@ fun MiniPlayerBar(
                         Text(
                             text = song.title,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = song.getArtistString(),
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -239,9 +239,9 @@ fun MiniPlayerBar(
                         .height(16.dp)
                         .padding(horizontal = 4.dp),
                     colors = SliderDefaults.colors(
-                        thumbColor = Primary,
-                        activeTrackColor = Primary,
-                        inactiveTrackColor = TextSecondary.copy(alpha = 0.3f)
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                     )
                 )
                 }

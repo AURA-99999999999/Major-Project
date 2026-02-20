@@ -73,9 +73,11 @@ import com.aura.music.auth.state.AuthState
 import com.aura.music.ui.theme.DarkBackground
 import com.aura.music.ui.theme.DarkSurface
 import com.aura.music.ui.theme.DarkSurfaceVariant
+import com.aura.music.ui.theme.GradientBackground
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.theme.ThemeManager
 import com.aura.music.ui.viewmodel.HomeUiState
 import com.aura.music.ui.viewmodel.HomeViewModel
 import com.aura.music.ui.viewmodel.LikedSongsEvent
@@ -99,6 +101,10 @@ fun HomeScreen(
     onNavigateToArtist: (String) -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
+    val context = LocalContext.current
+    val themeManager: ThemeManager = viewModel(factory = ViewModelFactory.create(context.applicationContext as android.app.Application))
+    val themeState by themeManager.themeState.collectAsState()
+    
     val uiState by viewModel.uiState.collectAsState()
     val recommendedSongs by viewModel.recommendedSongs.collectAsState()
     val topArtists by viewModel.topArtists.collectAsState()
@@ -159,7 +165,7 @@ fun HomeScreen(
         bottomBar = {
             NavigationBar(
                 containerColor = DarkSurface,
-                contentColor = Primary
+                contentColor = MaterialTheme.colorScheme.primary
             ) {
                 NavigationBarItem(
                     icon = {
@@ -173,8 +179,8 @@ fun HomeScreen(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Primary,
-                        selectedTextColor = Primary,
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
                         unselectedIconColor = Color.Gray,
                         unselectedTextColor = Color.Gray,
                         indicatorColor = Color.Transparent
@@ -195,8 +201,8 @@ fun HomeScreen(
                         onNavigateToSearch()
                     },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Primary,
-                        selectedTextColor = Primary,
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
                         unselectedIconColor = Color.Gray,
                         unselectedTextColor = Color.Gray,
                         indicatorColor = Color.Transparent
@@ -217,8 +223,8 @@ fun HomeScreen(
                         onNavigateToPlaylists()
                     },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Primary,
-                        selectedTextColor = Primary,
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
                         unselectedIconColor = Color.Gray,
                         unselectedTextColor = Color.Gray,
                         indicatorColor = Color.Transparent
@@ -239,8 +245,8 @@ fun HomeScreen(
                         onNavigateToProfile()
                     },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Primary,
-                        selectedTextColor = Primary,
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
                         unselectedIconColor = Color.Gray,
                         unselectedTextColor = Color.Gray,
                         indicatorColor = Color.Transparent
@@ -249,15 +255,12 @@ fun HomeScreen(
             }
         }
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(DarkBackground, DarkSurface)
-                    )
-                )
+        GradientBackground(
+            gradientTheme = themeState.gradientTheme,
+            isDark = themeState.themeMode != com.aura.music.ui.theme.ThemeMode.LIGHT,
+            hasDynamicColors = themeState.currentDynamicColors.dominant != null,
+            dynamicColorsEnabled = themeState.dynamicAlbumColors,
+            modifier = Modifier.padding(paddingValues)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Top navigation with user info
@@ -272,13 +275,13 @@ fun HomeScreen(
                         Text(
                             text = "Your Music",
                             fontSize = 16.sp,
-                            color = TextSecondary
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                         )
                         Text(
                             text = "Your AURA",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                     }
                     Row {
@@ -479,14 +482,14 @@ private fun SectionHeader(
             text = title,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(vertical = 4.dp)
         )
 
         if (actionText != null && onActionClick != null) {
             Spacer(modifier = Modifier.width(8.dp))
             TextButton(onClick = onActionClick) {
-                Text(text = actionText, color = Primary)
+                Text(text = actionText, color = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -544,7 +547,7 @@ private fun TrendingSongCard(
                 .fillMaxWidth()
                 .clickable(onClick = onSongClick),
             shape = RoundedCornerShape(16.dp),
-            color = DarkSurfaceVariant
+            color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             AsyncImage(
                 model = song.thumbnail,
@@ -561,7 +564,7 @@ private fun TrendingSongCard(
             Text(
                 text = song.title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
@@ -572,7 +575,7 @@ private fun TrendingSongCard(
                 Icon(
                     imageVector = Icons.Filled.MoreVert,
                     contentDescription = "More options",
-                    tint = TextSecondary
+                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                 )
             }
             DropdownMenu(
@@ -609,7 +612,7 @@ private fun TrendingSongCard(
         Text(
             text = song.getArtistString(),
             style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -625,7 +628,7 @@ private fun PlaylistCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(DarkSurfaceVariant)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
             .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -650,14 +653,14 @@ private fun PlaylistCard(
             Text(
                 text = playlist.name,
                 style = MaterialTheme.typography.bodyLarge,
-                color = TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = playlist.description ?: "${playlist.songs.size} songs",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -665,7 +668,7 @@ private fun PlaylistCard(
 
         Text(
             text = "▶",
-            color = Primary,
+            color = MaterialTheme.colorScheme.primary,
             fontSize = 18.sp
         )
     }
@@ -676,11 +679,11 @@ private fun EmptyStateCard(message: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = DarkSurfaceVariant
+        color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Text(
             text = message,
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             modifier = Modifier.padding(16.dp)
         )
     }
@@ -734,7 +737,7 @@ private fun YTMusicPlaylistCard(
                 .fillMaxWidth()
                 .clickable(onClick = onClick),
             shape = RoundedCornerShape(16.dp),
-            color = DarkSurfaceVariant
+            color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             AsyncImage(
                 model = playlist.thumbnail,
@@ -747,7 +750,7 @@ private fun YTMusicPlaylistCard(
         Text(
             text = playlist.title,
             style = MaterialTheme.typography.bodyLarge,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onBackground,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.clickable(onClick = onClick)
@@ -756,7 +759,7 @@ private fun YTMusicPlaylistCard(
         Text(
             text = playlist.author,
             style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -793,7 +796,7 @@ private fun MoodChip(
             .height(40.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
-        color = if (isSelected) Primary else DarkSurfaceVariant
+        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     ) {
         Box(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -802,7 +805,7 @@ private fun MoodChip(
             Text(
                 text = category.title,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (isSelected) Color.Black else TextPrimary,
+                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onBackground,
                 maxLines = 1
             )
         }
@@ -863,7 +866,7 @@ private fun TopArtistCard(
             modifier = Modifier
                 .size(100.dp)
                 .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(DarkSurfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant),
             contentScale = ContentScale.Crop
         )
 
@@ -871,7 +874,7 @@ private fun TopArtistCard(
         Text(
             text = artist.name,
             style = MaterialTheme.typography.bodyMedium,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onBackground,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -883,7 +886,7 @@ private fun TopArtistCard(
             Text(
                 text = artist.subscribers,
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

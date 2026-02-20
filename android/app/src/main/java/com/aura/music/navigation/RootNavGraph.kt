@@ -23,6 +23,7 @@ import com.aura.music.auth.state.PasswordResetState
 import com.aura.music.auth.viewmodel.AuthViewModel
 import com.aura.music.player.MusicService
 import com.aura.music.ui.components.MiniPlayerBar
+import com.aura.music.ui.theme.ThemeManager
 import com.aura.music.ui.viewmodel.PlayerViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 
@@ -40,6 +41,7 @@ import com.aura.music.ui.viewmodel.ViewModelFactory
  * - Proper backstack management with popUpTo
  * - No navigation inside screens (all callbacks pass to NavController)
  * - No creating NavControllers inside composables
+ * - Theme management via centralized ThemeManager
  * 
  * IMPORTANT FOR MINI PLAYER:
  * - When authenticated, wraps NavHost with Column layout
@@ -52,13 +54,15 @@ import com.aura.music.ui.viewmodel.ViewModelFactory
  * @param authViewModel ViewModel that manages authentication state
  * @param musicService The music playback service
  * @param authState Current authentication state
+ * @param themeManager ThemeManager for theme customization
  */
 @Composable
 fun RootNavGraph(
     navController: NavHostController,
     authViewModel: AuthViewModel,
     musicService: MusicService?,
-    authState: AuthState
+    authState: AuthState,
+    themeManager: ThemeManager
 ) {
     // Create shared PlayerViewModel for mini player state
     val playerViewModel: PlayerViewModel = viewModel(
@@ -124,7 +128,8 @@ fun RootNavGraph(
                 musicService = musicService,
                 authViewModel = authViewModel,
                 authState = authState,
-                playerViewModel = playerViewModel
+                playerViewModel = playerViewModel,
+                themeManager = themeManager
             )
         }
 

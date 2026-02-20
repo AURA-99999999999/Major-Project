@@ -1,42 +1,80 @@
 # Aura Music Streaming Platform
 
-A modern, full-stack music streaming application with Flask backend, React frontend, and native Android app.
+A modern, full-stack music streaming application with Flask backend, React frontend, and native Android app featuring an advanced ML-inspired recommendation engine.
 
-## Quick Links
+## 🎵 Key Features
 
-- **Architecture & Components**: See [ARCHITECTURE.md](ARCHITECTURE.md)
-- **Setup & Development Guide**: See [SETUP_AND_IMPLEMENTATION.md](SETUP_AND_IMPLEMENTATION.md)
+### 🤖 Advanced Recommendation Engine
 
-## 🎵 Features
+**Production-grade hybrid recommender system** with intelligent personalization:
 
-- **🤖 Advanced ML-Inspired Recommendation Engine**
-  - Weighted signals (liked songs 2x, plays 1x)
-  - Time-decay weighting for freshness
-  - Diversity enforcement (max 2/artist, 3/album)
-  - Cold-start fallback with trending songs
-- Music search & streaming with real-time playback
-- Persistent Mini Player (Now Playing Bar) across all screens
-- Playlists management with liked songs
-- Firebase authentication with Google Sign-In
-- Cross-platform (Web + Android)
-- Background audio playback with ExoPlayer
-- Queue management and playback controls
-- Firestore-backed persistence with timestamps
+#### Core Algorithm
+- **Weighted Signal Processing**
+  - Liked songs: 2x preference weight
+  - Play history: 1x base weight with playCount multiplier
+  - Combines both signals for comprehensive taste profile
+
+- **Time-Decay Weighting** (Exponential Freshness)
+  - Formula: `weight = base_weight × exp(-λ × days_since_play)`
+  - Default λ = 0.15 (configurable via `RECOMMENDER_DECAY_LAMBDA`)
+  - Recent plays (today): ~100% influence
+  - Week-old plays: ~35% influence
+  - Month-old plays: ~1% influence
+
+- **Diversity Layer** (Anti-Dominance)
+  - Maximum 2 songs per artist
+  - Maximum 3 songs per album
+  - Prevents artist/album saturation
+  - Maintains ranking order without re-scoring
+
+- **Cold-Start Handling**
+  - Trending songs fallback for new users
+  - Works seamlessly with zero history
+
+#### Smart Candidate Generation
+- Top 5 weighted artists extraction
+- Top 3 weighted albums clustering
+- Multi-source search (YouTube Music API)
+- Artist similarity and related songs
+- Real-time query optimization
+
+#### Top Artists Feature
+- Displays personalized top 5-10 artists on home screen
+- Based on weighted listening history
+- Circular artist thumbnails with subscriber count
+- Click to view artist details, songs, and albums
+
+### 🎵 Music Features
+- **Search & Discovery**: Real-time song search with YouTube Music integration
+- **Explore by Mood**: Browse curated playlists by mood/genre categories
+- **Music Filtering**: Smart filtering excludes non-music content (interviews, podcasts, etc.)
+- **Trending Songs**: Updated trending charts with proper validation
+- **Playlists**: Create custom playlists and manage liked songs
+- **Persistent Mini Player**: Now Playing Bar visible across all screens
+- **Queue Management**: Full playback control with queue support
+
+### 🔐 Authentication & Security
+- Firebase Google Sign-In with OAuth
+- Email verification for password reset
+- Secure token-based sessions
+- Auto-login on app restart
+- Logout clears all user data
 
 ## 🏗️ Tech Stack
 
-- **Backend**: Flask (Python)
-- **Frontend**: React + Vite + Tailwind CSS
-- **Android**: Kotlin + Jetpack Compose + Material 3
-- **Auth**: Firebase Authentication
-- **Database**: Firestore
-- **Audio**: ExoPlayer (Android), Web Audio API (Web)
-- **State**: StateFlow + MVVM Pattern
+**Backend**: Flask (Python), YTMusic API  
+**Frontend**: React, Vite, Tailwind CSS  
+**Android**: Kotlin, Jetpack Compose, Material 3  
+**Auth**: Firebase Authentication  
+**Database**: Firestore  
+**Audio**: ExoPlayer (Android), Web Audio API (Web)  
+**State**: StateFlow, MVVM Pattern
 
 ## 🚀 Quick Start
 
 ### Backend
 ```bash
+cd backend
 pip install -r requirements.txt
 python app.py
 ```
@@ -57,107 +95,63 @@ cd android
 ./gradlew installDebug
 ```
 
-**For detailed setup instructions**, see [SETUP_AND_IMPLEMENTATION.md](SETUP_AND_IMPLEMENTATION.md)
-
 ## 📂 Project Structure
 
 ```
 Major-Project/
-├── README.md                    # This file
-├── ARCHITECTURE.md              # System design & components
-├── SETUP_AND_IMPLEMENTATION.md  # Development guide
-├── app.py                       # Flask backend
-├── requirements.txt             
-├── services/                    # Backend business logic
+├── README.md                    # Project documentation
+├── backend/                     # Flask backend server
+│   ├── app.py                   # Main Flask application
+│   ├── requirements.txt         # Python dependencies
+│   ├── config.py                # Configuration
+│   ├── services/                # Backend business logic
+│   │   ├── recommendation_service.py  # ML recommendation engine
+│   │   ├── music_service.py           # Music search & trending
+│   │   ├── music_filter.py            # Smart content filtering
+│   │   ├── mood_service.py            # Mood-based discovery
+│   │   ├── detail_service.py          # Artist/album details
+│   │   ├── playlist_service.py        # Playlist management
+│   │   └── user_service.py            # User data management
+│   ├── data/                    # Local data storage
+│   ├── templates/               # HTML templates
+│   └── test_*.py                # Test files
 ├── frontend/                    # React web app
-├── android/                     # Kotlin Android app
-│   └── app/src/main/java/com/aura/music/
-│       ├── MainActivity.kt
-│       ├── navigation/          # RootNavGraph, MainGraph
-│       ├── ui/
-│       │   ├── components/MiniPlayerBar.kt
-│       │   ├── screens/        # Home, Search, Player, etc
-│       │   └── viewmodel/      # PlayerViewModel
-│       └── player/MusicService.kt
-└── data/                        # JSON data storage
+│   └── src/
+│       ├── pages/               # Home, Search, Player, etc.
+│       ├── components/          # Reusable UI components
+│       └── services/            # API integration
+└── android/                     # Kotlin Android app
+    └── app/src/main/java/com/aura/music/
+        ├── navigation/          # App navigation
+        ├── ui/screens/          # Composable screens
+        ├── ui/viewmodel/        # ViewModels (MVVM)
+        ├── data/repository/     # Data layer
+        └── player/              # ExoPlayer service
 ```
 
-## 🎯 Key Features
+## 🎯 API Endpoints
 
-### 🤖 Advanced Recommendation System
+### Recommendations
+- `GET /api/recommendations?uid={uid}&limit=20` - Personalized song recommendations
+- `GET /api/home/top-artists?uid={uid}&limit=10` - Top artists for user
 
-**Production-grade hybrid ML recommender** with intelligent personalization:
+### Music Discovery
+- `GET /api/search?query={query}` - Search songs
+- `GET /api/trending?limit=20` - Trending songs
+- `GET /api/mood/categories` - Explore by mood categories
+- `GET /api/mood/playlists?params={params}` - Mood playlists
 
-#### Core Algorithm Features
-- **Weighted Signal Processing**: 
-  - Liked songs: 2x preference weight
-  - Play history: 1x base weight with playCount multiplier
-  - Combines both signals for comprehensive taste profile
+### Song Details
+- `GET /api/get-song/{videoId}` - Get streaming URL
+- `GET /api/song/{videoId}` - Get song metadata
+- `GET /api/artist/{browseId}` - Get artist details
+- `GET /api/album/{browseId}` - Get album details
 
-- **Time-Decay Weighting** (Exponential Freshness):
-  - Formula: `weight = base_weight × exp(-λ × days_since_play)`
-  - Default λ = 0.15 (configurable via `RECOMMENDER_DECAY_LAMBDA`)
-  - Recent plays (today): ~100% influence
-  - Week-old plays: ~35% influence
-  - Month-old plays: ~1% influence
-  - Ensures recommendations stay fresh and relevant
-
-- **Diversity Layer** (Anti-Dominance):
-  - Maximum 2 songs per artist
-  - Maximum 3 songs per album
-  - Prevents artist/album saturation
-  - Maintains ranking order without re-scoring
-
-- **Cold-Start Handling**:
-  - Trending songs fallback for new users
-  - Works with zero history seamlessly
-  - Graceful degradation
-
-#### Smart Candidate Generation
-- Top 5 weighted artists extraction
-- Top 3 weighted albums clustering
-- Multi-source search (YouTube Music API)
-- Artist similarity and related songs
-- Real-time query optimization
-
-#### API Endpoint
-```
-GET /api/recommendations?uid={user_id}&limit=20
-```
-
-**Result**: Dynamic, diverse, and fresh recommendations that evolve with user taste over time.
-
----
-
-### 🎵 Music Playback & UI
-
-**Mini Player (Now Playing Bar)**
-- Persistent across all screens (above bottom navigation)
-- Media controls: previous, play/pause, next
-- Firestore-backed session persistence
-
-**Full Player Screen**
-- Full-screen album art
-- Complete playback controls & queue management
-- Current timestamp display
-
-**Search & Discovery**
-- Real-time song search (YouTube Music)
-- Play from search results
-- Explore by Mood categories
-
-**Playlists & Library**
-- Create custom playlists
-- Like/unlike songs
-- View liked songs collection
-
-## 🔐 Authentication
-
-Firebase Google Sign-In:
-- Authenticate via Google OAuth
-- Secure token-based sessions
-- Auto-login on app restart
-- Logout clears all user data
+### User Management
+- `POST /api/play` - Track song play
+- `POST /api/like` - Like/unlike song
+- `GET /api/user/{uid}/plays` - Get play history
+- `GET /api/user/{uid}/liked` - Get liked songs
 
 ## 💾 Data Persistence
 
@@ -171,39 +165,123 @@ users/{uid}/
   └── likedSongs/           # Liked songs collection with timestamps
 ```
 
-## 🔄 State Management
+## 🔄 Recommendation Algorithm Details
 
-**Single Source of Truth**: PlayerViewModel holds shared playback state
-- Synced with MusicService (ExoPlayer)
-- Observed by MiniPlayerBar and player screens
-- Auto-persisted to Firestore
+### Weighted Signals
+The recommender combines multiple signal sources:
+```python
+SIGNAL_WEIGHTS = {
+    'liked_songs': 2.0,    # User explicitly liked
+    'play_history': 1.0,   # User listened to
+}
+```
+
+### Time-Decay Function
+Recent activity is prioritized using exponential decay:
+```python
+def calculate_time_weight(days_since):
+    return math.exp(-decay_lambda * days_since)
+
+# Examples with λ=0.15:
+# Today (0 days):    weight = 1.00 (100%)
+# 1 week (7 days):   weight = 0.35 (35%)
+# 1 month (30 days): weight = 0.01 (1%)
+```
+
+### Artist/Album Extraction
+1. Fetch all user plays and liked songs
+2. Apply time-decay weights to each signal
+3. Aggregate by artist: `artist_score = Σ(signal_weight × time_weight)`
+4. Extract top 5 artists by score
+5. Extract top 3 albums by score
+
+### Candidate Generation (Multi-Source)
+- Search top 5 artists on YouTube Music
+- Fetch related artists for each top artist
+- Get artist radio/similar songs
+- Fetch album tracks for top 3 albums
+- Search by weighted genre/mood tags
+
+### Diversity Enforcement
+After scoring candidates:
+1. Sort by recommendation score (descending)
+2. Track count per artist and album
+3. Keep song if: artist_count < 2 AND album_count < 3
+4. Skip song otherwise
+5. Return top N diverse recommendations
 
 ## 📊 Data Flow
 
 ```
-User clicks song
-  ↓ Resolves streaming URL
-  ↓ Plays via ExoPlayer
-  ↓ Updates PlayerViewModel
-  ↓ Mini player displays in real-time
-  ↓ Last played saved to Firestore
+User Action (play/like song)
+  ↓
+Update Firestore (plays/likedSongs with timestamp)
+  ↓
+User requests recommendations
+  ↓
+RecommendationService fetches user signals
+  ↓
+Calculate time-weighted artist/album scores
+  ↓
+Generate candidates from multiple sources
+  ↓
+Apply diversity layer
+  ↓
+Return personalized song list
+  ↓
+User plays song → cycle repeats
 ```
 
-## 🐛 Troubleshooting
+## 🎨 Android Architecture (MVVM)
 
-See [SETUP_AND_IMPLEMENTATION.md](SETUP_AND_IMPLEMENTATION.md) for:
-- Backend/frontend/Android build issues
-- Firebase configuration problems
-- Mini player display issues
-- Firestore connectivity troubleshooting
+```
+┌─────────────────────────────────────────┐
+│          MainActivity                    │
+│    (RootNavGraph + MiniPlayerBar)       │
+└─────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────┐
+│      PlayerViewModel (SHARED)           │
+│  - currentSong: StateFlow               │
+│  - isPlaying: StateFlow                 │
+│  - Synced with MusicService             │
+└─────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────┐
+│      MusicService (ExoPlayer)           │
+│  - Background audio playback            │
+│  - Queue management                     │
+│  - Media session controls               │
+└─────────────────────────────────────────┘
+```
 
-## 📈 Performance
+## 📈 Performance Optimizations
 
 - Lazy-loaded list rendering (LazyColumn/LazyRow)
 - Image caching with Coil
 - Async Firestore updates (non-blocking)
 - ExoPlayer for hardware-accelerated audio
 - StateFlow for efficient recomposition
+- LRU caching for API responses (30 min categories, 15 min playlists)
+- Thread-safe concurrent API calls with ThreadPoolExecutor
+
+## 🐛 Troubleshooting
+
+### Backend Issues
+- **Port 5000 in use**: Change port in `app.py` or kill conflicting process
+- **YTMusic errors**: Check internet connection, YTMusic API may be rate-limiting
+- **Import errors**: Run `pip install -r requirements.txt`
+
+### Frontend Issues
+- **npm install fails**: Try `npm install --legacy-peer-deps`
+- **Vite port conflict**: Change port in `vite.config.js`
+- **API connection**: Verify backend is running on correct host/port
+
+### Android Issues
+- **Build fails**: Run `./gradlew clean` then rebuild
+- **Firebase errors**: Check `google-services.json` is present and valid
+- **ExoPlayer crashes**: Verify network permissions in AndroidManifest.xml
+- **Empty recommendations**: User needs play/like history, or check Firestore connection
 
 ## 📝 License
 
@@ -212,6 +290,7 @@ MIT License - Educational purposes
 ---
 
 **Documentation Updated**: February 2026  
-**Current Features**: Production-grade recommendation engine with time-decay weighting, diversity layer, mini player, home screen, search, playlists, authentication, cross-platform persistence
+**Version**: 2.0  
+**Features**: Advanced recommender with time-decay + diversity, top artists, mood exploration, smart filtering, mini player, cross-platform persistence
 
 Built with ❤️ using Flask, React, Kotlin, and Jetpack Compose

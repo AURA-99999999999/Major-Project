@@ -25,6 +25,8 @@ import com.aura.music.auth.viewmodel.AuthViewModel
 import com.aura.music.navigation.RootNavGraph
 import com.aura.music.player.MusicService
 import com.aura.music.ui.theme.AuraTheme
+import com.aura.music.ui.theme.ThemeManager
+import com.aura.music.ui.viewmodel.ViewModelFactory
 
     /**
      * MainActivity - Application entry point
@@ -39,6 +41,12 @@ import com.aura.music.ui.theme.AuraTheme
      * - All navigation logic is in RootNavGraph, AuthGraph, MainGraph
      * - No navigation inside screens (clean separation of concerns)
      * 
+     * Theme Management:
+     * - Centralized via ThemeManager
+     * - Real-time theme updates via StateFlow
+     * - No activity restart required for theme changes
+     * - Material 3 integration with dynamic accent colors
+     * 
      * Firestore Architecture:
      * - User creation/update: Handled in AuthViewModel on login/signup
      * - Search logging: Handled in SearchViewModel after successful search
@@ -51,6 +59,7 @@ import com.aura.music.ui.theme.AuraTheme
      * - State-driven navigation
      * - Proper backstack management with popUpTo
      * - MusicService binding for audio playback
+     * - Dynamic theme system
      */
 class MainActivity : ComponentActivity() {
     
@@ -94,7 +103,14 @@ class MainActivity : ComponentActivity() {
 
         try {
             setContent {
-                AuraTheme {
+                // Create ThemeManager for theme state management with proper factory
+                val themeManager: ThemeManager = viewModel(
+                    factory = ViewModelFactory.create(applicationContext as android.app.Application)
+                )
+                val themeState by themeManager.themeState.collectAsState()
+
+                // Apply theme with dynamic color support
+                AuraTheme(themeState = themeState) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
@@ -111,7 +127,8 @@ class MainActivity : ComponentActivity() {
                             navController = navController,
                             authViewModel = authViewModel,
                             musicService = musicService,
-                            authState = authState
+                            authState = authState,
+                            themeManager = themeManager
                         )
                     }
                 }

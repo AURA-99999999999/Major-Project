@@ -107,10 +107,10 @@ fun YTPlaylistDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Playlist", color = TextPrimary) },
+                title = { Text("Playlist", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary)
+                        Icon(Icons.Default.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -129,7 +129,7 @@ fun YTPlaylistDetailScreen(
                         .padding(innerPadding),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Primary)
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             }
             uiState.error != null -> {
@@ -148,7 +148,7 @@ fun YTPlaylistDetailScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = uiState.error ?: "Unknown error",
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
@@ -168,7 +168,7 @@ fun YTPlaylistDetailScreen(
                                 .fillMaxWidth()
                                 .background(
                                     Brush.verticalGradient(
-                                        colors = listOf(DarkSurface, DarkBackground)
+                                        colors = listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.background)
                                     )
                                 )
                                 .padding(16.dp),
@@ -180,7 +180,7 @@ fun YTPlaylistDetailScreen(
                                 modifier = Modifier
                                     .size(200.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(DarkSurface),
+                                    .background(MaterialTheme.colorScheme.surface),
                                 contentScale = ContentScale.Crop
                             )
                             
@@ -190,7 +190,7 @@ fun YTPlaylistDetailScreen(
                                 text = playlist.title,
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
@@ -201,7 +201,7 @@ fun YTPlaylistDetailScreen(
                             Text(
                                 text = playlist.author,
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = TextSecondary
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             
                             Spacer(modifier = Modifier.height(4.dp))
@@ -209,7 +209,7 @@ fun YTPlaylistDetailScreen(
                             Text(
                                 text = "${playlist.trackCount} songs",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -219,7 +219,7 @@ fun YTPlaylistDetailScreen(
                         Text(
                             text = "Tracks",
                             style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                         )
                     }

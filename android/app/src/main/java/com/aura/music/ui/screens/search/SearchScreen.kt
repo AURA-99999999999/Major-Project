@@ -151,7 +151,7 @@ fun SearchScreen(
                 title = {
                     Text(
                         text = "Search",
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onBackground,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -161,13 +161,13 @@ fun SearchScreen(
                         Icon(
                             imageVector = Icons.Rounded.ArrowBack,
                             contentDescription = "Back",
-                            tint = TextPrimary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
-                modifier = Modifier.background(DarkBackground),
+                modifier = Modifier.background(MaterialTheme.colorScheme.background),
                 colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkBackground
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         }
@@ -177,7 +177,10 @@ fun SearchScreen(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(DarkBackground, DarkSurface)
+                        colors = listOf(
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.surface
+                        )
                     )
                 )
                 .padding(innerPadding)
@@ -191,15 +194,15 @@ fun SearchScreen(
                 OutlinedTextField(
                     value = uiState.query,
                     onValueChange = { viewModel.search(it) },
-                    placeholder = { Text("Search for songs...", color = TextSecondary) },
+                    placeholder = { Text("Search for songs...", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(28.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = Primary,
-                        unfocusedBorderColor = TextSecondary
+                        focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant
                     ),
                     keyboardActions = KeyboardActions(
                         onSearch = { focusManager.clearFocus() }
@@ -233,7 +236,7 @@ fun SearchScreen(
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
                                         text = "Search for your favorite songs",
-                                        color = TextSecondary,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = TextAlign.Center
                                     )
                                 }
@@ -269,13 +272,13 @@ fun SearchScreen(
                                         Text(
                                             text = "Suggestions",
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = TextSecondary,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.padding(bottom = 8.dp)
                                         )
                                         uiState.suggestions.take(5).forEach { suggestion ->
                                             Text(
                                                 text = suggestion,
-                                                color = TextPrimary,
+                                                color = MaterialTheme.colorScheme.onBackground,
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clickable {
@@ -296,7 +299,7 @@ fun SearchScreen(
                                     Text(
                                         text = "Songs",
                                         style = MaterialTheme.typography.titleMedium,
-                                        color = TextPrimary,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                         modifier = Modifier.padding(vertical = 8.dp)
                                     )
                                 }
@@ -328,7 +331,7 @@ fun SearchScreen(
                                     Text(
                                         text = "Albums",
                                         style = MaterialTheme.typography.titleMedium,
-                                        color = TextPrimary,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                         modifier = Modifier.padding(vertical = 8.dp)
                                     )
                                 }
@@ -354,7 +357,7 @@ fun SearchScreen(
                                     Text(
                                         text = "Artists",
                                         style = MaterialTheme.typography.titleMedium,
-                                        color = TextPrimary,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                         modifier = Modifier.padding(vertical = 8.dp)
                                     )
                                 }
@@ -380,7 +383,7 @@ fun SearchScreen(
                                     Text(
                                         text = "Playlists",
                                         style = MaterialTheme.typography.titleMedium,
-                                        color = TextPrimary,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                         modifier = Modifier.padding(vertical = 8.dp)
                                     )
                                 }
@@ -414,13 +417,13 @@ fun SearchScreen(
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = "No results for \"${uiState.query}\"",
-                                    color = TextSecondary,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = "Try a different search term",
-                                    color = TextSecondary,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall,
                                     textAlign = TextAlign.Center
                                 )
@@ -446,7 +449,7 @@ fun SearchScreen(
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = state.message,
-                                    color = TextSecondary,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
                                 )
                             }
@@ -495,7 +498,7 @@ fun AlbumItem(
                 contentDescription = "Album cover",
                 modifier = Modifier
                     .size(56.dp)
-                    .background(DarkBackground, RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -506,7 +509,7 @@ fun AlbumItem(
                 Text(
                     text = album.title,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -519,7 +522,7 @@ fun AlbumItem(
                     Text(
                         text = album.artists.joinToString(", "),
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -528,7 +531,7 @@ fun AlbumItem(
                         Text(
                             text = " • $year",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -537,7 +540,7 @@ fun AlbumItem(
                     Text(
                         text = type,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -571,7 +574,7 @@ fun ArtistItem(
                 contentDescription = "Artist image",
                 modifier = Modifier
                     .size(56.dp)
-                    .background(DarkBackground, CircleShape)
+                    .background(MaterialTheme.colorScheme.surface, CircleShape)
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -582,7 +585,7 @@ fun ArtistItem(
                 Text(
                     text = artist.name,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -592,14 +595,14 @@ fun ArtistItem(
                 Text(
                     text = "Artist",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 artist.subscribers?.let { subscribers ->
                     Text(
                         text = subscribers,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -633,7 +636,7 @@ fun PlaylistSearchItem(
                 contentDescription = "Playlist cover",
                 modifier = Modifier
                     .size(56.dp)
-                    .background(DarkBackground, RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -644,7 +647,7 @@ fun PlaylistSearchItem(
                 Text(
                     text = playlist.title,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -654,7 +657,7 @@ fun PlaylistSearchItem(
                 Text(
                     text = "Playlist • ${playlist.author}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -663,7 +666,7 @@ fun PlaylistSearchItem(
                     Text(
                         text = count,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

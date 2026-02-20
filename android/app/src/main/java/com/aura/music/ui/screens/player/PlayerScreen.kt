@@ -1,5 +1,6 @@
 package com.aura.music.ui.screens.player
 
+import android.util.Log
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode as AnimationRepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -62,13 +63,18 @@ import coil.compose.AsyncImage
 import com.aura.music.player.MusicService
 import com.aura.music.player.PlayerState
 import com.aura.music.player.RepeatMode as PlayerRepeatMode
+import com.aura.music.ui.theme.ColorBlendingUtils
+import com.aura.music.ui.theme.DynamicGradientBuilder
 import com.aura.music.ui.theme.DarkBackground
 import com.aura.music.ui.theme.DarkSurface
+import com.aura.music.ui.theme.GradientProvider
+import com.aura.music.ui.theme.GradientTheme
 import com.aura.music.ui.theme.Primary
 import com.aura.music.ui.theme.PrimaryVariant
-import com.aura.music.ui.theme.Secondary
 import com.aura.music.ui.theme.TextPrimary
 import com.aura.music.ui.theme.TextSecondary
+import com.aura.music.ui.theme.ThemeColorEffect
+import com.aura.music.ui.theme.ThemeManager
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -77,8 +83,15 @@ import kotlin.math.floor
 @Composable
 fun PlayerScreen(
     musicService: MusicService?,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    themeManager: ThemeManager? = null
 ) {
+    val context = LocalContext.current
+    val actualThemeManager: ThemeManager = themeManager ?: viewModel(
+        factory = ViewModelFactory.create(context.applicationContext as android.app.Application)
+    )
+    val themeState by actualThemeManager.themeState.collectAsState()
+    
     val playerState = musicService?.playerState?.collectAsState()?.value ?: PlayerState()
     val likedSongsViewModel: LikedSongsViewModel = viewModel(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
@@ -89,16 +102,22 @@ fun PlayerScreen(
         likedSongsViewModel.observeLikedSongs()
     }
 
+    // Trigger dynamic theme color extraction when artwork loads
+    ThemeColorEffect(
+        song = playerState.currentSong,
+        themeManager = actualThemeManager
+    )
+
     if (playerState.currentSong == null) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(DarkBackground),
+                .background(MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "No song playing",
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 16.sp
             )
         }
@@ -123,18 +142,75 @@ fun PlayerScreen(
         label = "rotation"
     )
 
+    // Dynamic background colors from album artwork or theme
+    val backgroundColors = if (themeState.dynamicAlbumColors && themeState.currentDynamicColors.dominant != null) {
+        val dynamic = themeState.currentDynamicColors
+        val isDark = themeState.themeMode != com.aura.music.ui.theme.ThemeMode.LIGHT
+        
+        // Get primary color with fallback
+        val primaryColor = dynamic.getPrimaryColor()
+            ?: MaterialTheme.colorScheme.background
+        
+        if (isDark) {
+            // Build dynamic gradient from album colors
+            listOf(
+                ColorBlendingUtils.lighten(primaryColor, 0.15f),
+                primaryColor,
+                ColorBlendingUtils.darken(primaryColor, 0.3f),
+                Color(0xFF0A0A0A)
+            )
+        } else {
+            // Light theme: Use carefully blended lighter colors
+            listOf(
+                ColorBlendingUtils.lighten(primaryColor, 0.35f),
+                ColorBlendingUtils.lighten(primaryColor, 0.15f),
+                primaryColor,
+                ColorBlendingUtils.desaturate(primaryColor, 0.2f)
+            )
+        }
+    } else if (themeState.gradientTheme != GradientTheme.NONE) {
+        // Fallback to theme gradient
+        GradientProvider.getGradientColors(
+            themeState.gradientTheme,
+            themeState.themeMode == com.aura.music.ui.theme.ThemeMode.DARK
+        ) ?: listOf(
+            MaterialTheme.colorScheme.background,
+            MaterialTheme.colorScheme.surface
+        )
+    } else {
+        // Final fallback to theme palette
+        listOf(
+            MaterialTheme.colorScheme.background,
+            MaterialTheme.colorScheme.surface
+        )
+    }
+    
+    // Calculate readability overlay opacity based on brightness
+    val overlayAlpha = if (backgroundColors.isNotEmpty()) {
+        val brightness = ColorBlendingUtils.getPerceivedBrightness(backgroundColors[0])
+        when {
+            brightness > 0.7f -> 0.5f   // Light: strong overlay
+            brightness > 0.5f -> 0.35f  // Medium: moderate overlay
+            else -> 0.15f               // Dark: subtle overlay
+        }
+    } else {
+        0.2f
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        DarkBackground,
-                        DarkSurface
-                    )
-                )
+                Brush.verticalGradient(colors = backgroundColors)
             )
     ) {
+        // Readability overlay - ensures text remains visible
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF000000).copy(alpha = overlayAlpha))
+        )
+        
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -152,7 +228,7 @@ fun PlayerScreen(
                     Icon(
                         imageVector = Icons.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = TextPrimary
+                        tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
 
@@ -160,7 +236,7 @@ fun PlayerScreen(
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(android.R.drawable.ic_menu_more),
                         contentDescription = "Menu",
-                        tint = TextPrimary
+                        tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
             }
@@ -172,7 +248,7 @@ fun PlayerScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp),
-                    color = Primary
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
 
@@ -195,7 +271,10 @@ fun PlayerScreen(
                     .clip(CircleShape)
                     .background(
                         Brush.radialGradient(
-                            colors = listOf(Primary, PrimaryVariant)
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.secondary
+                            )
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -222,7 +301,7 @@ fun PlayerScreen(
                     text = song.title,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1
                 )
 
@@ -231,7 +310,7 @@ fun PlayerScreen(
                 Text(
                     text = song.getArtistString(),
                     fontSize = 16.sp,
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f),
                     maxLines = 1
                 )
 
@@ -250,9 +329,9 @@ fun PlayerScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = SliderDefaults.colors(
-                            thumbColor = Primary,
-                            activeTrackColor = Primary,
-                            inactiveTrackColor = TextSecondary.copy(alpha = 0.3f)
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
                         )
                     )
 
@@ -263,12 +342,12 @@ fun PlayerScreen(
                         Text(
                             text = formatTime(currentPosition),
                             fontSize = 12.sp,
-                            color = TextSecondary
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                         )
                         Text(
                             text = formatTime(duration),
                             fontSize = 12.sp,
-                            color = TextSecondary
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                         )
                     }
                 }
@@ -318,7 +397,7 @@ fun PlayerScreen(
                         Icon(
                             imageVector = modeIcon,
                             contentDescription = "Repeat mode",
-                            tint = if (isActive) Primary else TextSecondary
+                            tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                         )
                     }
 
@@ -329,7 +408,7 @@ fun PlayerScreen(
                         Icon(
                             painter = androidx.compose.ui.res.painterResource(android.R.drawable.ic_media_rew),
                             contentDescription = "Previous",
-                            tint = TextPrimary,
+                            tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -348,7 +427,7 @@ fun PlayerScreen(
                                 if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
                             ),
                             contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = TextPrimary,
+                            tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(40.dp)
                         )
                     }
@@ -360,7 +439,7 @@ fun PlayerScreen(
                         Icon(
                             painter = androidx.compose.ui.res.painterResource(android.R.drawable.ic_media_ff),
                             contentDescription = "Next",
-                            tint = TextPrimary,
+                            tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -375,7 +454,7 @@ fun PlayerScreen(
                         Icon(
                             imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                             contentDescription = if (isLiked) "Liked" else "Not liked",
-                            tint = if (isLiked) Color.Red.copy(alpha = 0.9f) else TextSecondary
+                            tint = if (isLiked) Color.Red.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                         )
                     }
                 }
@@ -391,7 +470,7 @@ fun PlayerScreen(
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(android.R.drawable.ic_lock_silent_mode),
                         contentDescription = "Volume",
-                        tint = TextSecondary,
+                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                         modifier = Modifier.size(24.dp)
                     )
 
@@ -400,16 +479,16 @@ fun PlayerScreen(
                         onValueChange = { musicService?.setVolume(it) },
                         modifier = Modifier.weight(1f),
                         colors = SliderDefaults.colors(
-                            thumbColor = Primary,
-                            activeTrackColor = Primary,
-                            inactiveTrackColor = TextSecondary.copy(alpha = 0.3f)
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
                         )
                     )
 
                     Text(
                         text = "${(volume * 100).toInt()}%",
                         fontSize = 12.sp,
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                         modifier = Modifier.width(40.dp)
                     )
                 }

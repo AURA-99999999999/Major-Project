@@ -39,14 +39,14 @@ fun PlaylistPickerBottomSheet(
                 text = "Add to playlist",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onBackground
             )
 
             if (playlists.isEmpty()) {
                 Text(
                     text = "No playlists yet. Create one in your Library.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
                 LazyColumn(
@@ -58,13 +58,13 @@ fun PlaylistPickerBottomSheet(
                             headlineContent = {
                                 Text(
                                     text = playlist.name,
-                                    color = TextPrimary
+                                    color = MaterialTheme.colorScheme.onBackground
                                 )
                             },
                             supportingContent = {
                                 Text(
                                     text = "${playlist.songCount} songs",
-                                    color = TextSecondary,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             },

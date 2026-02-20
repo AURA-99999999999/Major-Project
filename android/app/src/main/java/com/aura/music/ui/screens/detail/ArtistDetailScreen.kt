@@ -118,10 +118,10 @@ fun ArtistDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Artist", color = TextPrimary) },
+                title = { Text("Artist", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary)
+                        Icon(Icons.Default.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -140,7 +140,7 @@ fun ArtistDetailScreen(
                         .padding(innerPadding),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Primary)
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             }
             uiState.error != null -> {
@@ -159,7 +159,7 @@ fun ArtistDetailScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = uiState.error ?: "Unknown error",
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
@@ -179,7 +179,7 @@ fun ArtistDetailScreen(
                                 .fillMaxWidth()
                                 .background(
                                     Brush.verticalGradient(
-                                        colors = listOf(DarkSurface, DarkBackground)
+                                        colors = listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.background)
                                     )
                                 )
                                 .padding(16.dp),
@@ -191,7 +191,7 @@ fun ArtistDetailScreen(
                                 modifier = Modifier
                                     .size(200.dp)
                                     .clip(CircleShape)
-                                    .background(DarkSurface),
+                                    .background(MaterialTheme.colorScheme.surface),
                                 contentScale = ContentScale.Crop
                             )
                             
@@ -201,7 +201,7 @@ fun ArtistDetailScreen(
                                 text = artist.name,
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                             
@@ -210,7 +210,7 @@ fun ArtistDetailScreen(
                                 Text(
                                     text = it,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = TextSecondary
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -222,7 +222,7 @@ fun ArtistDetailScreen(
                             Text(
                                 text = "Top Songs",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = TextPrimary,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                             )
                         }
@@ -251,7 +251,7 @@ fun ArtistDetailScreen(
                             Text(
                                 text = "Albums",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = TextPrimary,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                             )
                         }
@@ -281,7 +281,7 @@ fun ArtistDetailScreen(
                                                 modifier = Modifier
                                                     .size(126.dp)
                                                     .clip(RoundedCornerShape(8.dp))
-                                                    .background(DarkBackground),
+                                                    .background(MaterialTheme.colorScheme.surface),
                                                 contentScale = ContentScale.Crop
                                             )
                                             
@@ -290,7 +290,7 @@ fun ArtistDetailScreen(
                                             Text(
                                                 text = album.title,
                                                 style = MaterialTheme.typography.bodyMedium,
-                                                color = TextPrimary,
+                                                color = MaterialTheme.colorScheme.onBackground,
                                                 maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -299,7 +299,7 @@ fun ArtistDetailScreen(
                                                 Text(
                                                     text = it.toString(),
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = TextSecondary
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
                                         }

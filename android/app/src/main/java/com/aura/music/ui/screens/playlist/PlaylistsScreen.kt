@@ -115,23 +115,23 @@ fun PlaylistsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = "Library", color = TextPrimary) },
+                title = { Text(text = "Library", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = TextPrimary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showCreateDialog = true },
-                containerColor = Primary
+                containerColor = MaterialTheme.colorScheme.primary
             ) {
                 Icon(
                     imageVector = Icons.Filled.Add,
@@ -145,7 +145,7 @@ fun PlaylistsScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Brush.verticalGradient(colors = listOf(DarkBackground, DarkSurface)))
+                .background(Brush.verticalGradient(colors = listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
                 .padding(innerPadding)
         ) {
             when {
@@ -212,13 +212,13 @@ private fun EmptyLibraryState(onCreateClick: () -> Unit) {
     ) {
         Text(
             text = "No playlists yet",
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onBackground,
             style = MaterialTheme.typography.titleMedium
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "Create your first playlist to save songs you love.",
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium
         )
     }
@@ -251,7 +251,7 @@ private fun LibraryPlaylistCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = playlist.name,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onBackground,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -260,7 +260,7 @@ private fun LibraryPlaylistCard(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "${playlist.songCount} songs · ${formatPlaylistDate(playlist.createdAt)}",
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -303,7 +303,7 @@ private fun LikedSongsCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Liked Songs",
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onBackground,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -312,7 +312,7 @@ private fun LikedSongsCard(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "$songCount songs",
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
