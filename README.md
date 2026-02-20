@@ -1,6 +1,6 @@
 # Aura Music Streaming Platform
 
-A modern, full-stack music streaming application with Flask backend, React frontend, and native Android app featuring an advanced ML-inspired recommendation engine.
+A modern, full-stack music streaming application with Flask backend, React frontend, and Kotlin Android app featuring an advanced ML-inspired recommendation engine.
 
 ## 🎵 Key Features
 
