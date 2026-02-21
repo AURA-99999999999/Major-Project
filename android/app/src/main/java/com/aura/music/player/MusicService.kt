@@ -15,6 +15,7 @@ import com.aura.music.data.model.Song
 import com.aura.music.data.model.withFallbackMetadata
 import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.di.ServiceLocator
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +32,7 @@ class MusicService : MediaSessionService() {
     private val binder = MusicBinder()
     private var exoPlayer: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
+    private var notificationManager: MusicNotificationManager? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val queueManager = PlaybackQueueManager
     private val smartAutoplayManager by lazy { SmartAutoplayManager(repository) }
@@ -47,11 +49,16 @@ class MusicService : MediaSessionService() {
 
     private val repository by lazy { ServiceLocator.getMusicRepository() }
     private val firestoreRepository by lazy { FirestoreRepository() }
+    private val auth by lazy { FirebaseAuth.getInstance() }
 
     private var lastLoggedPlayKey: String? = null
     private var lastLoggedAtMs: Long = 0L
     private var currentPlaybackSource: String = "unknown"
     private val playStartThresholdMs = 2_000L
+    
+    // Track liked songs for notification
+    private val _likedSongs = MutableStateFlow<Set<String>>(emptySet())
+    private var isForegroundService = false
 
     inner class MusicBinder : Binder() {
         fun getService(): MusicService = this@MusicService
@@ -60,6 +67,7 @@ class MusicService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         initializePlayer()
+        observeLikedSongs()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -181,6 +189,18 @@ class MusicService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, exoPlayer!!)
             .setCallback(object : MediaSession.Callback {})
             .build()
+            
+        // Initialize notification manager
+        notificationManager = MusicNotificationManager(this, mediaSession!!)
+        
+        // Observe player state changes to update notification
+        serviceScope.launch {
+            _playerState.collect { state ->
+                state.currentSong?.let { song ->
+                    updateNotification(song, state.isPlaying)
+                }
+            }
+        }
     }
 
     private fun updateCurrentPosition() {
@@ -356,6 +376,14 @@ class MusicService : MediaSessionService() {
 
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Handle notification action intents
+        when (intent?.action) {
+            MusicNotificationManager.ACTION_PLAY_PAUSE -> togglePlayPause()
+            MusicNotificationManager.ACTION_PREVIOUS -> playPrevious()
+            MusicNotificationManager.ACTION_NEXT -> playNext()
+            MusicNotificationManager.ACTION_LIKE -> toggleLike()
+            MusicNotificationManager.ACTION_STOP -> stopSelf()
+        }
         return START_STICKY
     }
 
@@ -365,10 +393,16 @@ class MusicService : MediaSessionService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (isForegroundService) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            isForegroundService = false
+        }
+        notificationManager?.cancelNotification()
         exoPlayer?.release()
         mediaSession?.release()
         exoPlayer = null
         mediaSession = null
+        notificationManager = null
     }
 
     private suspend fun resolveSong(song: Song): Song {
@@ -408,6 +442,90 @@ class MusicService : MediaSessionService() {
             // Update individual StateFlows for mini player
             _currentSong.value = resolvedSong
             _isPlaying.value = true
+        }
+    }
+    
+    /**
+     * Update notification with current song and state
+     */
+    private fun updateNotification(song: Song, isPlaying: Boolean) {
+        val isLiked = _likedSongs.value.contains(song.videoId)
+        notificationManager?.updateNotification(song, isPlaying, isLiked)
+        
+        // Start foreground service if playing
+        if (isPlaying && !isForegroundService) {
+            serviceScope.launch {
+                try {
+                    val notification = notificationManager?.buildNotification(song, isPlaying, isLiked)
+                    notification?.let {
+                        startForeground(MusicNotificationManager.NOTIFICATION_ID, it)
+                        isForegroundService = true
+                        Log.d(TAG, "Started foreground service")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start foreground service", e)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Observe liked songs from Firestore
+     */
+    private fun observeLikedSongs() {
+        serviceScope.launch {
+            try {
+                val userId = auth.currentUser?.uid
+                if (userId.isNullOrBlank()) {
+                    Log.w(TAG, "No user ID available for observing liked songs")
+                    return@launch
+                }
+                
+                firestoreRepository.getLikedSongs(userId).collect { likedSongs ->
+                    val likedIds = likedSongs.map { it.videoId }.toSet()
+                    _likedSongs.value = likedIds
+                    Log.d(TAG, "Liked songs updated: ${likedIds.size} songs")
+                    
+                    // Update notification if currently playing song's like status changed
+                    _playerState.value.currentSong?.let { song ->
+                        updateNotification(song, _playerState.value.isPlaying)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to observe liked songs", e)
+            }
+        }
+    }
+    
+    /**
+     * Toggle like status of current song
+     */
+    private fun toggleLike() {
+        val currentSong = _playerState.value.currentSong ?: return
+        val isLiked = _likedSongs.value.contains(currentSong.videoId)
+        
+        serviceScope.launch {
+            try {
+                val userId = auth.currentUser?.uid
+                if (userId.isNullOrBlank()) {
+                    Log.w(TAG, "No user ID available for toggling like")
+                    return@launch
+                }
+                
+                if (isLiked) {
+                    firestoreRepository.removeFromLikedSongs(userId, currentSong.videoId)
+                        .onSuccess {
+                            Log.d(TAG, "Removed from liked songs: ${currentSong.title}")
+                        }
+                } else {
+                    firestoreRepository.addToLikedSongs(userId, currentSong)
+                        .onSuccess {
+                            Log.d(TAG, "Added to liked songs: ${currentSong.title}")
+                        }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to toggle like", e)
+            }
         }
     }
 
