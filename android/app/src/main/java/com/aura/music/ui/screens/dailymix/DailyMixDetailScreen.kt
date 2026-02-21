@@ -279,138 +279,157 @@ fun MixHeader(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(280.dp)
     ) {
         // Background gradient
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(240.dp)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
                             mixColor,
-                            ColorBlendingUtils.darken(mixColor, 0.5f)
+                            ColorBlendingUtils.darken(mixColor, 0.4f)
                         )
                     )
                 )
-        )
-        
-        // Content
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Icon
-            Text(
-                text = mixIcon,
-                fontSize = 72.sp,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-            
-            // Mix name
-            Text(
-                text = mixName,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            
-            // Description
-            if (mixDescription.isNotBlank()) {
-                Text(
-                    text = mixDescription,
-                    fontSize = 14.sp,
-                    color = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            }
-            
-            // Song count
-            Text(
-                text = "$songCount songs",
-                fontSize = 14.sp,
-                color = Color.White.copy(alpha = 0.8f),
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-            
-            // Action buttons row
-            Row(
+            // Content
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Play all button
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .clickable(onClick = onPlayAll),
+                // Icon - Reduced size for better spacing
+                Text(
+                    text = mixIcon,
+                    fontSize = 48.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                
+                // Mix name
+                Text(
+                    text = mixName,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
                     color = Color.White,
-                    shadowElevation = 4.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = "Play all",
-                            tint = Color.Black,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                
+                // Description
+                if (mixDescription.isNotBlank()) {
+                    Text(
+                        text = mixDescription,
+                        fontSize = 14.sp,
+                        color = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
                 }
-
-                // Shuffle button
-                Surface(
+                
+                // Song count
+                Text(
+                    text = "$songCount songs",
+                    fontSize = 13.sp,
+                    color = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.padding(bottom = 20.dp)
+                )
+                
+                // Action buttons row - Similar to home screen cards
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .clickable(onClick = onShufflePlay),
-                    color = Color.White,
-                    shadowElevation = 4.dp
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                    // Play all button
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.25f))
+                            .clickable(onClick = onPlayAll),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Shuffle,
-                            contentDescription = "Shuffle play",
-                            tint = Color.Black,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PlayArrow,
+                                contentDescription = "Play all",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = "Play",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        }
                     }
-                }
 
-                // Save button
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .clickable(onClick = onSaveMix),
-                    color = Color.White,
-                    shadowElevation = 4.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                    // Shuffle button
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.25f))
+                            .clickable(onClick = onShufflePlay),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.BookmarkAdd,
-                            contentDescription = "Save mix",
-                            tint = Color.Black,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Shuffle,
+                                contentDescription = "Shuffle play",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = "Shuffle",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
+
+                    // Save button
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.25f))
+                            .clickable(onClick = onSaveMix),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.BookmarkAdd,
+                                contentDescription = "Save mix",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = "Save",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        }
                     }
                 }
             }
