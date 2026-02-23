@@ -15,7 +15,7 @@ class Config:
     # yt-dlp options - Production-safe configuration for public YouTube Music streaming
     # No cookies required: we only stream public, non-login content
     YDL_OPTS = {
-        'format': 'best[ext=m4a]/best[ext=mp3]/best[ext=webm]/best',  # More flexible format selection
+        'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
@@ -24,8 +24,7 @@ class Config:
         'user_agent': YTMUSIC_USER_AGENT,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web'],
-                'skip': ['hls', 'dash']
+                'player_client': ['android', 'web', 'ios'],
             }
         },
         'http_headers': {

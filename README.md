@@ -107,6 +107,17 @@ python app.py
 ```
 Server: `http://localhost:5000/api/`
 
+#### Upgrading Dependencies
+To upgrade yt-dlp or other dependencies:
+```bash
+cd backend
+.venv\Scripts\activate  # On Windows
+# source .venv/bin/activate  # On Linux/Mac
+pip install --upgrade yt-dlp
+# Or upgrade all dependencies:
+pip install --upgrade -r requirements.txt
+```
+
 ### Frontend
 ```bash
 cd frontend

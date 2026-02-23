@@ -107,24 +107,34 @@ class MusicService:
             # Fallback: Use yt-dlp for video extraction (NO cookies, production-safe config)
             url = f'https://www.youtube.com/watch?v={video_id}'
             
-            try:
-                logger.info(f"Attempting yt-dlp extraction for {video_id}")
-                with YoutubeDL(self.ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                logger.info(f"yt-dlp extraction succeeded for {video_id}")
-            except Exception as ydl_error:
-                error_msg = str(ydl_error)
-                logger.error(f"yt-dlp extraction failed for {video_id}: {error_msg}")
+            # Try with primary options first, then fallback with more permissive options
+            ydl_attempts = [
+                self.ydl_opts,  # Primary: bestaudio/best
+                {**self.ydl_opts, 'format': 'worst'},  # Fallback: any format that works
+            ]
+            
+            info = None
+            last_error = None
+            
+            for attempt_num, opts in enumerate(ydl_attempts, 1):
+                try:
+                    logger.info(f"yt-dlp attempt {attempt_num}/{len(ydl_attempts)} for {video_id}")
+                    with YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                    if info:
+                        logger.info(f"yt-dlp extraction succeeded on attempt {attempt_num} for {video_id}")
+                        break
+                except Exception as ydl_error:
+                    last_error = ydl_error
+                    logger.warning(f"yt-dlp attempt {attempt_num} failed for {video_id}: {str(ydl_error)}")
+                    continue
+            
+            if not info:
+                error_msg = str(last_error) if last_error else "Unknown error"
+                logger.error(f"All yt-dlp attempts failed for {video_id}: {error_msg}")
                 # Return error dict (safe, won't crash)
                 return {
                     'error': f'Could not extract audio for this video',
-                    'videoId': video_id
-                }
-            
-            if not info:
-                logger.error(f"No info extracted for {video_id}")
-                return {
-                    'error': 'Failed to extract video information',
                     'videoId': video_id
                 }
             
