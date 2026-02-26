@@ -26,6 +26,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.aura.music.auth.state.AuthState
+import com.aura.music.auth.components.PasswordRequirements
+import com.aura.music.auth.validation.PasswordValidator
 
 /**
  * Signup Screen UI Component
@@ -45,6 +47,12 @@ fun SignupScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var confirmPassword by rememberSaveable { mutableStateOf("") }
+    val isPasswordValid = PasswordValidator.isValid(password)
+    val passwordHasInput = password.isNotBlank()
+    val confirmHasInput = confirmPassword.isNotBlank()
+    val passwordsMatch = password == confirmPassword
+    val passwordHasError = passwordHasInput && !isPasswordValid
+    val confirmHasError = confirmHasInput && !passwordsMatch
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -84,8 +92,23 @@ fun SignupScreen(
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                enabled = authState !is AuthState.Loading
+                enabled = authState !is AuthState.Loading,
+                isError = passwordHasError
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            PasswordRequirements(password = password, modifier = Modifier.fillMaxWidth())
+
+            if (passwordHasError) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Password must be 6-50 characters and include at least one number and one special character.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -97,8 +120,19 @@ fun SignupScreen(
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                enabled = authState !is AuthState.Loading
+                enabled = authState !is AuthState.Loading,
+                isError = confirmHasError
             )
+
+            if (confirmHasError) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Passwords do not match.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -117,7 +151,7 @@ fun SignupScreen(
             // Signup Button
             Button(
                 onClick = {
-                    if (password == confirmPassword) {
+                    if (isPasswordValid && passwordsMatch) {
                         onSignup(email, password)
                     }
                 },
@@ -126,9 +160,9 @@ fun SignupScreen(
                     .height(48.dp),
                 enabled = authState !is AuthState.Loading && 
                         email.isNotBlank() && 
-                        password.isNotBlank() && 
-                        confirmPassword.isNotBlank() &&
-                        password == confirmPassword
+                        isPasswordValid &&
+                        confirmHasInput &&
+                        passwordsMatch
             ) {
                 if (authState is AuthState.Loading) {
                     CircularProgressIndicator(modifier = Modifier.height(24.dp))

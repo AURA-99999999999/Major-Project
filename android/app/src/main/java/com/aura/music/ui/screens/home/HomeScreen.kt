@@ -21,15 +21,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.MusicNote
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -37,9 +29,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -52,7 +41,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -127,7 +115,6 @@ fun HomeScreen(
     val likedSongsState by likedSongsViewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var selectedTab by remember { mutableIntStateOf(0) }
     var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
 
     LaunchedEffect(musicService) {
@@ -185,99 +172,7 @@ fun HomeScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-        bottomBar = {
-            NavigationBar(
-                containerColor = DarkSurface,
-                contentColor = MaterialTheme.colorScheme.primary
-            ) {
-                NavigationBarItem(
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == 0) Icons.Filled.Home else Icons.Outlined.Home,
-                            contentDescription = "Home",
-                            modifier = Modifier.size(24.dp)
-                        )
-                    },
-                    label = { Text("Home", style = MaterialTheme.typography.labelSmall) },
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = Color.Gray,
-                        unselectedTextColor = Color.Gray,
-                        indicatorColor = Color.Transparent
-                    )
-                )
-                NavigationBarItem(
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == 1) Icons.Filled.Search else Icons.Outlined.Search,
-                            contentDescription = "Search",
-                            modifier = Modifier.size(24.dp)
-                        )
-                    },
-                    label = { Text("Search", style = MaterialTheme.typography.labelSmall) },
-                    selected = selectedTab == 1,
-                    onClick = {
-                        selectedTab = 1
-                        onNavigateToSearch()
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = Color.Gray,
-                        unselectedTextColor = Color.Gray,
-                        indicatorColor = Color.Transparent
-                    )
-                )
-                NavigationBarItem(
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == 2) Icons.Filled.MusicNote else Icons.Outlined.MusicNote,
-                            contentDescription = "Library",
-                            modifier = Modifier.size(24.dp)
-                        )
-                    },
-                    label = { Text("Library", style = MaterialTheme.typography.labelSmall) },
-                    selected = selectedTab == 2,
-                    onClick = {
-                        selectedTab = 2
-                        onNavigateToPlaylists()
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = Color.Gray,
-                        unselectedTextColor = Color.Gray,
-                        indicatorColor = Color.Transparent
-                    )
-                )
-                NavigationBarItem(
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == 3) Icons.Filled.Person else Icons.Outlined.Person,
-                            contentDescription = "Profile",
-                            modifier = Modifier.size(24.dp)
-                        )
-                    },
-                    label = { Text("Profile", style = MaterialTheme.typography.labelSmall) },
-                    selected = selectedTab == 3,
-                    onClick = {
-                        selectedTab = 3
-                        onNavigateToProfile()
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = Color.Gray,
-                        unselectedTextColor = Color.Gray,
-                        indicatorColor = Color.Transparent
-                    )
-                )
-            }
-        }
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { paddingValues ->
         GradientBackground(
             gradientTheme = themeState.gradientTheme,

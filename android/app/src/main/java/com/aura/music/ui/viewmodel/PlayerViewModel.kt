@@ -43,6 +43,12 @@ class PlayerViewModel(
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
+    private val _isBuffering = MutableStateFlow(false)
+    val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
+
+    private val _isPreparing = MutableStateFlow(false)
+    val isPreparing: StateFlow<Boolean> = _isPreparing.asStateFlow()
+
     private val _lastPlayedSong = MutableStateFlow<Song?>(null)
     val lastPlayedSong: StateFlow<Song?> = _lastPlayedSong.asStateFlow()
 
@@ -72,6 +78,23 @@ class PlayerViewModel(
     }
 
     /**
+     * Updates buffering state during media preparation
+     * Used by MusicService's onPlaybackStateChanged callback
+     */
+    fun updateIsBuffering(isBuffering: Boolean) {
+        _isBuffering.update { isBuffering }
+    }
+
+    /**
+     * Updates preparing state when media is being loaded
+     * Used by MusicService when starting playback
+     */
+    fun updateIsPreparing(isPreparing: Boolean) {
+        _isPreparing.update { isPreparing }
+        Log.d(TAG, "updateIsPreparing() isPreparing=$isPreparing currentSong=${_currentSong.value?.title}")
+    }
+
+    /**
      * Loads the last played song from Firestore
      * Called on login to restore mini player state
      */
@@ -94,6 +117,8 @@ class PlayerViewModel(
     fun clearState() {
         _currentSong.update { null }
         _isPlaying.update { false }
+        _isBuffering.update { false }
+        _isPreparing.update { false }
         _lastPlayedSong.update { null }
         Log.d(TAG, "Player state cleared")
     }

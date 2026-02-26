@@ -31,6 +31,7 @@ TITLE_BLOCKLIST = [
     'episode',
     'press meet',
     'live interview',
+    'release - topic',  # Block Topic channel uploads
 ]
 
 # Minimum duration for a music track (in seconds)
@@ -62,14 +63,18 @@ def _is_title_allowed(title: str) -> bool:
 
 def _extract_artists(artists_raw) -> List[str]:
     """
-    Extract artist names from various API response formats.
-    Handles both list and dict structures from YTMusic API.
+    IMPROVED artist extraction with normalization:
+    - Extract artist names from various API formats
+    - Handle multi-artist collaborations (split by comma FIRST)
+    - Remove "Topic", "Official", "VEVO", "Release - Topic" suffixes
+    - Clean trailing spaces
+    - Normalize but preserve unique artists
     
     Args:
         artists_raw: Raw artists data from API (list of dicts or strings)
         
     Returns:
-        List of artist name strings, empty list if extraction fails
+        List of normalized artist name strings, empty list if extraction fails
     """
     if not artists_raw:
         return []
@@ -81,17 +86,100 @@ def _extract_artists(artists_raw) -> List[str]:
             if isinstance(artist, dict):
                 name = artist.get('name', '').strip()
                 if name:
-                    artists.append(name)
+                    # Process this artist name
+                    processed = _process_artist_name(name)
+                    if processed:
+                        artists.append(processed)
             elif isinstance(artist, str):
                 name = artist.strip()
                 if name:
-                    artists.append(name)
+                    # Process this artist name
+                    processed = _process_artist_name(name)
+                    if processed:
+                        artists.append(processed)
     elif isinstance(artists_raw, str):
         name = artists_raw.strip()
         if name:
-            artists.append(name)
+            # IMPORTANT: Split multi-artist collaborations FIRST before normalizing
+            if ',' in name:
+                # Split by comma first
+                for part in name.split(','):
+                    part = part.strip()
+                    if part:
+                        # Then normalize each artist
+                        processed = _process_artist_name(part)
+                        if processed:
+                            artists.append(processed)
+            else:
+                # Single artist - normalize it
+                processed = _process_artist_name(name)
+                if processed:
+                    artists.append(processed)
     
-    return artists or []
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_artists = []
+    for artist in artists:
+        if artist not in seen:
+            seen.add(artist)
+            unique_artists.append(artist)
+    
+    return unique_artists or []
+
+
+def _process_artist_name(name: str) -> Optional[str]:
+    """
+    Process and normalize artist name:
+    - Remove suffixes: "- Topic", "Official", "VEVO", "Release - Topic"
+    - Remove trailing spaces and dashes
+    - Block certain channels: "Release - Topic"
+    
+    Args:
+        name: Raw artist name
+        
+    Returns:
+        Normalized artist name or None if it's a blocklisted channel
+    """
+    if not name or not isinstance(name, str):
+        return None
+    
+    name = name.strip()
+    
+    # Blocklist certain channels/labels
+    blocklist = [
+        'Release - Topic',
+        'Topic',
+        '[Topic]',
+    ]
+    
+    if name in blocklist or name.lower() in [b.lower() for b in blocklist]:
+        return None
+    
+    # Remove suffixes (case-insensitive)
+    # Order matters - remove compound suffixes first
+    suffixes_to_remove = [
+        ' - Topic',
+        '- Topic',
+        ' - Official',
+        '- Official',
+        ' Official',
+        ' - VEVO',
+        '- VEVO',
+        ' VEVO',
+    ]
+    
+    for suffix in suffixes_to_remove:
+        if name.lower().endswith(suffix.lower()):
+            name = name[:-len(suffix)].strip()
+            break  # Only remove one suffix
+    
+    name = name.strip().rstrip('-').strip()  # Remove any trailing dashes/spaces
+    
+    # Ensure name is not empty after processing
+    if not name or len(name) < 2:
+        return None
+    
+    return name
 
 
 def _extract_best_thumbnail(thumbnails) -> str:
@@ -173,6 +261,7 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
     - /api/trending
     - /api/home
     - /api/home/trending-tracks
+    - /api/daily-mixes
     
     Validation rules (ALL must pass):
     1. videoId exists and non-empty
@@ -187,7 +276,8 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
         ytmusic: YTMusic instance for validation calls (optional)
         include_validation: Whether to validate musicVideoType if ytmusic available (default True)
         source: Source of tracks for context-aware filtering (default "search")
-                Options: "search", "artist", "album", "recommendation", "mix", "trending"
+                Options: "search", "artist", "album", "recommendation", "mix", "similar_mix", "trending"
+                Trusted sources (artist, album, recommendation, mix, similar_mix, trending): Relaxed validation
         
     Returns:
         List of cleaned, validated music track dictionaries with normalized format.
@@ -206,7 +296,7 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
         return []
     
     # Determine if source is trusted (relaxed validation rules)
-    trusted_sources = {"artist", "album", "recommendation", "mix", "trending"}
+    trusted_sources = {"artist", "album", "recommendation", "mix", "trending", "similar_mix"}
     allow_missing_duration = source in trusted_sources
     allow_missing_album = source in trusted_sources
     

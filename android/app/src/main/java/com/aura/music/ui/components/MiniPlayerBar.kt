@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -81,6 +82,8 @@ fun MiniPlayerBar(
     isPlaying: Boolean,
     currentPosition: Long = 0L,
     duration: Long = 0L,
+    isBuffering: Boolean = false,
+    isPreparing: Boolean = false,
     onClick: () -> Unit,
     onPlayPause: () -> Unit,
     onSkipPrevious: () -> Unit = {},
@@ -199,14 +202,23 @@ fun MiniPlayerBar(
                         // Play/Pause button
                         IconButton(
                             onClick = onPlayPause,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(32.dp),
+                            enabled = !isBuffering && !isPreparing
                         ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = Primary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            if (isBuffering || isPreparing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Primary,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pause" else "Play",
+                                    tint = Primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
 
                         // Skip next button
