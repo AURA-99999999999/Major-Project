@@ -173,6 +173,7 @@ Major-Project/
 - `GET /api/recommendations?uid={uid}&limit=20` - Personalized song recommendations (cached)
 - `GET /api/home/top-artists?uid={uid}&limit=10` - Top artists for user
 - `GET /api/daily-mixes?uid={uid}` - Daily Mix collections (AI-generated playlists)
+- `GET /api/home` - Complete home screen data (trending, recommendations, collaborative filtering, top artists)
 
 ### Music Discovery
 - `GET /api/search?query={query}` - Search songs
@@ -250,6 +251,43 @@ After scoring candidates:
 3. Keep song if: artist_count < 2 AND album_count < 3
 4. Skip song otherwise
 5. Return top N diverse recommendations
+
+### 🤝 Collaborative Filtering (CF)
+Complements personalized recommendations with a "Users like you also listen to" feature featuring **adaptive filtering** that scales naturally from small to large user bases.
+
+**How it Works:**
+1. **Taste Vector**: Builds weighted artist preference profiles from user play history
+2. **Adaptive Similar User Detection**: Uses **Cosine Similarity** with automatic threshold scaling
+   - Compares artist preference vectors between users
+   - Formula: `similarity = dot_product / (magnitude_a × magnitude_b)`
+   - **Adaptive thresholds**: 0.10 (< 20 users) → 0.15 (20-50) → 0.25 (50-100) → 0.35 (100+)
+   - Also uses Jaccard similarity and soft scoring as fallback metrics
+   - **Adaptive boost**: 1.2x multiplier for weak similarities in small datasets
+   - **Relaxed overlap**: Accepts 1 shared artist for small datasets, 2+ for large
+   - Implementation: [backend/services/collaborative_service.py](backend/services/collaborative_service.py) `_cosine_similarity()` method
+3. **Recommendation Generation with Diversity Engine**: Ensures artist variety while maintaining relevance
+   - **Smart candidate selection**: Max 5 songs per artist in candidate pool
+   - **Artist frequency penalty**: Progressively reduces score for repeated artists (1.0 → 0.74 → 0.59)
+   - **Round-robin selection**: Rotates across artists to guarantee spread
+   - **Adaptive limits**: 2 songs per artist (< 20 users), 1 song per artist (20+ users)
+   - **Diversity guarantee**: Minimum 4-8 unique artists depending on dataset size
+   - **Dominance detection**: Warns and corrects if one artist exceeds 50% of results
+   - Score = `similarity_score × play_count × recency_boost × artist_penalty`
+   - Deduplicates with trending and personal recommendations
+   - **Minimum guarantee**: Always returns 5-20 tracks (never empty)
+
+**Adaptive Scaling:**
+- **< 20 users**: Very relaxed (0.10 threshold), prioritize results over precision
+- **20-50 users**: Relaxed (0.15), discovery-focused
+- **50-100 users**: Standard (0.25), quality filtering
+- **100+ users**: Strict (0.35), precision-focused
+
+**Optimizations:**
+- User profiles cached for 30 minutes
+- Similarity scores cached for 3 hours
+- Cold-start handling with trending fallback
+- Guaranteed minimum 5 results, target 15-20 for good UX
+- Firestore-efficient with cached reads
 
 ## 📊 Data Flow
 

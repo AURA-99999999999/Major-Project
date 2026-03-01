@@ -11,6 +11,8 @@ import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
 from services.music_filter import filter_music_tracks, _validate_music_video_type
+from services.collaborative_service import CollaborativeFilteringService
+from services.user_service import get_firestore_client
 
 try:
     import firebase_admin
@@ -92,35 +94,31 @@ class RecommendationService:
         logger.info(f"RecommendationService initialized with decay_lambda={self.decay_lambda}")
         
         self._ensure_firestore_client()
+        
+        # Initialize collaborative filtering service with reference to this service
+        self.cf_service = CollaborativeFilteringService(
+            user_service, 
+            recommendation_service=self,  # Pass self for unified profile building
+            decay_lambda=self.decay_lambda
+        )
+        logger.info("Collaborative filtering service initialized")
 
     def _ensure_firestore_client(self) -> None:
         """Initialize Firebase Admin SDK and Firestore client if possible."""
-        if not FIRESTORE_AVAILABLE:
-            return
-
         if self._firestore_db:
             return
 
         try:
-            if not firebase_admin._apps:
-                try:
-                    service_account_path = os.environ.get('FIREBASE_SERVICE_ACCOUNT_PATH')
-                    if not service_account_path:
-                        workspace_path = os.path.abspath(os.getcwd())
-                        candidate = os.path.join(workspace_path, DEFAULT_SERVICE_ACCOUNT_FILENAME)
-                        service_account_path = candidate if os.path.exists(candidate) else None
+            if getattr(self.user_service, 'db', None):
+                self._firestore_db = self.user_service.db
+                logger.info("Firestore connected")
+                return
 
-                    if service_account_path and os.path.exists(service_account_path):
-                        firebase_admin.initialize_app(
-                            credentials.Certificate(service_account_path)
-                        )
-                    else:
-                        firebase_admin.initialize_app(credentials.ApplicationDefault())
-                except Exception as e:
-                    logger.warning(f"Firestore init failed: {str(e)}")
-                    return
-
-            self._firestore_db = firestore.client()
+            db = get_firestore_client()
+            if db is not None:
+                self._firestore_db = db
+                if hasattr(self.user_service, 'db'):
+                    self.user_service.db = db
         except Exception as e:
             logger.warning(f"Firestore client unavailable: {str(e)}")
     
@@ -208,16 +206,22 @@ class RecommendationService:
                 limit
             )
 
-            logger.info("Initial candidates: %s", len(ranked_recommendations))
+            initial_count = len(ranked_recommendations)
+            logger.info(f"[REC] ━━━ PERSONALIZED RECOMMENDATION PIPELINE ━━━")
+            logger.info(f"[REC] User {uid[:8]}: {len(user_plays)} plays, {len(user_liked)} liked")
+            logger.info(f"[REC] initial_candidates={initial_count}")
 
-            user_artists = self._build_user_artist_set(uid, user_plays, user_liked)
-            filtered_recommendations = self._filter_by_user_artists(
-                ranked_recommendations,
-                user_artists
-            )
-
+            # REMOVED: Over-aggressive artist filtering
+            # Use all candidates for personalized recommendations to ensure variety
+            # Personalized recommendations should include discovery outside exact artist matches
+            filtered_recommendations = ranked_recommendations
+            
+            logger.info(f"[REC] after_filtering={len(filtered_recommendations)} (no artist restriction)")
+            
+            # Ensure we have trending fallback ready
             trending_recommendations = None
             if not filtered_recommendations:
+                logger.warning(f"[REC] No candidates found, using trending fallback")
                 trending_recommendations = trending_recommendations or self._get_trending_fallback()
                 filtered_recommendations = self._deduplicate_and_filter(
                     trending_recommendations,
@@ -225,35 +229,78 @@ class RecommendationService:
                     limit
                 )
 
-            logger.info("After scoring: %s", len(filtered_recommendations))
-
-            target_count = max(limit, 25)
-            target_count = min(target_count, 30)
-
+            # ADAPTIVE DIVERSITY: More lenient for small user bases
+            candidate_count = len(filtered_recommendations)
+            user_profile_size = len(user_plays) + len(user_liked)
+            
+            # Dynamic target based on candidate pool
+            target_count = min(max(limit * 2, 30), 50)
+            
+            # Adaptive diversity constraints based on dataset size
+            if user_profile_size < 10:  # Small user profile
+                max_per_artist = 4  # Very lenient
+                max_consecutive = 3
+                logger.info(f"[REC] Applying LENIENT diversity (small profile: {user_profile_size} items)")
+            elif user_profile_size < 30:  # Medium user profile
+                max_per_artist = 3
+                max_consecutive = 2
+                logger.info(f"[REC] Applying MODERATE diversity (medium profile: {user_profile_size} items)")
+            else:  # Large user profile
+                max_per_artist = 2
+                max_consecutive = 2
+                logger.info(f"[REC] Applying STRICT diversity (large profile: {user_profile_size} items)")
+            
             final_recommendations = self._apply_diversity_constraints(
                 filtered_recommendations,
-                target_count=target_count
+                target_count=target_count,
+                max_total_per_artist=max_per_artist,
+                max_consecutive_artist=max_consecutive
             )
+            
+            after_diversity_count = len(final_recommendations)
+            logger.info(f"[REC] after_diversity={after_diversity_count} (max_per_artist={max_per_artist})")
 
-            logger.info("After diversity re-rank: %s", len(final_recommendations))
-
-            if len(final_recommendations) < 15:
+            # GUARANTEE MINIMUM RESULTS: Backfill aggressively if needed
+            min_required = limit  # Always return requested limit
+            if len(final_recommendations) < min_required:
+                shortage = min_required - len(final_recommendations)
+                logger.warning(f"[REC] ⚠ Insufficient results: {len(final_recommendations)}/{min_required}, backfilling {shortage}")
+                
                 trending_recommendations = trending_recommendations or self._get_trending_fallback()
                 ranked_trending = self._deduplicate_and_filter(
                     trending_recommendations,
                     all_consumed,
-                    target_count
+                    limit * 3  # Larger pool for better quality
                 )
+                
                 if ranked_trending:
                     final_recommendations = self._backfill_results(
                         final_recommendations,
                         ranked_trending,
-                        target_count
+                        min_required
                     )
+                    logger.info(f"[REC] ✓ Backfilled to {len(final_recommendations)} recommendations")
+                else:
+                    logger.error(f"[REC] ❌ Could not backfill: no trending available")
 
-            logger.info("Final returned: %s", len(final_recommendations))
+            # Ensure we return exactly the requested limit
+            final_recommendations = final_recommendations[:limit]
             
-            logger.info(f"Generated {len(final_recommendations)} final recommendations for {uid}")
+            # Final summary logging
+            final_count = len(final_recommendations)
+            unique_artists = len(set(
+                artist 
+                for rec in final_recommendations 
+                for artist in rec.get('artists', [])
+            ))
+            
+            logger.info(f"[REC] ━━━ FINAL PERSONALIZED RESULTS ━━━")
+            logger.info(f"[REC] ✓ Total tracks: {final_count}")
+            logger.info(f"[REC] ✓ Unique artists: {unique_artists}")
+            logger.info(f"[REC] ✓ Success rate: {final_count}/{limit} ({100*final_count/limit:.0f}%)")
+            
+            if final_count < limit:
+                logger.error(f"[REC] ❌ FAILED TO MEET MINIMUM: {final_count}/{limit}")
             
             result = {
                 'count': len(final_recommendations),
@@ -1329,7 +1376,8 @@ class RecommendationService:
             
         except Exception as e:
             logger.error(f"Error getting top artists: {str(e)}", exc_info=True)
-            return []    
+            return []
+    
     def prefetch_recommendations_async(self, uid: str, limit: int = 20) -> None:
         """
         Background prefetch for recommendations (Pro Optimization).

@@ -233,8 +233,16 @@ fun HomeScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // Recommended For You Section (TOP) - Progressive Rendering
-                            // Show shimmer while loading, fade in when ready
+                            // Log what we're rendering
+                            android.util.Log.d("HomeScreen", "════════════════════════════════════════")
+                            android.util.Log.d("HomeScreen", "[HOME_UI] Rendering sections from uiState:")
+                            android.util.Log.d("HomeScreen", "[HOME_UI]   • recommendations: ${recommendedSongs.size}")
+                            android.util.Log.d("HomeScreen", "[HOME_UI]   • collaborative: ${state.collaborative.size}")
+                            android.util.Log.d("HomeScreen", "[HOME_UI]   • trending: ${state.trending.size}")
+                            android.util.Log.d("HomeScreen", "════════════════════════════════════════")
+                            
+                            // Recommended For You Section (TOP)
+                            // Uses data.recommendations from /api/home endpoint
                             if (sectionLoadingState.isRecommendationsLoading) {
                                 item {
                                     ShimmerRecommendedSection()
@@ -317,6 +325,36 @@ fun HomeScreen(
                                         musicService?.insertNext(song)
                                     }
                                 )
+                            }
+
+                            // Collaborative Filtering Section - "From Similar Listeners"
+                            // Uses data.collaborative from /api/home endpoint
+                            if (state.collaborative.isNotEmpty()) {
+                                android.util.Log.d("HomeScreen", "[HOME_UI] ✓ Rendering CF section with ${state.collaborative.size} tracks")
+                                
+                                item {
+                                    SectionHeader(title = "From listeners like you")
+                                }
+
+                                item {
+                                    RecommendationsWithFadeIn(
+                                        songs = state.collaborative,
+                                        likedSongIds = likedSongsState.likedSongIds,
+                                        onSongClick = { song, index ->
+                                            viewModel.playSongFromList(state.collaborative, index, "collaborative")
+                                            onNavigateToPlayer()
+                                        },
+                                        onToggleLike = { song ->
+                                            likedSongsViewModel.toggleLike(song)
+                                        },
+                                        onAddToPlaylist = { song ->
+                                            pendingSongForPlaylist = song
+                                        },
+                                        onPlayNext = { song ->
+                                            musicService?.insertNext(song)
+                                        }
+                                    )
+                                }
                             }
 
                             // Trending Playlists Section

@@ -8,6 +8,7 @@ import com.aura.music.data.mapper.toSong
 import com.aura.music.data.mapper.toSongDtoMap
 import com.aura.music.data.mapper.toSongs
 import com.aura.music.data.mapper.toUser
+import com.aura.music.data.model.CollaborativeSection
 import com.aura.music.data.model.HomeData
 import com.aura.music.data.model.Playlist
 import com.aura.music.data.model.SearchResults
@@ -237,13 +238,74 @@ class MusicRepository(
 
     suspend fun getHomeData(): Result<HomeData> {
         return try {
-            safeLog { Log.d(TAG, "getHomeData()") }
-            val response = api.getHome()
+            // STEP 1: Get current user ID for CF recommendations
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            safeLog { Log.d(TAG, "[HOME_API] Fetching home data with uid=${uid ?: "null"}") }
+            
+            // STEP 2: Make API call with uid parameter
+            val response = api.getHome(uid = uid)
+            
+            // STEP 3: Log raw response structure
+            safeLog { 
+                Log.d(TAG, "════════════════════════════════════════")
+                Log.d(TAG, "[HOME_API] Raw Response from /api/home:")
+                Log.d(TAG, "[HOME_API]   - trending size: ${response.trending?.size ?: 0}")
+                Log.d(TAG, "[HOME_API]   - recommendations size: ${response.recommendations?.size ?: 0}")
+                Log.d(TAG, "[HOME_API]   - collaborative size: ${response.collaborative?.size ?: 0}")
+                Log.d(TAG, "[HOME_API]   - CF section exists: ${response.collaborativeRecommendations != null}")
+                if (response.collaborativeRecommendations != null) {
+                    Log.d(TAG, "[HOME_API]   - CF tracks size: ${response.collaborativeRecommendations.tracks?.size ?: 0}")
+                    Log.d(TAG, "[HOME_API]   - CF title: ${response.collaborativeRecommendations.title}")
+                }
+                Log.d(TAG, "════════════════════════════════════════")
+            }
+            
             val trending = response.trending?.toSongs().orEmpty()
             val recommendations = response.recommendations?.toSongs().orEmpty()
-            Result.success(HomeData(trending = trending, recommendations = recommendations))
+            
+            // STEP 4: Extract collaborative recommendations if available
+            val collaborative = response.collaborative?.toSongs().orEmpty()
+            safeLog { Log.d(TAG, "[HOME_REPO] ✓ Collaborative (flat): ${collaborative.size} songs") }
+            
+            // STEP 4b: Extract nested collaborative recommendations if available (legacy)
+            val collaborativeSection = response.collaborativeRecommendations?.let { cfDto ->
+                val tracks = cfDto.tracks?.toSongs() ?: emptyList()
+                safeLog { Log.d(TAG, "[HOME_PARSE] ✓ CF nested section: ${tracks.size} songs") }
+                
+                CollaborativeSection(
+                    title = cfDto.title ?: "Users like you also listen to",
+                    tracks = tracks,
+                    count = cfDto.count ?: 0
+                )
+            }
+            
+            // STEP 5: Log parsed data and validation
+            safeLog { 
+                Log.d(TAG, "════════════════════════════════════════")
+                Log.d(TAG, "[HOME_REPO] Parsed HomeData:")
+                Log.d(TAG, "[HOME_REPO]   ✓ Trending: ${trending.size}")
+                Log.d(TAG, "[HOME_REPO]   ✓ Recommendations: ${recommendations.size}")
+                Log.d(TAG, "[HOME_REPO]   ✓ Collaborative (flat): ${collaborative.size}")
+                Log.d(TAG, "[HOME_REPO]   ✓ CF Section: ${collaborativeSection?.tracks?.size ?: 0} (nested)")
+                Log.d(TAG, "════════════════════════════════════════")
+            }
+            
+            // STEP 6: Validation - Check for swapped fields
+            if (recommendations.isEmpty() && collaborative.isNotEmpty()) {
+                Log.w(TAG, "[HOME_REPO] ⚠ WARNING: recommendations is empty but collaborative has data")
+            }
+            if (recommendations.isNotEmpty() && collaborative.isEmpty()) {
+                Log.w(TAG, "[HOME_REPO] ⚠ WARNING: recommendations has data but collaborative is empty")
+            }
+            
+            Result.success(HomeData(
+                trending = trending,
+                recommendations = recommendations,
+                collaborativeRecommendations = collaborativeSection,
+                collaborative = collaborative
+            ))
         } catch (e: Exception) {
-            safeLog { Log.e(TAG, "getHomeData() exception", e) }
+            safeLog { Log.e(TAG, "[HOME_REPO] Exception in getHomeData()", e) }
             Result.failure(e)
         }
     }

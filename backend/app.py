@@ -11,7 +11,7 @@ import os
 from config import Config
 from services.music_service import MusicService
 from services.playlist_service import PlaylistService
-from services.user_service import UserService
+from services.user_service import UserService, initialize_firebase_admin, get_firestore_client
 from services.recommendation_service import RecommendationService
 from services.daily_mix_service import DailyMixService
 from services.mood_service import MoodService
@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config.from_object(Config)
 
+# Initialize Firebase Admin once during app startup
+initialize_firebase_admin()
+startup_db = get_firestore_client()
+if startup_db is None:
+    logger.warning("Firestore not connected at startup")
+
 # Enable CORS for all origins (development mode)
 # This allows Android app and React frontend to access the API
 # In production, restrict this to specific origins
@@ -39,6 +45,8 @@ CORS(app, origins="*", supports_credentials=True, allow_headers="*", methods="*"
 music_service = MusicService(Config.YDL_OPTS)
 playlist_service = PlaylistService()
 user_service = UserService()
+if startup_db is not None:
+    user_service.db = startup_db
 
 # Initialize YTMusic with OAuth if available
 ytmusic = None
@@ -593,23 +601,202 @@ def get_recommendations():
         if limit < 1 or limit > 100:
             limit = 20
         
-        logger.info(f"Recommendation request for user {uid}, limit: {limit}")
+        logger.info(f"[API/REC] Personalized recommendation request for user {uid[:8]}, limit: {limit}")
         
         # Generate recommendations
         recommendations = recommendation_service.get_recommendations(uid, limit=limit)
         
+        logger.info(f"[API/REC] ✓ Returning {recommendations.get('count', 0)} personalized recommendations")
+        
         return jsonify(recommendations), 200
         
     except ValueError as e:
-        logger.error(f"Invalid parameter: {str(e)}")
+        logger.error(f"[API/REC] Invalid parameter: {str(e)}")
         return jsonify({'error': 'Invalid parameters'}), 400
     except Exception as e:
-        logger.error(f"Recommendations error: {str(e)}", exc_info=True)
+        logger.error(f"[API/REC] Recommendations error: {str(e)}", exc_info=True)
         return jsonify({
             'count': 0,
             'source': 'recommendation_engine',
             'results': [],
             'error': 'Failed to generate recommendations'
+        }), 500
+
+
+@app.route('/api/recommendations/collaborative', methods=['GET'])
+def get_collaborative_recommendations():
+    """
+    Get collaborative filtering recommendations (separate from personal recommendations).
+    
+    This endpoint returns music recommendations based on listening behavior of users
+    with similar taste profiles. Use this to display a "From Similar Listeners"
+    or "Popular among similar listeners" section.
+    
+    Query Parameters:
+        uid: User ID (required)
+        limit: Number of recommendations (optional, default 20)
+        debug: Include debug stats (optional, default false)
+    
+    Returns:
+        {
+            "userId": "...",
+            "title": "From Similar Listeners",
+            "count": 20,
+            "results": [
+                {
+                    "videoId": "...",
+                    "title": "...",
+                    "artists": [...],
+                    "thumbnail": "...",
+                    "album": "..."
+                }
+            ],
+            "stats": {...}  // Only if debug=true
+        }
+    """
+    try:
+        # Get user ID from query parameters
+        uid = request.args.get('uid')
+        if not uid:
+            return jsonify({'error': 'uid parameter is required'}), 400
+        
+        limit = int(request.args.get('limit', 20))
+        if limit < 1 or limit > 100:
+            limit = 20
+        
+        include_debug = request.args.get('debug', 'false').lower() == 'true'
+        
+        logger.info(f"[API/CF] Collaborative filtering request for user {uid[:8]}, limit: {limit}")
+        
+        # Get CF service
+        cf_service = recommendation_service.cf_service
+        
+        # Get CF recommendations
+        recommendations = cf_service.get_cf_recommendations(uid)
+        
+        # Log result
+        logger.info(f"[API/CF] ✓ Returning {len(recommendations)} CF recommendations")
+        
+        # Build response
+        response = {
+            'userId': uid,
+            'title': 'From listeners like you',
+            'count': len(recommendations[:limit]),
+            'results': recommendations[:limit]
+        }
+        
+        # Add debug stats if requested
+        if include_debug:
+            stats = cf_service.get_user_stats(uid)
+            response['stats'] = stats
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        logger.error(f"CF recommendations error: {str(e)}", exc_info=True)
+        return jsonify({
+            'userId': uid,
+            'title': 'Because listeners like you enjoy',
+            'count': 0,
+            'results': [],
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/debug/cf-status', methods=['GET'])
+def debug_cf_status():
+    """
+    Debug endpoint to check collaborative filtering status.
+    
+    Query Parameters:
+        uid: User ID (required)
+    
+    Returns:
+        {
+            "userId": "...",
+            "timestamp": "...",
+            "firestore_available": true/false,
+            "user_profile": {
+                "has_profile": true/false,
+                "play_count": X,
+                "artist_count": X,
+                "top_artists": [...]
+            },
+            "similar_users": {
+                "count": X,
+                "similarity_scores": [...]
+            },
+            "recommendations": {
+                "count": X,
+                "available_for_home": true/false,
+                "sample": {...}
+            },
+            "diagnostics": {
+                "meets_minimum_plays": true/false,
+                "meets_minimum_similar_users": true/false,
+                "meets_minimum_recommendations": true/false,
+                "can_show_on_home": true/false
+            }
+        }
+    """
+    try:
+        uid = request.args.get('uid')
+        if not uid:
+            return jsonify({'error': 'uid parameter is required'}), 400
+        
+        logger.info(f"[CF Debug] Checking CF status for user {uid}")
+        
+        from datetime import datetime
+        cf_service = recommendation_service.cf_service
+        
+        # Check Firestore availability
+        firestore_available = cf_service._firestore_db is not None
+        
+        # Get user stats
+        user_stats = cf_service.get_user_stats(uid)
+        
+        # Get recommendations
+        cf_recs = cf_service.get_cf_recommendations(uid)
+        
+        # Build diagnostics
+        diagnostics = {
+            'meets_minimum_plays': user_stats.get('has_profile', False),
+            'meets_minimum_similar_users': user_stats.get('similar_users_count', 0) > 0,
+            'meets_minimum_recommendations': len(cf_recs) >= 5,
+            'can_show_on_home': user_stats.get('has_profile', False) and len(cf_recs) >= 5
+        }
+        
+        response = {
+            'userId': uid,
+            'timestamp': datetime.now().isoformat(),
+            'firestore_available': firestore_available,
+            'user_profile': {
+                'has_profile': user_stats.get('has_profile', False),
+                'artist_count': user_stats.get('artist_count', 0),
+                'top_artists': user_stats.get('top_artists', []),
+                'message': user_stats.get('message', '')
+            },
+            'similar_users': {
+                'count': user_stats.get('similar_users_count', 0),
+                'similarity_scores': user_stats.get('similarity_scores', [])
+            },
+            'recommendations': {
+                'count': len(cf_recs),
+                'available_for_home': len(cf_recs) >= 5,
+                'sample': cf_recs[0] if cf_recs else None
+            },
+            'diagnostics': diagnostics
+        }
+        
+        logger.info(f"[CF Debug] Status: Firestore={firestore_available}, Profile={diagnostics['meets_minimum_plays']}, SimilarUsers={diagnostics['meets_minimum_similar_users']}, Recs={len(cf_recs)}, ShowOnHome={diagnostics['can_show_on_home']}")
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        logger.error(f"[CF Debug] Error: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': str(e),
+            'userId': uid
         }), 500
 
 
@@ -736,7 +923,8 @@ def get_daily_mixes():
 @app.route('/api/home', methods=['GET'])
 def get_home():
     """
-    Get home feed with trending music tracks from YTMusic.
+    Get home feed with all recommendation sections: trending, personal recommendations,
+    and collaborative filtering.
     
     Applies strict music-only filtering to ensure:
     - No interviews, podcasts, or trailers
@@ -745,47 +933,112 @@ def get_home():
     - Clean thumbnails
     - Minimum track duration
     
+    Query Parameters:
+        uid: User ID (optional) - If provided, includes recommendations and CF section
+    
     Returns:
     {
         "source": "ytmusicapi",
-        "count": int,
-        "trending": [
-            {
-                "videoId": str,
-                "title": str,
-                "artists": [str, ...],
-                "thumbnail": str,
-                "album": str
-            },
-            ...
-        ]
+        "trending": [...],
+        "recommendations": [...],  // Personal recommendations if uid provided
+        "collaborative": [...],     // Collaborative filtering if uid provided
+        "topArtists": [...]         // Top artists if uid provided
     }
     """
     try:
         limit = 15
-        cache_key = f"home:ytmusic:{limit}"
+        uid = request.args.get('uid')
+        
+        cache_key = f"home:ytmusic:{limit}:{uid or 'anon'}"
         cached = _cache_get(_home_cache, cache_key)
         if cached is not None:
-            logger.debug(f"Home cache hit: {cache_key}")
+            logger.info(f"[API/HOME] ✓ Cache hit for user {uid[:8] if uid else 'anon'}")
             return jsonify(cached)
 
-        logger.info("Fetching home trending from YTMusic")
+        logger.info(f"[API/HOME] ━━━ HOME FEED REQUEST ━━━")
+        logger.info(f"[API/HOME] User: {uid[:8] if uid else 'anonymous'}")
+        logger.info(f"[API/HOME] Limit: {limit}")
+        
+        logger.info("[API/HOME] Fetching trending from YTMusic")
         ytmusic = YTMusic()
         explore = ytmusic.get_explore()
         trending_items = ((explore or {}).get("trending") or {}).get("items") or []
         
-        logger.info(f"YTMusic returned {len(trending_items)} raw trending items")
-
-        # Apply strict music-only filtering instead of simple field extraction
+        logger.info(f"[API/HOME] YTMusic returned {len(trending_items)} raw trending items")
         trending = _build_trending_items(trending_items, limit)
-        
+        logger.info(f"[API/HOME] ✓ Trending: {len(trending)} tracks")
+
         response_payload = {
             "source": "ytmusicapi",
-            "count": len(trending),
             "trending": trending,
+            "recommendations": [],
+            "collaborative": [],
+            "topArtists": []
         }
         
-        logger.info(f"Home response: requested={limit} returned={len(trending)} cached=True")
+        # Add personalized recommendations and collaborative filtering if user is logged in
+        if uid:
+            logger.info(f"[API/HOME] ━━━ PERSONALIZED DATA FOR {uid[:8]} ━━━")
+            try:
+                cf_service = recommendation_service.cf_service
+                
+                # Collect IDs to prevent duplicates across sections
+                main_rec_ids = {track.get('videoId') for track in trending if track.get('videoId')}
+                
+                # STEP 1: Fetch personal recommendations
+                logger.info("[API/HOME] → Fetching personal recommendations")
+                try:
+                    rec_payload = recommendation_service.get_recommendations(uid, limit=15)
+                    personal_recs = rec_payload.get('results', []) if isinstance(rec_payload, dict) else []
+                    # Exclude trending from personal recs
+                    personal_recs_filtered = [t for t in personal_recs if t.get('videoId') not in main_rec_ids]
+                    response_payload['recommendations'] = personal_recs_filtered[:limit]
+                    main_rec_ids |= {track.get('videoId') for track in response_payload['recommendations'] if track.get('videoId')}
+                    logger.info(f"[API/HOME] ✓ Personal recommendations: {len(response_payload['recommendations'])} tracks")
+                except Exception as e:
+                    logger.warning(f"[API/HOME] ⚠ Personal recommendations error: {str(e)}")
+                    response_payload['recommendations'] = []
+                
+                # STEP 2: Fetch collaborative filtering results
+                logger.info("[API/HOME] → Fetching collaborative filtering")
+                # Check if user has profile
+                cf_stats = cf_service.get_user_stats(uid)
+                logger.info(f"[API/HOME] CF Stats: has_profile={cf_stats.get('has_profile')}, artists={cf_stats.get('artist_count', 0)}, similar_users={cf_stats.get('similar_users_count', 0)}")
+                
+                if cf_stats.get('has_profile'):
+                    # Get CF recommendations with main rec IDs excluded
+                    cf_tracks = cf_service.get_cf_recommendations(uid, main_rec_ids=main_rec_ids)
+                    logger.info(f"[API/HOME] ✓ CF generated {len(cf_tracks)} recommendations")
+                    logger.info(f"[API/HOME] CF returned: {len(cf_tracks)} tracks")
+
+                    cf_filtered = [track for track in cf_tracks if track.get('videoId') not in main_rec_ids]
+                    response_payload['collaborative'] = cf_filtered[:20]
+                    logger.info(f"[API/HOME] ✓ CF section: {len(response_payload['collaborative'])} tracks")
+                else:
+                    logger.info(f"[API/HOME] ✗ CF skipped: User has no profile - {cf_stats.get('message', 'unknown reason')}")
+                
+                # STEP 3: Fetch top artists
+                logger.info("[API/HOME] → Fetching top artists")
+                try:
+                    signals = recommendation_service._fetch_user_signals(uid)
+                    plays = signals.get('plays', [])
+                    liked = signals.get('liked', [])
+                    weighted = recommendation_service._build_weighted_signals_cached(uid, plays, liked)
+                    response_payload['topArtists'] = weighted.get('top_artists', [])[:10]
+                    logger.info(f"[API/HOME] ✓ Top artists: {len(response_payload['topArtists'])} artists")
+                except Exception as e:
+                    logger.warning(f"[API/HOME] ⚠ Top artists error: {str(e)}")
+                    response_payload['topArtists'] = []
+                    
+            except Exception as e:
+                logger.error(f"[API/HOME] ✗ Error fetching user data: {str(e)}", exc_info=True)
+        
+        logger.info(f"[API/HOME] ━━━ FINAL RESPONSE ━━━")
+        logger.info(f"[API/HOME] ✓ Trending: {len(response_payload['trending'])}")
+        logger.info(f"[API/HOME] ✓ Recommendations: {len(response_payload['recommendations'])}")
+        logger.info(f"[API/HOME] ✓ Collaborative: {len(response_payload['collaborative'])}")
+        logger.info(f"[API/HOME] ✓ Top Artists: {len(response_payload['topArtists'])}")
+        
         _cache_set(_home_cache, cache_key, response_payload, HOME_CACHE_TTL_SECONDS)
 
         return jsonify(response_payload)
@@ -793,8 +1046,10 @@ def get_home():
         logger.error("Home error: %s", str(e), exc_info=True)
         return jsonify({
             "source": "ytmusicapi",
-            "count": 0,
             "trending": [],
+            "recommendations": [],
+            "collaborative": [],
+            "topArtists": []
         })
 
 

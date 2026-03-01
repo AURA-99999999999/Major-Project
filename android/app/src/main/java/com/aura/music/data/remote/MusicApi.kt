@@ -64,9 +64,11 @@ interface MusicApi {
     @GET("trending")
     suspend fun getTrending(@Query("limit") limit: Int = 20): ApiResponse<SongDto>
 
-    // Home (trending + recommendations)
+    // Home (trending + recommendations + collaborative filtering)
     @GET("home")
-    suspend fun getHome(): HomeResponseDto
+    suspend fun getHome(
+        @Query("uid") uid: String? = null
+    ): HomeResponseDto
 
     // User Recommendations
     @GET("recommendations")

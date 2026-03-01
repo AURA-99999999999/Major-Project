@@ -1,5 +1,6 @@
 package com.aura.music.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aura.music.data.model.MoodCategory
@@ -8,6 +9,7 @@ import com.aura.music.data.model.YTMusicPlaylist
 import com.aura.music.data.remote.dto.TopArtistDto
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
+import com.aura.music.data.mapper.toSongs
 import com.aura.music.player.MusicService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,7 +27,10 @@ sealed class HomeUiState {
         val moodCategories: List<MoodCategory> = emptyList(),
         val moodPlaylists: List<YTMusicPlaylist> = emptyList(),
         val selectedMoodTitle: String = "",
-        val recommendations: List<Song> = emptyList()
+        val recommendations: List<Song> = emptyList(),
+        val collaborativeRecommendations: List<Song> = emptyList(),
+            val collaborativeTitle: String = "From Similar Listeners",
+            val collaborative: List<Song> = emptyList()
     ) : HomeUiState()
 
     data class Error(val message: String) : HomeUiState()
@@ -69,6 +74,11 @@ class HomeViewModel(
     private var hasLoadedRecommendations = false
     private var musicService: MusicService? = null
 
+    companion object {
+        private const val TAG = "HomeViewModel"
+        private const val MIN_CF_ITEMS = 4
+    }
+
     fun attachMusicService(service: MusicService?) {
         if (service != null) {
             musicService = service
@@ -105,13 +115,42 @@ class HomeViewModel(
                     // Update UI with trending data immediately (fastest to load)
                     homeResult.fold(
                         onSuccess = { data ->
+                            // STEP 6: Process CF recommendations in ViewModel
+                            Log.d(TAG, "════════════════════════════════════════")
+                            Log.d(TAG, "[HOME_VM] Processing HomeData from repository:")
+                            Log.d(TAG, "[HOME_VM]   ✓ Trending: ${data.trending.size}")
+                            Log.d(TAG, "[HOME_VM]   ✓ Recommendations: ${data.recommendations.size}")
+                            Log.d(TAG, "[HOME_VM]   ✓ Collaborative (flat): ${data.collaborative.size}")
+                            Log.d(TAG, "[HOME_VM]   ✓ CF Section (nested): ${data.collaborativeRecommendations?.tracks?.size ?: 0}")
+                            Log.d(TAG, "════════════════════════════════════════")
+                            
+                            val cfTracks = data.collaborativeRecommendations?.tracks ?: emptyList()
+                            Log.d(TAG, "[HOME_VM] CF tracks before threshold: ${cfTracks.size}")
+                            
+                            // Apply minimum threshold filter
+                            val cfTracksFiltered = if (cfTracks.size >= MIN_CF_ITEMS) {
+                                Log.d(TAG, "[HOME_VM] ✓ CF section VISIBLE with ${cfTracks.size} items")
+                                cfTracks
+                            } else {
+                                Log.w(TAG, "[HOME_VM] ✗ CF section HIDDEN (only ${cfTracks.size} items, minimum $MIN_CF_ITEMS required)")
+                                emptyList()
+                            }
+                            
+                            Log.d(TAG, "[HOME_VM] Assignments to UI State:")
+                            Log.d(TAG, "[HOME_VM]   • recommendations = ${data.recommendations.size}")
+                            Log.d(TAG, "[HOME_VM]   • collaborative = ${data.collaborative.size}")
+                            Log.d(TAG, "[HOME_VM]   • collaborativeRecommendations = ${cfTracksFiltered.size}")
+                            
                             _uiState.value = HomeUiState.Success(
                                 trending = data.trending,
                                 trendingPlaylists = trendingPlaylistsResult.getOrDefault(emptyList()),
                                 moodCategories = moodCategoriesResult.getOrDefault(emptyList()),
                                 moodPlaylists = emptyList(),
                                 selectedMoodTitle = "",
-                                recommendations = data.recommendations
+                                recommendations = data.recommendations,
+                                collaborativeRecommendations = cfTracksFiltered,
+                                collaborativeTitle = data.collaborativeRecommendations?.title ?: "From Similar Listeners",
+                                collaborative = data.collaborative
                             )
                             // Mark trending as loaded
                             _sectionLoadingState.value = _sectionLoadingState.value.copy(
