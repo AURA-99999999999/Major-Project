@@ -25,6 +25,7 @@ import com.aura.music.player.MusicService
 import com.aura.music.ui.screens.home.HomeScreen
 import com.aura.music.ui.screens.search.SearchScreen
 import com.aura.music.ui.screens.player.PlayerScreen
+import com.aura.music.ui.screens.player.EqualizerScreen
 import com.aura.music.ui.screens.playlist.PlaylistsScreen
 import com.aura.music.ui.screens.playlist.PlaylistDetailScreen
 import com.aura.music.ui.screens.playlist.PlaylistPreviewScreen
@@ -154,7 +155,30 @@ fun NavGraphBuilder.mainGraph(
                 onNavigateBack = {
                     navController.popBackStack()
                 },
-                themeManager = themeManager
+                themeManager = themeManager,
+                onNavigateToEqualizer = {
+                    navController.navigate("main/equalizer")
+                }
+            )
+
+            // If user logs out, return to auth
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+
+        // ==================== EQUALIZER SCREEN ====================
+        composable("main/equalizer") {
+            EqualizerScreen(
+                musicService = musicService,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
             )
 
             // If user logs out, return to auth

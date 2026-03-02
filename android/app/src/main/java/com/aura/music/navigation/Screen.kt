@@ -10,6 +10,7 @@ sealed class Screen(val route: String) {
     object Home : Screen("home")
     object Search : Screen("search")
     object Player : Screen("player")
+        object Equalizer : Screen("equalizer")
     object Playlists : Screen("playlists")
     object LikedSongs : Screen("liked-songs")
     object PlaylistDetail : Screen("playlist_detail/{playlistId}") {

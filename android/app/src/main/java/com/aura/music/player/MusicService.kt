@@ -36,6 +36,9 @@ class MusicService : MediaSessionService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val queueManager = PlaybackQueueManager
     private val smartAutoplayManager by lazy { SmartAutoplayManager(repository) }
+    
+    // Audio effects manager for equalizer, bass boost, virtualizer
+    private val audioEffectsManager = AudioEffectsManager()
 
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
@@ -59,6 +62,7 @@ class MusicService : MediaSessionService() {
     // Track liked songs for notification
     private val _likedSongs = MutableStateFlow<Set<String>>(emptySet())
     private var isForegroundService = false
+    private var audioEffectsInitialized = false
 
     inner class MusicBinder : Binder() {
         fun getService(): MusicService = this@MusicService
@@ -152,6 +156,7 @@ class MusicService : MediaSessionService() {
                             }
                             Player.STATE_READY -> {
                                 _playerState.update { it.copy(isLoading = false) }
+                                initializeAudioEffects()
                             }
                             Player.STATE_ENDED -> handleSongCompletion()
                         }
@@ -321,6 +326,47 @@ class MusicService : MediaSessionService() {
     fun clearQueue() {
         queueManager.clearQueue()
     }
+    
+    fun getQueue(): List<Song> {
+        return queueManager.getQueue()
+    }
+    
+    fun getCurrentQueueIndex(): Int {
+        return queueManager.getCurrentIndex()
+    }
+    
+    /**
+     * Gets the audio session ID from the ExoPlayer for equalizer integration.
+     * Returns null if player is not initialized.
+     */
+    fun getAudioSessionId(): Int? {
+        return exoPlayer?.audioSessionId
+    }
+
+    /**
+     * Expose audio effects manager so UI can access it.
+     */
+    fun getAudioEffectsManager(): AudioEffectsManager = audioEffectsManager
+
+    /**
+     * Initializes audio effects for the current audio session.
+     * Call when player is ready and has a valid audio session.
+     */
+    private fun initializeAudioEffects() {
+        if (audioEffectsInitialized) return
+
+        exoPlayer?.audioSessionId?.let { sessionId ->
+            if (sessionId > 0) {
+                val success = audioEffectsManager.initialize(sessionId)
+                if (success) {
+                    audioEffectsInitialized = true
+                    Log.d(TAG, "Audio effects initialized for session: $sessionId")
+                } else {
+                    Log.w(TAG, "Failed to initialize audio effects for session: $sessionId")
+                }
+            }
+        }
+    }
 
     private fun handleSongCompletion() {
         when (queueManager.getRepeatMode()) {
@@ -393,6 +439,9 @@ class MusicService : MediaSessionService() {
 
     override fun onDestroy() {
         super.onDestroy()
+            // Release audio effects
+            audioEffectsManager.release()
+            audioEffectsInitialized = false
         if (isForegroundService) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             isForegroundService = false

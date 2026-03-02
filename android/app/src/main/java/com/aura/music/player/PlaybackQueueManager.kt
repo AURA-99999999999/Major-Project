@@ -86,6 +86,10 @@ object PlaybackQueueManager {
     }
 
     fun isShuffleEnabled(): Boolean = synchronized(lock) { shuffleEnabled }
+    
+    fun getQueue(): List<Song> = synchronized(lock) { queue }
+    
+    fun getCurrentIndex(): Int = synchronized(lock) { currentIndex }
 
     fun clearQueue() {
         synchronized(lock) {
