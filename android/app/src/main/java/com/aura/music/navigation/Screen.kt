@@ -27,6 +27,9 @@ sealed class Screen(val route: String) {
     object DailyMixDetail : Screen("daily_mix_detail/{mixKey}") {
         fun createRoute(mixKey: String) = "daily_mix_detail/$mixKey"
     }
+    object MoodDetail : Screen("mood_detail/{moodTitle}/{moodParams}") {
+        fun createRoute(moodTitle: String, moodParams: String) = "mood_detail/$moodTitle/$moodParams"
+    }
     object Profile : Screen("profile")
 }
 

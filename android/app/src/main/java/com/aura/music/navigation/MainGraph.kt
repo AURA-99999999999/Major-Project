@@ -98,6 +98,9 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onNavigateToDailyMix = { mixKey ->
                     navController.navigate(Screen.DailyMixDetail.createRoute(mixKey))
+                },
+                onNavigateToMood = { moodTitle, moodParams ->
+                    navController.navigate(Screen.MoodDetail.createRoute(moodTitle, moodParams))
                 }
             )
 
@@ -469,6 +472,39 @@ fun NavGraphBuilder.mainGraph(
                 },
                 onNavigateToPlayer = {
                     navController.navigate("main/player")
+                }
+            )
+
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+
+        // ==================== MOOD DETAIL SCREEN ====================
+        composable(
+            route = Screen.MoodDetail.route,
+            arguments = listOf(
+                navArgument("moodTitle") { type = NavType.StringType },
+                navArgument("moodParams") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val moodTitle = backStackEntry.arguments?.getString("moodTitle") ?: return@composable
+            val moodParams = backStackEntry.arguments?.getString("moodParams") ?: return@composable
+            
+            com.aura.music.ui.screens.mood.MoodScreen(
+                moodTitle = moodTitle,
+                moodParams = moodParams,
+                musicService = musicService,
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToPlaylist = { playlistId ->
+                    navController.navigate("main/playlist-preview/$playlistId")
                 }
             )
 

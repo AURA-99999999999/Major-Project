@@ -396,8 +396,11 @@ class MusicRepository(
             val response = api.getMoodCategories()
             if (response.success) {
                 val categories = response.categories.map { it.toMoodCategory() }
-                safeLog { Log.d(TAG, "getMoodCategories() success count=${categories.size}") }
-                Result.success(categories)
+                val filteredCategories = filterSupportedMoods(categories)
+                safeLog { 
+                    Log.d(TAG, "getMoodCategories() total=${categories.size} filtered=${filteredCategories.size}") 
+                }
+                Result.success(filteredCategories)
             } else {
                 safeLog { Log.w(TAG, "getMoodCategories() failed") }
                 Result.failure(Exception("Failed to get mood categories"))
@@ -678,6 +681,73 @@ class MusicRepository(
 
     companion object {
         private const val TAG = "MusicRepository"
+        
+        /**
+         * Supported mood categories that have API backend support.
+         * Language-based moods (Hindi, Telugu, Tamil, English, etc.) are excluded
+         * as the API does not return playlists for them.
+         */
+        private val SUPPORTED_MOODS = setOf(
+            "chill",
+            "relax",
+            "relaxed",
+            "calm",
+            "happy",
+            "joy",
+            "joyful",
+            "cheerful",
+            "sad",
+            "melancholy",
+            "blue",
+            "energetic",
+            "energy",
+            "pump up",
+            "energize",
+            "workout",
+            "gym",
+            "fitness",
+            "focus",
+            "concentration",
+            "study",
+            "party",
+            "celebration",
+            "dance",
+            "romantic",
+            "love",
+            "romance",
+            "sleep",
+            "sleepy",
+            "bedtime",
+            "night",
+            "commute",
+            "travel",
+            "feel good",
+            "feel-good",
+            "gaming",
+            "game",
+            "angry",
+            "rage",
+            "nostalgic",
+            "nostalgia",
+            "excited",
+            "excitement",
+            "groovy",
+            "funky",
+            "decades",
+            "decade",
+            "classic",
+            "classics"
+        )
+        
+        /**
+         * Filters mood categories to include only those supported by the API.
+         * Language-based categories are automatically excluded.
+         */
+        private fun filterSupportedMoods(moods: List<com.aura.music.data.model.MoodCategory>): List<com.aura.music.data.model.MoodCategory> {
+            return moods.filter { mood ->
+                SUPPORTED_MOODS.contains(mood.title.lowercase().trim())
+            }
+        }
 
         private inline fun safeLog(block: () -> Unit) {
             try {
