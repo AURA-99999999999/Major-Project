@@ -16,12 +16,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExitToApp
 import androidx.compose.material.icons.outlined.QueueMusic
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.TrendingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ListItem
@@ -69,6 +69,8 @@ fun ProfileScreen(
     onNavigateToPlaylists: () -> Unit = {},
     onNavigateToLikedSongs: () -> Unit = {},
     onNavigateToThemeSettings: () -> Unit = {},
+    onNavigateToInsights: () -> Unit = {},
+    onNavigateToEditProfile: () -> Unit = {},
     authViewModel: AuthViewModel = viewModel(),
     themeManager: ThemeManager? = null
 ) {
@@ -175,12 +177,6 @@ fun ProfileScreen(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         ProfileActionRow(
-                            icon = Icons.Outlined.Notifications,
-                            label = "Notification",
-                            onClick = { /* TODO: hook notifications screen */ }
-                        )
-
-                        ProfileActionRow(
                             icon = Icons.Outlined.QueueMusic,
                             label = "My Playlists",
                             onClick = onNavigateToPlaylists
@@ -193,15 +189,21 @@ fun ProfileScreen(
                         )
 
                         ProfileActionRow(
+                            icon = Icons.Outlined.TrendingUp,
+                            label = "Listening Insights",
+                            onClick = onNavigateToInsights
+                        )
+
+                        ProfileActionRow(
                             icon = Icons.Outlined.Palette,
                             label = "Theme Settings",
                             onClick = onNavigateToThemeSettings
                         )
 
                         ProfileActionRow(
-                            icon = Icons.Outlined.Share,
-                            label = "Share",
-                            onClick = { /* TODO: implement share */ }
+                            icon = Icons.Outlined.Edit,
+                            label = "Edit Profile",
+                            onClick = onNavigateToEditProfile
                         )
 
                         ProfileActionRow(

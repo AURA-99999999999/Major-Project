@@ -31,8 +31,10 @@ import com.aura.music.ui.screens.playlist.PlaylistDetailScreen
 import com.aura.music.ui.screens.playlist.PlaylistPreviewScreen
 import com.aura.music.ui.screens.liked.LikedSongsScreen
 import com.aura.music.ui.screens.profile.ProfileScreen
+import com.aura.music.ui.screens.profile.EditProfileScreen
 import com.aura.music.ui.screens.theme.ThemeSettingsScreen
 import com.aura.music.ui.screens.dailymix.DailyMixDetailScreen
+import com.aura.music.ui.screens.insights.ListeningInsightsScreen
 import com.aura.music.ui.theme.ThemeManager
 import com.aura.music.ui.viewmodel.ViewModelFactory
 
@@ -46,6 +48,8 @@ import com.aura.music.ui.viewmodel.ViewModelFactory
  * - main/playlists
  * - main/playlist/{playlistId}
  * - main/profile
+ * - main/listening-insights
+ * - main/edit-profile
  * - main/theme-settings
  * 
  * IMPORTANT:
@@ -54,6 +58,7 @@ import com.aura.music.ui.viewmodel.ViewModelFactory
  * - Search and Profile open without crashing
  * - When user logs out, entire MainGraph is cleared and user returns to auth
  * - Theme settings accessible from Profile screen
+ * - Insights and Edit Profile accessible from Profile screen
  * 
  * @param navController The main NavController
  * @param musicService The music playback service
@@ -334,6 +339,12 @@ fun NavGraphBuilder.mainGraph(
                     Log.d("MainGraph", "Navigating to theme-settings, themeManager=$themeManager")
                     navController.navigate("main/theme-settings")
                 },
+                onNavigateToInsights = {
+                    navController.navigate("main/listening-insights")
+                },
+                onNavigateToEditProfile = {
+                    navController.navigate("main/edit-profile")
+                },
                 authViewModel = authViewModel,
                 themeManager = themeManager
             )
@@ -394,6 +405,44 @@ fun NavGraphBuilder.mainGraph(
                     navController.navigate("auth") {
                         popUpTo("main") { inclusive = true }
                         launchSingleTop = true }
+                }
+            }
+        }
+
+        // ==================== LISTENING INSIGHTS SCREEN ====================
+        composable("main/listening-insights") {
+            ListeningInsightsScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+
+            // If user logs out, return to auth
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+
+        // ==================== EDIT PROFILE SCREEN ====================
+        composable("main/edit-profile") {
+            EditProfileScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+
+            // If user logs out, return to auth
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
                 }
             }
         }

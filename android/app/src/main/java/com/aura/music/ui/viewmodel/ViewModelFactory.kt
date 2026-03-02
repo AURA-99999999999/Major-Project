@@ -57,6 +57,9 @@ class ViewModelFactory(
             modelClass.isAssignableFrom(ThemeManager::class.java) -> {
                 ThemeManager(application) as T
             }
+            modelClass.isAssignableFrom(ListeningInsightsViewModel::class.java) -> {
+                ListeningInsightsViewModel(application) as T
+            }
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
