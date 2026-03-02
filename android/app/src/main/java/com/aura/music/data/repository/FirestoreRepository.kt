@@ -20,7 +20,8 @@ interface FirestoreLogger {
         songName: String,
         albumName: String,
         artists: List<String>,
-        source: String
+        source: String,
+        thumbnail: String? = null
     ): Result<Unit>
 }
 
@@ -32,7 +33,8 @@ object NoOpFirestoreLogger : FirestoreLogger {
         songName: String,
         albumName: String,
         artists: List<String>,
-        source: String
+        source: String,
+        thumbnail: String?
     ): Result<Unit> = Result.success(Unit)
 }
 
@@ -216,6 +218,16 @@ class FirestoreRepository(
     }
 
     /**
+     * Constructs YouTube thumbnail URL from videoId.
+     *
+     * Primary format: https://img.youtube.com/vi/{videoId}/maxresdefault.jpg (1280x720)
+     * Falls back to hqdefault.jpg (480x360) if maxres unavailable
+     */
+    private fun buildThumbnailUrl(videoId: String): String {
+        return "https://img.youtube.com/vi/${videoId}/maxresdefault.jpg"
+    }
+
+    /**
      * Creates or updates the user document in Firestore.
      * 
      * Called when: User successfully logs in via Firebase Authentication
@@ -333,7 +345,8 @@ class FirestoreRepository(
         songName: String,
         albumName: String,
         artists: List<String>,
-        source: String
+        source: String,
+        thumbnail: String?
     ): Result<Unit> {
         return try {
             Log.d(
@@ -355,6 +368,7 @@ class FirestoreRepository(
                 .filter { it.isNotBlank() }
                 .distinct()
             val normalizedSource = source.trim().ifBlank { "unknown" }
+            val normalizedThumbnail = thumbnail?.trim() ?: buildThumbnailUrl(normalizedVideoId)
 
             if (normalizedVideoId.isBlank() || normalizedSongName.isBlank()) {
                 Log.w(
@@ -382,6 +396,7 @@ class FirestoreRepository(
                             FIELD_ARTISTS to normalizedArtists,
                             FIELD_ALBUM to normalizedAlbumName,
                             FIELD_SOURCE to normalizedSource,
+                            FIELD_THUMBNAIL to normalizedThumbnail,
                             FIELD_LAST_PLAYED_AT to FieldValue.serverTimestamp(),
                             FIELD_PLAY_COUNT to FieldValue.increment(1)
                         )
@@ -395,6 +410,7 @@ class FirestoreRepository(
                             FIELD_ARTISTS to normalizedArtists,
                             FIELD_ALBUM to normalizedAlbumName,
                             FIELD_SOURCE to normalizedSource,
+                            FIELD_THUMBNAIL to normalizedThumbnail,
                             FIELD_FIRST_PLAYED_AT to FieldValue.serverTimestamp(),
                             FIELD_LAST_PLAYED_AT to FieldValue.serverTimestamp(),
                             FIELD_PLAY_COUNT to 1
@@ -522,6 +538,50 @@ class FirestoreRepository(
             null
         }
     }
+
+    /**
+     * Fetches recently played songs (top 6) for current user from Firestore.
+     * 
+     * Called when: User logs in or refreshes Recently Played section
+     * 
+     * Storage location: users/{uid}/plays/{songId}
+     * 
+     * Behavior:
+     * - Fetches 6 most recently played tracks ordered by lastPlayedAt DESC
+     * - Returns empty list if no plays exist
+     * - Used to hydrate local cache on login
+     * 
+     * @return List<Song> of recently played tracks (max 6), empty if none found
+     */
+    suspend fun getRecentlyPlayedSongs(limit: Int = 6): Result<List<Song>> {
+        return try {
+            val currentUser = auth.currentUser
+            if (currentUser == null) {
+                Log.w(TAG, "getRecentlyPlayedSongs() - No authenticated user")
+                return Result.success(emptyList())
+            }
+
+            val userId = currentUser.uid
+            Log.d(TAG, "getRecentlyPlayedSongs() userId=$userId limit=$limit")
+
+            val querySnapshot = firestore.collection(COLLECTION_USERS)
+                .document(userId)
+                .collection(SUBCOLLECTION_PLAYS)
+                .orderBy(FIELD_LAST_PLAYED_AT, Query.Direction.DESCENDING)
+                .limit(limit.toLong())
+                .get()
+                .await()
+
+            val songs = querySnapshot.documents
+                .mapNotNull { it.toPlaySong() }
+            
+            Log.d(TAG, "✓ Retrieved ${songs.size} recently played songs")
+            Result.success(songs)
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Failed to fetch recently played songs", e)
+            Result.failure(e)
+        }
+    }
 }
 
 private fun com.google.firebase.firestore.DocumentSnapshot.toLikedSong(): Song? {
@@ -541,6 +601,25 @@ private fun com.google.firebase.firestore.DocumentSnapshot.toLikedSong(): Song? 
         artists = if (artists.isNotEmpty()) artists else null,
         thumbnail = thumbnail,
         duration = duration,
+        album = album
+    )
+}
+
+private fun com.google.firebase.firestore.DocumentSnapshot.toPlaySong(): Song? {
+    val videoId = getString("videoId") ?: id
+    val title = getString("title") ?: return null
+    val album = getString("album")
+    val thumbnail = getString("thumbnail")
+    val artists = (get("artists") as? List<*>)
+        ?.mapNotNull { it as? String }
+        ?: emptyList()
+
+    return Song(
+        videoId = videoId,
+        title = title,
+        artist = artists.firstOrNull(),
+        artists = if (artists.isNotEmpty()) artists else null,
+        thumbnail = thumbnail,
         album = album
     )
 }

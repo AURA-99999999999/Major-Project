@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -92,6 +94,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import kotlin.math.floor
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PlayerScreen(
     musicService: MusicService?,
@@ -357,7 +360,8 @@ fun PlayerScreen(
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee()
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -581,7 +585,7 @@ private fun formatTime(milliseconds: Long): String {
  * Bottom sheet displaying the current playback queue.
  * Shows all songs in the queue with the currently playing song highlighted.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun QueueBottomSheet(
     musicService: MusicService?,
@@ -686,7 +690,8 @@ private fun QueueBottomSheet(
                                         MaterialTheme.colorScheme.primary 
                                     else 
                                         MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    modifier = Modifier.basicMarquee()
                                 )
                                 
                                 Text(

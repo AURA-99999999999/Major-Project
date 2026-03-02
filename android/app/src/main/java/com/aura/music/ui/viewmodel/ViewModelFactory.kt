@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
+import com.aura.music.data.repository.RecentlyPlayedRepository
 import com.aura.music.di.ServiceLocator
 import com.aura.music.ui.theme.ThemeManager
 
@@ -16,13 +17,18 @@ class ViewModelFactory(
     private val application: Application,
     private val musicRepository: MusicRepository,
     private val playlistRepository: PlaylistRepository,
-    private val firestoreRepository: FirestoreRepository
+    private val firestoreRepository: FirestoreRepository,
+    private val recentlyPlayedRepository: RecentlyPlayedRepository
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
         return when {
             modelClass.isAssignableFrom(HomeViewModel::class.java) -> {
-                HomeViewModel(musicRepository) as T
+                HomeViewModel(
+                    repository = musicRepository,
+                    recentlyPlayedRepository = recentlyPlayedRepository,
+                    playlistRepository = playlistRepository
+                ) as T
             }
             modelClass.isAssignableFrom(SearchViewModel::class.java) -> {
                 SearchViewModel(musicRepository) as T
@@ -61,7 +67,8 @@ class ViewModelFactory(
                 application,
                 ServiceLocator.getMusicRepository(),
                 ServiceLocator.getPlaylistRepository(),
-                ServiceLocator.getFirestoreRepository()
+                ServiceLocator.getFirestoreRepository(),
+                ServiceLocator.getRecentlyPlayedRepository()
             )
         }
 

@@ -3,11 +3,13 @@ package com.aura.music.di
 import android.content.Context
 import android.util.Log
 import com.aura.music.BuildConfig
+import com.aura.music.data.local.AppDatabase
 import com.aura.music.data.remote.MusicApi
 import com.aura.music.data.remote.NetworkConfig
 import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
+import com.aura.music.data.repository.RecentlyPlayedRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -27,6 +29,8 @@ object ServiceLocator {
     private var musicRepository: MusicRepository? = null
     private var firestoreRepository: FirestoreRepository? = null
     private var playlistRepository: PlaylistRepository? = null
+    private var appDatabase: AppDatabase? = null
+    private var recentlyPlayedRepository: RecentlyPlayedRepository? = null
 
     @Volatile
     private var initialized = false
@@ -90,6 +94,10 @@ object ServiceLocator {
             firestoreRepository = FirestoreRepository()
             playlistRepository = PlaylistRepository()
             musicRepository = MusicRepository(musicApi!!, firestoreRepository!!)
+            appDatabase = AppDatabase.getInstance(context)
+            recentlyPlayedRepository = RecentlyPlayedRepository(
+                appDatabase!!.recentlyPlayedDao()
+            )
 
             initialized = true
         }
@@ -115,6 +123,11 @@ object ServiceLocator {
         return musicApi!!
     }
 
+    fun getRecentlyPlayedRepository(): RecentlyPlayedRepository {
+        checkInitialized()
+        return recentlyPlayedRepository!!
+    }
+
     private fun checkInitialized() {
         if (!initialized) {
             throw IllegalStateException(
@@ -132,6 +145,8 @@ object ServiceLocator {
             musicRepository = null
             firestoreRepository = null
             playlistRepository = null
+            appDatabase = null
+            recentlyPlayedRepository = null
             initialized = false
         }
     }

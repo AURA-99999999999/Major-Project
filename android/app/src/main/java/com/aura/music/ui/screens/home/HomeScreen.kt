@@ -1,6 +1,7 @@
 package com.aura.music.ui.screens.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
@@ -27,6 +31,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -103,6 +108,7 @@ fun HomeScreen(
     val themeState by themeManager.themeState.collectAsState()
     
     val uiState by viewModel.uiState.collectAsState()
+    val recentlyPlayedSongs by viewModel.recentlyPlayedSongs.collectAsState()
     val recommendedSongs by viewModel.recommendedSongs.collectAsState()
     val topArtists by viewModel.topArtists.collectAsState()
     val sectionLoadingState by viewModel.sectionLoadingState.collectAsState()
@@ -279,6 +285,24 @@ fun HomeScreen(
                                 }
                             }
 
+                            if (recentlyPlayedSongs.isNotEmpty()) {
+                                item {
+                                    SectionHeader(
+                                        title = "Recently Played"
+                                    )
+                                }
+
+                                item {
+                                    RecentlyPlayedGrid(
+                                        songs = recentlyPlayedSongs.take(10),
+                                        onSongClick = { song, index ->
+                                            viewModel.playSongFromList(recentlyPlayedSongs, index, "recently_played")
+                                            onNavigateToPlayer()
+                                        }
+                                    )
+                                }
+                            }
+
                             // Daily Mixes Section - "Made for You" personalized playlists (SECOND)
                             if (authState is AuthState.Authenticated) {
                                 item {
@@ -430,6 +454,90 @@ fun HomeScreen(
                 onMoodSelected = { mood ->
                     onNavigateToMood(mood.title, mood.params)
                 }
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecentlyPlayedGrid(
+    songs: List<Song>,
+    onSongClick: (Song, Int) -> Unit
+) {
+    val rowCount = (songs.size + 1) / 2
+    val gridHeight = (rowCount * 96).dp
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(gridHeight),
+        userScrollEnabled = false,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        gridItemsIndexed(songs) { index, song ->
+            RecentlyPlayedCard(
+                song = song,
+                onClick = { onSongClick(song, index) }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RecentlyPlayedCard(
+    song: Song,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            modifier = Modifier.size(52.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = song.thumbnail,
+                    contentDescription = song.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = song.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.basicMarquee()
+            )
+            Text(
+                text = song.getArtistString(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

@@ -51,6 +51,7 @@ class MusicService : MediaSessionService() {
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
     private val repository by lazy { ServiceLocator.getMusicRepository() }
+    private val recentlyPlayedRepository by lazy { ServiceLocator.getRecentlyPlayedRepository() }
     private val firestoreRepository by lazy { FirestoreRepository() }
     private val auth by lazy { FirebaseAuth.getInstance() }
 
@@ -130,6 +131,8 @@ class MusicService : MediaSessionService() {
                             lastLoggedAtMs = now
 
                             serviceScope.launch {
+                                recentlyPlayedRepository.onTrackPlayed(currentSong)
+
                                 Log.d(
                                     TAG,
                                     "Logging play: title='${currentSong.title}', " +
@@ -141,7 +144,8 @@ class MusicService : MediaSessionService() {
                                     songName = currentSong.title,
                                     albumName = currentSong.album ?: "",
                                     artists = artists,
-                                    source = currentPlaybackSource
+                                    source = currentPlaybackSource,
+                                    thumbnail = currentSong.thumbnail
                                 ).onFailure { error ->
                                     Log.e(TAG, "Failed to log song play to Firestore", error)
                                 }

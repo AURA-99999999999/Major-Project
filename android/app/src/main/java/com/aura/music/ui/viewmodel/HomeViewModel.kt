@@ -9,11 +9,15 @@ import com.aura.music.data.model.YTMusicPlaylist
 import com.aura.music.data.remote.dto.TopArtistDto
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
+import com.aura.music.data.repository.RecentlyPlayedRepository
+import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.mapper.toSongs
 import com.aura.music.player.MusicService
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
@@ -51,6 +55,7 @@ sealed class MixEvent {
 
 class HomeViewModel(
     private val repository: MusicRepository,
+    private val recentlyPlayedRepository: RecentlyPlayedRepository,
     private val playlistRepository: PlaylistRepository? = null
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -61,6 +66,9 @@ class HomeViewModel(
 
     private val _topArtists = MutableStateFlow<List<TopArtistDto>>(emptyList())
     val topArtists: StateFlow<List<TopArtistDto>> = _topArtists.asStateFlow()
+
+    private val _recentlyPlayedSongs = MutableStateFlow<List<Song>>(emptyList())
+    val recentlyPlayedSongs: StateFlow<List<Song>> = _recentlyPlayedSongs.asStateFlow()
 
     // Individual section loading states for progressive rendering
     private val _sectionLoadingState = MutableStateFlow(SectionLoadingState())
@@ -73,10 +81,60 @@ class HomeViewModel(
     private var hasLoaded = false
     private var hasLoadedRecommendations = false
     private var musicService: MusicService? = null
+    private var currentUserId: String? = null
+    private val auth by lazy { FirebaseAuth.getInstance() }
+    private val firestoreRepository by lazy { FirestoreRepository() }
 
     companion object {
         private const val TAG = "HomeViewModel"
         private const val MIN_CF_ITEMS = 4
+    }
+
+    init {
+        observeAuthStateChanges()
+        observeRecentlyPlayed()
+    }
+
+    /**
+     * Monitor authentication state changes and sync Recently Played data
+     * when user logs in/out or switches account.
+     * 
+     * Flow:
+     * 1. User logs in → fetch recently played from Firestore
+     * 2. Hydrate local cache with cloud data
+     * 3. UI loads from local cache (fast) while Firestore syncs in background
+     */
+    private fun observeAuthStateChanges() {
+        auth.addAuthStateListener { firebaseAuth ->
+            val newUserId = firebaseAuth.currentUser?.uid
+            
+            // User changed (login, logout, or switch account)
+            if (newUserId != currentUserId) {
+                Log.d(TAG, "Auth state changed - from: $currentUserId to: $newUserId")
+                currentUserId = newUserId
+                
+                if (newUserId != null) {
+                    // User logged in - sync Firestore data to local cache
+                    viewModelScope.launch {
+                        recentlyPlayedRepository.syncRecentlyPlayedFromFirestore(limit = 6)
+                    }
+                } else {
+                    // User logged out - clear local data
+                    _recentlyPlayedSongs.value = emptyList()
+                    viewModelScope.launch {
+                        recentlyPlayedRepository.clearCurrentUserHistory()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun observeRecentlyPlayed() {
+        viewModelScope.launch {
+            recentlyPlayedRepository.getRecentTracks(limit = 6).collect { tracks ->
+                _recentlyPlayedSongs.value = tracks.take(6)
+            }
+        }
     }
 
     fun attachMusicService(service: MusicService?) {
