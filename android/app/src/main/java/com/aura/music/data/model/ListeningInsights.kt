@@ -39,7 +39,7 @@ data class ArtistListeningData(
 }
 
 data class DailyListeningData(
-    val dayOfWeek: String,  // "Mon", "Tue", etc.
+    val dayOfWeek: String,  // Date label, e.g. "Mar 3"
     val playCount: Int,
     val normalized: Float  // 0-1 for bar height
 )

@@ -21,6 +21,11 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -140,12 +145,23 @@ fun RootNavGraph(
         currentRoute?.startsWith("main/") == true &&
         !isOnPlayerScreen
 
+    val bottomBarContainerColor by animateColorAsState(
+        targetValue = DarkSurface,
+        animationSpec = tween(durationMillis = 300),
+        label = "bottomBarContainerColor"
+    )
+    val bottomBarContentColor by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.primary,
+        animationSpec = tween(durationMillis = 300),
+        label = "bottomBarContentColor"
+    )
+
     Scaffold(
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar(
-                    containerColor = DarkSurface,
-                    contentColor = MaterialTheme.colorScheme.primary
+                    containerColor = bottomBarContainerColor,
+                    contentColor = bottomBarContentColor
                 ) {
                     fun navigateTo(route: String) {
                         navController.navigate(route) {
@@ -255,7 +271,27 @@ fun RootNavGraph(
             NavHost(
                 navController = navController,
                 startDestination = startDestination,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                enterTransition = {
+                    fadeIn(animationSpec = tween(300)) +
+                        slideInHorizontally(
+                            initialOffsetX = { it / 4 },
+                            animationSpec = tween(300)
+                        )
+                },
+                exitTransition = {
+                    fadeOut(animationSpec = tween(250))
+                },
+                popEnterTransition = {
+                    fadeIn(animationSpec = tween(300)) +
+                        slideInHorizontally(
+                            initialOffsetX = { -it / 4 },
+                            animationSpec = tween(300)
+                        )
+                },
+                popExitTransition = {
+                    fadeOut(animationSpec = tween(250))
+                }
             ) {
                 // ==================== AUTH GRAPH ====================
                 authGraph(

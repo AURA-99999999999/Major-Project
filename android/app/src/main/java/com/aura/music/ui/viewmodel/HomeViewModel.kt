@@ -74,12 +74,18 @@ class HomeViewModel(
     private val _sectionLoadingState = MutableStateFlow(SectionLoadingState())
     val sectionLoadingState: StateFlow<SectionLoadingState> = _sectionLoadingState.asStateFlow()
 
+    // Pull-to-refresh state
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     // Mix operation event feedback
     private val _mixEvents = MutableStateFlow<MixEvent?>(null)
     val mixEvents: StateFlow<MixEvent?> = _mixEvents.asStateFlow()
 
     private var hasLoaded = false
     private var hasLoadedRecommendations = false
+    private var lastHomeLoadTimestampMs = 0L
+    private var lastRecommendationsLoadTimestampMs = 0L
     private var musicService: MusicService? = null
     private var currentUserId: String? = null
     private val auth by lazy { FirebaseAuth.getInstance() }
@@ -88,6 +94,12 @@ class HomeViewModel(
     companion object {
         private const val TAG = "HomeViewModel"
         private const val MIN_CF_ITEMS = 4
+        private const val HOME_CACHE_TTL_MS = 5 * 60 * 1000L
+    }
+
+    private fun isTtlValid(lastUpdatedMs: Long): Boolean {
+        if (lastUpdatedMs <= 0L) return false
+        return (System.currentTimeMillis() - lastUpdatedMs) < HOME_CACHE_TTL_MS
     }
 
     init {
@@ -151,7 +163,7 @@ class HomeViewModel(
     }
 
     fun loadHomeData() {
-        if (hasLoaded) return
+        if (hasLoaded && isTtlValid(lastHomeLoadTimestampMs)) return
         hasLoaded = true
 
         viewModelScope.launch {
@@ -210,6 +222,7 @@ class HomeViewModel(
                                 collaborativeTitle = data.collaborativeRecommendations?.title ?: "From Similar Listeners",
                                 collaborative = data.collaborative
                             )
+                            lastHomeLoadTimestampMs = System.currentTimeMillis()
                             // Mark trending as loaded
                             _sectionLoadingState.value = _sectionLoadingState.value.copy(
                                 isTrendingLoading = false
@@ -235,7 +248,7 @@ class HomeViewModel(
     }
 
     fun loadRecommendationsIfNeeded() {
-        if (hasLoadedRecommendations) return
+        if (hasLoadedRecommendations && isTtlValid(lastRecommendationsLoadTimestampMs)) return
         hasLoadedRecommendations = true
 
         viewModelScope.launch {
@@ -248,6 +261,7 @@ class HomeViewModel(
                     // Await recommendations
                     val songs = recommendationsDeferred.await()
                     _recommendedSongs.value = songs
+                    lastRecommendationsLoadTimestampMs = System.currentTimeMillis()
                     _sectionLoadingState.value = _sectionLoadingState.value.copy(
                         isRecommendationsLoading = false
                     )
@@ -280,6 +294,83 @@ class HomeViewModel(
         _recommendedSongs.value = emptyList()
         _topArtists.value = emptyList()
         hasLoadedRecommendations = false
+    }
+
+    fun refreshHome(forceRefresh: Boolean = true) {
+        if (_isRefreshing.value) return
+
+        viewModelScope.launch {
+            refreshHomeData(forceRefresh = forceRefresh)
+        }
+    }
+
+    /**
+     * Force refresh home data - bypasses hasLoaded guard
+     * Used for pull-to-refresh functionality
+     * 
+     * @return true if refresh completed successfully, false otherwise
+     */
+    suspend fun refreshHomeData(forceRefresh: Boolean = true): Boolean {
+        // Prevent concurrent refresh calls
+        if (_isRefreshing.value) {
+            Log.d(TAG, "Refresh already in progress, skipping")
+            return false
+        }
+
+        return try {
+            _isRefreshing.value = true
+            
+            // Refresh all sections in parallel
+            var refreshSuccess = false
+            coroutineScope {
+                // Sync Recently Played from Firestore (background sync)
+                val recentlyPlayedDeferred = async {
+                    recentlyPlayedRepository.syncRecentlyPlayedFromFirestore(limit = 6, forceRefresh = forceRefresh)
+                }
+                
+                val trendingDeferred = async { repository.getHomeData(forceRefresh = forceRefresh) }
+                val playlistsDeferred = async { repository.getTrendingPlaylists(forceRefresh = forceRefresh) }
+                val moodsDeferred = async { repository.getMoodCategories() }
+                val topArtistsDeferred = async { repository.getTopArtists(forceRefresh = forceRefresh) }
+                
+                val homeResult = trendingDeferred.await()
+                val trendingPlaylistsResult = playlistsDeferred.await()
+                val moodCategoriesResult = moodsDeferred.await()
+                val topArtistsResult = topArtistsDeferred.await()
+                recentlyPlayedDeferred.await() // Ensure Recently Played sync completes
+                
+                homeResult.fold(
+                    onSuccess = { data ->
+                        val cfTracks = data.collaborativeRecommendations?.tracks ?: emptyList()
+                        val cfTracksFiltered = if (cfTracks.size >= MIN_CF_ITEMS) cfTracks else emptyList()
+                        
+                        _uiState.value = HomeUiState.Success(
+                            trending = data.trending,
+                            trendingPlaylists = trendingPlaylistsResult.getOrElse { emptyList() },
+                            moodCategories = moodCategoriesResult.getOrElse { emptyList() },
+                            collaborative = cfTracksFiltered
+                        )
+                        
+                        _recommendedSongs.value = data.recommendations
+                        _topArtists.value = topArtistsResult.getOrElse { emptyList() }
+                        
+                        refreshSuccess = true
+                        Log.d(TAG, "✓ Home data refreshed successfully")
+                    },
+                    onFailure = { e ->
+                        Log.e(TAG, "✗ Refresh failed: ${e.message}", e)
+                        refreshSuccess = false
+                    }
+                )
+            }
+            
+            refreshSuccess
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Refresh error: ${e.message}", e)
+            false
+        } finally {
+            _isRefreshing.value = false
+        }
     }
 
     fun selectMood(category: MoodCategory) {

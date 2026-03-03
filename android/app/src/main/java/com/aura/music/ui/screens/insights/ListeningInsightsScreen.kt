@@ -1,11 +1,8 @@
 package com.aura.music.ui.screens.insights
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,6 +28,24 @@ import com.aura.music.data.model.*
 import com.aura.music.ui.viewmodel.ListeningInsightsViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.Crossfade
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.platform.LocalDensity
+import android.os.Build
+import android.animation.ValueAnimator
+import android.widget.LinearLayout
+import android.widget.FrameLayout
+import android.view.View
+import com.facebook.shimmer.Shimmer
+import com.facebook.shimmer.ShimmerFrameLayout
+import androidx.compose.ui.graphics.toArgb
 
 /**
  * ListeningInsights Screen - Visual analytics dashboard
@@ -58,8 +73,49 @@ fun ListeningInsightsScreen(
     val uiState by viewModel.uiState.collectAsState()
     var isRefreshing by remember { mutableStateOf(false) }
 
+    val sectionProgress = remember { Animatable(0f) }
+    val chartProgress = remember { Animatable(0f) }
+    val chartLabelAlpha = remember { Animatable(0f) }
+
+    val animationsEnabled = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ValueAnimator.areAnimatorsEnabled()
+        } else {
+            true
+        }
+    }
+
+    // Reset animations on screen entry
     LaunchedEffect(Unit) {
+        sectionProgress.snapTo(0f)
+        chartProgress.snapTo(0f)
+        chartLabelAlpha.snapTo(0f)
         viewModel.loadInsights()
+    }
+
+    // Trigger animations when data loads
+    LaunchedEffect(uiState) {
+        if (uiState is InsightsUiState.Success) {
+            if (animationsEnabled) {
+                // Start all animations (they will run)
+                sectionProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
+                )
+                chartProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing)
+                )
+                chartLabelAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+                )
+            } else {
+                sectionProgress.snapTo(1f)
+                chartProgress.snapTo(1f)
+                chartLabelAlpha.snapTo(1f)
+            }
+        }
     }
 
     Scaffold(
@@ -101,53 +157,131 @@ fun ListeningInsightsScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) { paddingValues ->
-        when (val state = uiState) {
-            is InsightsUiState.Loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(48.dp),
-                        color = MaterialTheme.colorScheme.primary
+        Crossfade(
+            targetState = uiState,
+            animationSpec = tween(durationMillis = 250),
+            label = "insights_loading_crossfade"
+        ) { state ->
+            when (state) {
+                is InsightsUiState.Loading -> {
+                    InsightsShimmerLoading(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues)
                     )
                 }
-            }
-            is InsightsUiState.Success -> {
-                ListeningInsightsContent(
-                    insights = state.insights,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                )
-            }
-            is InsightsUiState.Empty -> {
-                EmptyInsightsState(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                )
-            }
-            is InsightsUiState.Error -> {
-                ErrorInsightsState(
-                    message = state.message,
-                    onRetry = { viewModel.refreshInsights() },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                )
+                is InsightsUiState.Success -> {
+                    ListeningInsightsContent(
+                        insights = state.insights,
+                        sectionProgress = sectionProgress.value,
+                        chartProgress = chartProgress.value,
+                        chartLabelAlpha = chartLabelAlpha.value,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                    )
+                }
+                is InsightsUiState.Empty -> {
+                    EmptyInsightsState(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                    )
+                }
+                is InsightsUiState.Error -> {
+                    ErrorInsightsState(
+                        message = state.message,
+                        onRetry = { viewModel.refreshInsights() },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
+private fun InsightsShimmerLoading(modifier: Modifier = Modifier) {
+    val density = LocalDensity.current
+    val placeholderColor = MaterialTheme.colorScheme.surfaceVariant.toArgb()
+    var shimmerRef by remember { mutableStateOf<ShimmerFrameLayout?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            shimmerRef?.stopShimmer()
+        }
+    }
+
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            val corner = with(density) { 16.dp.toPx().toInt() }
+
+            val shimmer = ShimmerFrameLayout(context).apply {
+                setShimmer(
+                    Shimmer.AlphaHighlightBuilder()
+                        .setDuration(1000)
+                        .setBaseAlpha(0.75f)
+                        .setHighlightAlpha(1f)
+                        .setDirection(Shimmer.Direction.LEFT_TO_RIGHT)
+                        .build()
+                )
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+
+            val container = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(
+                    with(density) { 16.dp.toPx().toInt() },
+                    with(density) { 16.dp.toPx().toInt() },
+                    with(density) { 16.dp.toPx().toInt() },
+                    with(density) { 16.dp.toPx().toInt() }
+                )
+            }
+
+            fun card(heightDp: Dp) = View(context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    with(density) { heightDp.toPx().toInt() }
+                ).also {
+                    it.bottomMargin = with(density) { 16.dp.toPx().toInt() }
+                }
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = corner.toFloat()
+                    setColor(placeholderColor)
+                }
+            }
+
+            container.addView(card(220.dp))
+            container.addView(card(220.dp))
+            container.addView(card(260.dp))
+            shimmer.addView(container)
+            shimmer.startShimmer()
+            shimmerRef = shimmer
+            shimmer
+        },
+        update = {
+            shimmerRef = it
+            it.startShimmer()
+        }
+    )
+}
+
+@Composable
 private fun ListeningInsightsContent(
     insights: ListeningInsights,
+    sectionProgress: Float,
+    chartProgress: Float,
+    chartLabelAlpha: Float,
     modifier: Modifier = Modifier
 ) {
+    val density = LocalDensity.current
     LazyColumn(
         modifier = modifier
             .fillMaxWidth()
@@ -155,39 +289,65 @@ private fun ListeningInsightsContent(
         verticalArrangement = Arrangement.spacedBy(24.dp),
         contentPadding = PaddingValues(vertical = 16.dp, horizontal = 0.dp)
     ) {
-        // Summary stats
-        item {
-            SummaryStatsCard(
-                totalPlays = insights.totalPlays,
-                uniqueArtists = insights.uniqueArtists
+        val totalSections = 5f
+        fun sectionModifier(index: Int): Modifier {
+            val threshold = (index / totalSections) * 0.7f
+            val local = ((sectionProgress - threshold) / 0.3f).coerceIn(0f, 1f)
+            val translateY = (1f - local) * 10f
+            return Modifier.graphicsLayer(
+                alpha = local,
+                translationY = with(density) { translateY.dp.toPx() }
             )
         }
 
-        // Artist distribution pie chart
+        item {
+            Box(modifier = sectionModifier(0)) {
+                SummaryStatsCard(
+                    totalPlays = insights.totalPlays,
+                    uniqueArtists = insights.uniqueArtists
+                )
+            }
+        }
+
         if (insights.artistDistribution.isNotEmpty()) {
             item {
-                ArtistDistributionCard(artists = insights.artistDistribution)
+                Box(modifier = sectionModifier(1)) {
+                    ArtistDistributionCard(
+                        artists = insights.artistDistribution,
+                        chartProgress = chartProgress,
+                        labelAlpha = chartLabelAlpha
+                    )
+                }
             }
         }
 
-        // Weekly activity bar chart
         if (insights.weeklyActivity.isNotEmpty()) {
             item {
-                WeeklyActivityCard(weeklyData = insights.weeklyActivity)
+                Box(modifier = sectionModifier(2)) {
+                    WeeklyActivityCard(
+                        weeklyData = insights.weeklyActivity,
+                        chartProgress = chartProgress
+                    )
+                }
             }
         }
 
-        // Time of day pattern
         if (insights.timeOfDayPattern.isNotEmpty()) {
             item {
-                TimeOfDayPatternCard(timeOfDay = insights.timeOfDayPattern)
+                Box(modifier = sectionModifier(3)) {
+                    TimeOfDayPatternCard(timeOfDay = insights.timeOfDayPattern)
+                }
             }
         }
 
-        // Top tracks
         if (insights.topTracks.isNotEmpty()) {
             item {
-                TopTracksCard(tracks = insights.topTracks)
+                Box(modifier = sectionModifier(4)) {
+                    TopTracksCard(
+                        tracks = insights.topTracks,
+                        chartProgress = chartProgress
+                    )
+                }
             }
         }
 
@@ -202,6 +362,8 @@ private fun SummaryStatsCard(
     totalPlays: Int,
     uniqueArtists: Int
 ) {
+    val safeTotalPlays = totalPlays.coerceAtLeast(0)
+    val safeUniqueArtists = uniqueArtists.coerceAtLeast(0)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -217,7 +379,7 @@ private fun SummaryStatsCard(
         ) {
             StatItem(
                 label = "Total Plays",
-                value = totalPlays.toString(),
+                value = safeTotalPlays,
                 modifier = Modifier.weight(1f)
             )
             Divider(
@@ -228,7 +390,7 @@ private fun SummaryStatsCard(
             )
             StatItem(
                 label = "Artists",
-                value = uniqueArtists.toString(),
+                value = safeUniqueArtists,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -238,16 +400,22 @@ private fun SummaryStatsCard(
 @Composable
 private fun StatItem(
     label: String,
-    value: String,
+    value: Int,
     modifier: Modifier = Modifier
 ) {
+    val animatedValue by animateIntAsState(
+        targetValue = value.coerceAtLeast(0),
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "stat_$label"
+    )
+
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = value,
+            text = animatedValue.toString(),
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
@@ -262,7 +430,18 @@ private fun StatItem(
 }
 
 @Composable
-private fun ArtistDistributionCard(artists: List<ArtistListeningData>) {
+private fun ArtistDistributionCard(
+    artists: List<ArtistListeningData>,
+    chartProgress: Float,
+    labelAlpha: Float
+) {
+    val safeArtists = artists.map {
+        it.copy(
+            playCount = it.playCount.coerceAtLeast(0),
+            percentage = it.percentage.coerceAtLeast(0f)
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -280,18 +459,19 @@ private fun ArtistDistributionCard(artists: List<ArtistListeningData>) {
             color = MaterialTheme.colorScheme.onSurface
         )
 
-        // Pie chart representation using canvas
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
         ) {
-            drawPieChart(artists)
+            drawPieChart(
+                artists = safeArtists,
+                progress = chartProgress
+            )
         }
 
-        // Legend
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            artists.forEach { artist ->
+            safeArtists.forEach { artist ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -312,10 +492,12 @@ private fun ArtistDistributionCard(artists: List<ArtistListeningData>) {
                         modifier = Modifier.weight(1f)
                     )
                     Text(
-                        text = "${artist.percentage.toInt()}%",
+                        text = "${artist.percentage.coerceIn(0f, 100f).toInt()}%",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary
+                            .copy(alpha = labelAlpha),
+                        modifier = Modifier.alpha(labelAlpha)
                     )
                 }
             }
@@ -323,13 +505,17 @@ private fun ArtistDistributionCard(artists: List<ArtistListeningData>) {
     }
 }
 
-private fun DrawScope.drawPieChart(artists: List<ArtistListeningData>) {
-    val radius = size.minDimension / 2.5f
+private fun DrawScope.drawPieChart(
+    artists: List<ArtistListeningData>,
+    progress: Float
+) {
+    val easedProgress = FastOutSlowInEasing.transform(progress.coerceIn(0f, 1f))
+    val radius = (size.minDimension / 2.5f) * (0.7f + 0.3f * easedProgress)
     val center = Offset(size.width / 2f, size.height / 2f)
-    var currentAngle = -90f
+    var currentAngle = -90f + (1f - easedProgress) * 20f
 
     artists.forEach { artist ->
-        val sweepAngle = (artist.percentage / 100f) * 360f
+        val sweepAngle = (artist.percentage / 100f) * 360f * easedProgress
         drawArc(
             color = Color(artist.color),
             startAngle = currentAngle,
@@ -344,7 +530,18 @@ private fun DrawScope.drawPieChart(artists: List<ArtistListeningData>) {
 }
 
 @Composable
-private fun WeeklyActivityCard(weeklyData: List<DailyListeningData>) {
+private fun WeeklyActivityCard(
+    weeklyData: List<DailyListeningData>,
+    chartProgress: Float
+) {
+    val safeWeeklyData = weeklyData.map {
+        it.copy(
+            playCount = it.playCount.coerceAtLeast(0),
+            normalized = it.normalized.coerceIn(0f, 1f)
+        )
+    }
+    val maxWeeklyPlays = safeWeeklyData.maxOfOrNull { it.playCount } ?: 0
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -362,12 +559,10 @@ private fun WeeklyActivityCard(weeklyData: List<DailyListeningData>) {
             color = MaterialTheme.colorScheme.onSurface
         )
 
-        // Bar chart with labels
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Bars
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -375,24 +570,30 @@ private fun WeeklyActivityCard(weeklyData: List<DailyListeningData>) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
-                weeklyData.forEach { day ->
+                safeWeeklyData.forEachIndexed { index, day ->
+                    val staggeredProgress = ((chartProgress - index * 0.08f) / (1f - (safeWeeklyData.size - 1) * 0.08f))
+                        .coerceIn(0f, 1f)
+                    val animatedHeight by animateFloatAsState(
+                        targetValue = (day.normalized.coerceIn(0f, 1f) * staggeredProgress),
+                        animationSpec = tween(durationMillis = 700),
+                        label = "weekly_bar_${day.dayOfWeek}"
+                    )
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxHeight(day.normalized)
+                            .fillMaxHeight(animatedHeight)
                             .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                             .background(MaterialTheme.colorScheme.primary)
                     )
                 }
             }
 
-            // Labels
             Row(
                 modifier = Modifier
                     .fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                weeklyData.forEach { day ->
+                safeWeeklyData.forEach { day ->
                     Box(
                         modifier = Modifier.weight(1f),
                         contentAlignment = Alignment.Center
@@ -412,6 +613,8 @@ private fun WeeklyActivityCard(weeklyData: List<DailyListeningData>) {
 
 @Composable
 private fun TimeOfDayPatternCard(timeOfDay: Map<String, Int>) {
+    val safeTimeOfDay = timeOfDay.mapValues { (_, value) -> value.coerceAtLeast(0) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -429,7 +632,7 @@ private fun TimeOfDayPatternCard(timeOfDay: Map<String, Int>) {
             color = MaterialTheme.colorScheme.onSurface
         )
 
-        val total = timeOfDay.values.sum()
+        val total = safeTimeOfDay.values.sum().coerceAtLeast(0)
         if (total > 0) {
             Row(
                 modifier = Modifier
@@ -448,7 +651,7 @@ private fun TimeOfDayPatternCard(timeOfDay: Map<String, Int>) {
                 )
 
                 periods.forEachIndexed { index, period ->
-                    val count = timeOfDay[period] ?: 0
+                    val count = safeTimeOfDay[period] ?: 0
                     val percentage = (count.toFloat() / total)
                     Box(
                         modifier = Modifier
@@ -492,7 +695,18 @@ private fun TimeOfDayPatternCard(timeOfDay: Map<String, Int>) {
 }
 
 @Composable
-private fun TopTracksCard(tracks: List<TrackListeningData>) {
+private fun TopTracksCard(
+    tracks: List<TrackListeningData>,
+    chartProgress: Float
+) {
+    val safeTracks = tracks.map {
+        it.copy(
+            playCount = it.playCount.coerceAtLeast(0),
+            normalized = it.normalized.coerceIn(0f, 1f)
+        )
+    }
+    val maxTrackPlays = safeTracks.maxOfOrNull { it.playCount } ?: 0
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -511,12 +725,13 @@ private fun TopTracksCard(tracks: List<TrackListeningData>) {
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            tracks.forEachIndexed { index, track ->
+            safeTracks.forEachIndexed { index, track ->
+                val rowStagger = ((chartProgress - index * 0.1f) / (1f - (safeTracks.size - 1) * 0.1f)).coerceIn(0f, 1f)
+
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Track info row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -530,9 +745,7 @@ private fun TopTracksCard(tracks: List<TrackListeningData>) {
                             modifier = Modifier.width(20.dp)
                         )
 
-                        Column(
-                            modifier = Modifier.weight(1f)
-                        ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = track.title,
                                 fontSize = 13.sp,
@@ -549,7 +762,7 @@ private fun TopTracksCard(tracks: List<TrackListeningData>) {
                         }
 
                         Text(
-                            text = "${track.playCount}x",
+                            text = "${track.playCount.coerceAtLeast(0)}x",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary,
@@ -558,7 +771,6 @@ private fun TopTracksCard(tracks: List<TrackListeningData>) {
                         )
                     }
 
-                    // Progress bar
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(0.85f)
@@ -569,7 +781,7 @@ private fun TopTracksCard(tracks: List<TrackListeningData>) {
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
-                                .fillMaxWidth(track.normalized)
+                                .fillMaxWidth((track.normalized * rowStagger).coerceIn(0f, 1f))
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(MaterialTheme.colorScheme.primary)
                         )

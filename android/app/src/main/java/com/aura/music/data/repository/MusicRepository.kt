@@ -236,11 +236,11 @@ class MusicRepository(
         }
     }
 
-    suspend fun getHomeData(): Result<HomeData> {
+    suspend fun getHomeData(forceRefresh: Boolean = false): Result<HomeData> {
         return try {
             // STEP 1: Get current user ID for CF recommendations
             val uid = FirebaseAuth.getInstance().currentUser?.uid
-            safeLog { Log.d(TAG, "[HOME_API] Fetching home data with uid=${uid ?: "null"}") }
+            safeLog { Log.d(TAG, "[HOME_API] Fetching home data with uid=${uid ?: "null"} forceRefresh=$forceRefresh") }
             
             // STEP 2: Make API call with uid parameter
             val response = api.getHome(uid = uid)
@@ -323,7 +323,7 @@ class MusicRepository(
         }
     }
 
-    suspend fun getTopArtists(limit: Int = 10): Result<List<com.aura.music.data.remote.dto.TopArtistDto>> {
+    suspend fun getTopArtists(limit: Int = 10, forceRefresh: Boolean = false): Result<List<com.aura.music.data.remote.dto.TopArtistDto>> {
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         if (uid == null) {
             safeLog { Log.w(TAG, "getTopArtists() - No authenticated user") }
@@ -331,7 +331,7 @@ class MusicRepository(
         }
 
         return try {
-            safeLog { Log.d(TAG, "getTopArtists() uid=$uid limit=$limit") }
+            safeLog { Log.d(TAG, "getTopArtists() uid=$uid limit=$limit forceRefresh=$forceRefresh") }
             val response = api.getTopArtists(uid, limit)
             if (response.success) {
                 safeLog { Log.d(TAG, "getTopArtists() success: ${response.count} artists") }
@@ -372,9 +372,9 @@ class MusicRepository(
         }
     }
 
-    suspend fun getTrendingPlaylists(limit: Int = 10): Result<List<com.aura.music.data.model.YTMusicPlaylist>> {
+    suspend fun getTrendingPlaylists(limit: Int = 10, forceRefresh: Boolean = false): Result<List<com.aura.music.data.model.YTMusicPlaylist>> {
         return try {
-            safeLog { Log.d(TAG, "getTrendingPlaylists() limit=$limit") }
+            safeLog { Log.d(TAG, "getTrendingPlaylists() limit=$limit forceRefresh=$forceRefresh") }
             val response = api.getTrendingPlaylists(limit)
             if (response.success) {
                 val playlists = response.playlists.map { it.toYTMusicPlaylist() }

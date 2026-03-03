@@ -46,15 +46,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.aura.music.auth.viewmodel.AuthViewModel
 import com.aura.music.player.MusicService
-import com.aura.music.ui.theme.DarkBackground
-import com.aura.music.ui.theme.DarkSurface
-import com.aura.music.ui.theme.DarkSurfaceVariant
-import com.aura.music.ui.theme.DarkTextPrimary
-import com.aura.music.ui.theme.DarkTextSecondary
 import com.aura.music.ui.theme.GradientBackground
-import com.aura.music.ui.theme.Primary
-import com.aura.music.ui.theme.TextPrimary
-import com.aura.music.ui.theme.TextSecondary
 import com.aura.music.ui.theme.ThemeManager
 import com.google.firebase.auth.FirebaseAuth
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -180,12 +172,6 @@ fun ProfileScreen(
                             icon = Icons.Outlined.QueueMusic,
                             label = "My Playlists",
                             onClick = onNavigateToPlaylists
-                        )
-
-                        ProfileActionRow(
-                            icon = Icons.Outlined.QueueMusic,
-                            label = "Liked Songs",
-                            onClick = onNavigateToLikedSongs
                         )
 
                         ProfileActionRow(

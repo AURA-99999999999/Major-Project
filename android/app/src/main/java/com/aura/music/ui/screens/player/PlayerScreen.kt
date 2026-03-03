@@ -1,6 +1,8 @@
 package com.aura.music.ui.screens.player
 
 import android.util.Log
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode as AnimationRepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -61,11 +63,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -91,6 +95,7 @@ import com.aura.music.ui.utils.rememberEqualizerLauncher
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.floor
 
@@ -167,6 +172,47 @@ fun PlayerScreen(
     val duration = playerState.duration
     val volume = playerState.volume
 
+    val controlsOffsetPx = with(LocalDensity.current) { 12.dp.toPx() }
+    val backgroundAlpha = remember { Animatable(0f) }
+    val controlsAlpha = remember { Animatable(0f) }
+    val controlsTranslateY = remember { Animatable(controlsOffsetPx) }
+    val playButtonScale = remember { Animatable(0.95f) }
+
+    LaunchedEffect(song?.videoId) {
+        backgroundAlpha.snapTo(0f)
+        controlsAlpha.snapTo(0f)
+        controlsTranslateY.snapTo(controlsOffsetPx)
+        playButtonScale.snapTo(0.95f)
+
+        launch {
+            backgroundAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+            )
+        }
+
+        delay(100)
+
+        launch {
+            controlsAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            controlsTranslateY.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            playButtonScale.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
     // Rotation animation for album art
     val infiniteTransition = rememberInfiniteTransition(label = "rotation")
     val rotationAngle by infiniteTransition.animateFloat(
@@ -237,6 +283,7 @@ fun PlayerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer(alpha = backgroundAlpha.value)
             .background(
                 Brush.verticalGradient(colors = backgroundColors)
             )
@@ -352,7 +399,12 @@ fun PlayerScreen(
 
             // Song Info
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer(
+                        alpha = controlsAlpha.value,
+                        translationY = controlsTranslateY.value
+                    ),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
@@ -476,6 +528,7 @@ fun PlayerScreen(
                     Box(
                         modifier = Modifier
                             .size(80.dp)
+                            .scale(playButtonScale.value)
                             .clip(CircleShape)
                             .background(Color.Transparent)
                             .clickable { musicService?.togglePlayPause() },

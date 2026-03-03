@@ -5,8 +5,13 @@ import com.aura.music.data.model.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
 import java.util.Calendar
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.max
 
 /**
@@ -27,7 +32,12 @@ class ListeningInsightsRepository(
     companion object {
         private const val TAG = "ListeningInsightsRepository"
         private const val MIN_PLAYS_FOR_INSIGHTS = 5
+        private const val ROLLING_DAYS = 7
+        private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
     }
+
+    private var cachedWeeklyActivity: List<DailyListeningData>? = null
+    private var cachedWeeklyActivityDayStartMs: Long = -1L
 
     /**
      * Fetch and compute all listening insights for current user.
@@ -41,74 +51,73 @@ class ListeningInsightsRepository(
      * @return ListeningInsights with computed metrics or empty state
      */
     suspend fun getListeningInsights(): Result<ListeningInsights> {
-        return try {
-            val currentUser = auth.currentUser
-            if (currentUser == null) {
-                Log.w(TAG, "getListeningInsights() - No authenticated user")
-                return Result.success(ListeningInsights(isEmpty = true))
-            }
-
-            val userId = currentUser.uid
-            Log.d(TAG, "getListeningInsights() userId=$userId")
-
-            // Fetch all plays for the user
-            val playsSnapshot = firestore.collection("users")
-                .document(userId)
-                .collection("plays")
-                .orderBy("lastPlayedAt", Query.Direction.DESCENDING)
-                .get()
-                .await()
-
-            if (playsSnapshot.isEmpty) {
-                Log.d(TAG, "No plays found for user")
-                return Result.success(ListeningInsights(isEmpty = true))
-            }
-
-            // Parse plays data
-            val playsData = playsSnapshot.documents.mapNotNull { doc ->
-                try {
-                    PlayData(
-                        videoId = doc.getString("videoId") ?: return@mapNotNull null,
-                        title = doc.getString("title") ?: "",
-                        artists = (doc.get("artists") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
-                        playCount = (doc.getLong("playCount") ?: 1L).toInt(),
-                        lastPlayedAt = (doc.getTimestamp("lastPlayedAt")?.toDate()?.time) ?: System.currentTimeMillis()
-                    )
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing play data", e)
-                    null
+        return withContext(Dispatchers.IO) {
+            try {
+                val currentUser = auth.currentUser
+                if (currentUser == null) {
+                    Log.w(TAG, "getListeningInsights() - No authenticated user")
+                    return@withContext Result.success(ListeningInsights(isEmpty = true))
                 }
+
+                val userId = currentUser.uid
+                Log.d(TAG, "getListeningInsights() userId=$userId")
+
+                val playsSnapshot = firestore.collection("users")
+                    .document(userId)
+                    .collection("plays")
+                    .orderBy("lastPlayedAt", Query.Direction.DESCENDING)
+                    .get()
+                    .await()
+
+                if (playsSnapshot.isEmpty) {
+                    Log.d(TAG, "No plays found for user")
+                    return@withContext Result.success(ListeningInsights(isEmpty = true))
+                }
+
+                val playsData = playsSnapshot.documents.mapNotNull { doc ->
+                    try {
+                        PlayData(
+                            videoId = doc.getString("videoId") ?: return@mapNotNull null,
+                            title = doc.getString("title") ?: "",
+                            artists = (doc.get("artists") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
+                            playCount = (doc.getLong("playCount") ?: 1L).toInt().coerceAtLeast(0),
+                            lastPlayedAt = (doc.getTimestamp("lastPlayedAt")?.toDate()?.time) ?: System.currentTimeMillis()
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error parsing play data", e)
+                        null
+                    }
+                }
+
+                if (playsData.size < MIN_PLAYS_FOR_INSIGHTS) {
+                    Log.d(TAG, "Insufficient plays (${playsData.size}) for insights")
+                    return@withContext Result.success(ListeningInsights(isEmpty = true))
+                }
+
+                val artistDistribution = computeArtistDistribution(playsData)
+                val weeklyActivity = computeRollingWeeklyActivity(userId)
+                val timeOfDay = computeTimeOfDayPattern(playsData)
+                val topTracks = computeTopTracks(playsData)
+                val totalPlays = playsData.sumOf { it.playCount }
+                val uniqueArtists = playsData.flatMap { it.artists }.distinct().size
+
+                val insights = ListeningInsights(
+                    artistDistribution = artistDistribution,
+                    weeklyActivity = weeklyActivity,
+                    timeOfDayPattern = timeOfDay,
+                    topTracks = topTracks,
+                    totalPlays = totalPlays,
+                    uniqueArtists = uniqueArtists,
+                    lastUpdated = System.currentTimeMillis(),
+                    isEmpty = false
+                )
+
+                Log.d(TAG, "✓ Computed insights: ${artistDistribution.size} artists, ${weeklyActivity.size} days, ${topTracks.size} tracks")
+                Result.success(insights)
+            } catch (e: Exception) {
+                Log.e(TAG, "✗ Error fetching listening insights", e)
+                Result.failure(e)
             }
-
-            if (playsData.size < MIN_PLAYS_FOR_INSIGHTS) {
-                Log.d(TAG, "Insufficient plays (${playsData.size}) for insights")
-                return Result.success(ListeningInsights(isEmpty = true))
-            }
-
-            // Compute insights
-            val artistDistribution = computeArtistDistribution(playsData)
-            val weeklyActivity = computeWeeklyActivity(playsData)
-            val timeOfDay = computeTimeOfDayPattern(playsData)
-            val topTracks = computeTopTracks(playsData)
-            val totalPlays = playsData.sumOf { it.playCount }
-            val uniqueArtists = playsData.flatMap { it.artists }.distinct().size
-
-            val insights = ListeningInsights(
-                artistDistribution = artistDistribution,
-                weeklyActivity = weeklyActivity,
-                timeOfDayPattern = timeOfDay,
-                topTracks = topTracks,
-                totalPlays = totalPlays,
-                uniqueArtists = uniqueArtists,
-                lastUpdated = System.currentTimeMillis(),
-                isEmpty = false
-            )
-
-            Log.d(TAG, "✓ Computed insights: ${artistDistribution.size} artists, ${weeklyActivity.size} days, ${topTracks.size} tracks")
-            Result.success(insights)
-        } catch (e: Exception) {
-            Log.e(TAG, "✗ Error fetching listening insights", e)
-            Result.failure(e)
         }
     }
 
@@ -168,38 +177,63 @@ class ListeningInsightsRepository(
         return result
     }
 
-    /**
-     * Compute weekly listening activity.
-     * 
-     * Groups all plays by day of week and counts frequency.
-     * Normalizes to 0-1 scale for visual bar heights.
-     * 
-     * @param playsData All plays from Firestore
-     * @return List of daily activity for each weekday
-     */
-    private fun computeWeeklyActivity(playsData: List<PlayData>): List<DailyListeningData> {
-        val daysOfWeek = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-        val dailyPlayCounts = mutableMapOf<Int, Int>()
-        
-        playsData.forEach { play ->
-            val calendar = Calendar.getInstance().apply {
-                timeInMillis = play.lastPlayedAt
-            }
-            val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)  // 1=Sunday, 7=Saturday
-            val adjustedDay = if (dayOfWeek == 1) 6 else dayOfWeek - 2  // Convert to 0-6 with Monday=0
-            dailyPlayCounts[adjustedDay] = (dailyPlayCounts[adjustedDay] ?: 0) + 1
+    private suspend fun computeRollingWeeklyActivity(userId: String): List<DailyListeningData> {
+        val now = System.currentTimeMillis()
+        val todayStart = getStartOfDayMillis(now)
+        if (cachedWeeklyActivity != null && cachedWeeklyActivityDayStartMs == todayStart) {
+            return cachedWeeklyActivity!!
         }
 
-        val maxCount = dailyPlayCounts.values.maxOrNull() ?: 1
-        
-        return (0..6).map { day ->
-            val count = dailyPlayCounts[day] ?: 0
+        val cutoffStart = todayStart - (ROLLING_DAYS - 1) * MILLIS_PER_DAY
+        val cutoffDate = Date(cutoffStart)
+
+        val snapshot = firestore.collection("users")
+            .document(userId)
+            .collection("plays")
+            .whereGreaterThanOrEqualTo("lastPlayedAt", cutoffDate)
+            .orderBy("lastPlayedAt", Query.Direction.DESCENDING)
+            .get()
+            .await()
+
+        val countsByDayStart = mutableMapOf<Long, Int>()
+        snapshot.documents.forEach { doc ->
+            val playedAt = doc.getTimestamp("lastPlayedAt")?.toDate()?.time ?: return@forEach
+            val dayStart = getStartOfDayMillis(playedAt)
+            if (dayStart in cutoffStart..todayStart) {
+                countsByDayStart[dayStart] = (countsByDayStart[dayStart] ?: 0) + 1
+            }
+        }
+
+        val formatter = SimpleDateFormat("MMM d", Locale.getDefault())
+        val rollingSeries = (0 until ROLLING_DAYS).map { index ->
+            val dayStart = cutoffStart + index * MILLIS_PER_DAY
+            val count = countsByDayStart[dayStart] ?: 0
             DailyListeningData(
-                dayOfWeek = daysOfWeek[day],
+                dayOfWeek = formatter.format(Date(dayStart)),
                 playCount = count,
-                normalized = if (maxCount > 0) count.toFloat() / maxCount else 0f
+                normalized = 0f
             )
         }
+
+        val maxCount = rollingSeries.maxOfOrNull { it.playCount } ?: 0
+        val normalizedSeries = rollingSeries.map { day ->
+            day.copy(normalized = if (maxCount > 0) day.playCount.toFloat() / maxCount else 0f)
+        }
+
+        cachedWeeklyActivity = normalizedSeries
+        cachedWeeklyActivityDayStartMs = todayStart
+        return normalizedSeries
+    }
+
+    private fun getStartOfDayMillis(timestamp: Long): Long {
+        val calendar = Calendar.getInstance().apply {
+            timeInMillis = timestamp
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return calendar.timeInMillis
     }
 
     /**

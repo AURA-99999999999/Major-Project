@@ -27,6 +27,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -38,17 +46,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +69,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -82,14 +96,17 @@ import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
 import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import com.aura.music.ui.screens.playlist.PlaylistPickerBottomSheet
 import com.aura.music.ui.components.home.DailyMixesSection
 import com.aura.music.ui.components.ShimmerSongItem
 import com.aura.music.ui.components.ShimmerRecommendedSection
 
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 fun HomeScreen(
     musicService: MusicService?,
     authState: AuthState,
@@ -101,18 +118,25 @@ fun HomeScreen(
     onNavigateToArtist: (String) -> Unit = {},
     onNavigateToDailyMix: (String) -> Unit = {},
     onNavigateToMood: (String, String) -> Unit = { _, _ -> },
-    viewModel: HomeViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
+    viewModel: HomeViewModel? = null
 ) {
     val context = LocalContext.current
+    
+    // Create or use provided ViewModel - scoped to navigation entry
+    val actualViewModel: HomeViewModel = viewModel ?: viewModel(
+        factory = ViewModelFactory.create(context.applicationContext as android.app.Application)
+    )
+    
     val themeManager: ThemeManager = viewModel(factory = ViewModelFactory.create(context.applicationContext as android.app.Application))
     val themeState by themeManager.themeState.collectAsState()
     
-    val uiState by viewModel.uiState.collectAsState()
-    val recentlyPlayedSongs by viewModel.recentlyPlayedSongs.collectAsState()
-    val recommendedSongs by viewModel.recommendedSongs.collectAsState()
-    val topArtists by viewModel.topArtists.collectAsState()
-    val sectionLoadingState by viewModel.sectionLoadingState.collectAsState()
-    val mixEvents by viewModel.mixEvents.collectAsState()
+    val uiState by actualViewModel.uiState.collectAsState()
+    val recentlyPlayedSongs by actualViewModel.recentlyPlayedSongs.collectAsState()
+    val recommendedSongs by actualViewModel.recommendedSongs.collectAsState()
+    val topArtists by actualViewModel.topArtists.collectAsState()
+    val sectionLoadingState by actualViewModel.sectionLoadingState.collectAsState()
+    val mixEvents by actualViewModel.mixEvents.collectAsState()
+    val isRefreshing by actualViewModel.isRefreshing.collectAsState()
     val playlistViewModel: PlaylistViewModel = viewModel(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
@@ -125,17 +149,95 @@ fun HomeScreen(
 
     var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
     var showMoodSelector by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    // Initialize to 7 so all sections are visible by default (if animation doesn't run)
+    var revealedSections by remember { mutableStateOf(7) }
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshing,
+        onRefresh = { actualViewModel.refreshHome(forceRefresh = true) }
+    )
+    
+    // Debug: Log recomposition
+    LaunchedEffect(Unit) {
+        android.util.Log.d("HOME_DEBUG", "════════════════════════════════════════")
+        android.util.Log.d("HOME_DEBUG", "[HomeScreen] Recomposed")
+        android.util.Log.d("HOME_DEBUG", "[HomeScreen] ViewModel instance: ${actualViewModel.hashCode()}")
+        android.util.Log.d("HOME_DEBUG", "[HomeScreen] UI State: ${uiState::class.simpleName}")
+        android.util.Log.d("HOME_DEBUG", "════════════════════════════════════════")
+    }
+    
+    // Screen entry animation (runs once per screen entry)
+    val entryOffsetPx = with(LocalDensity.current) { 16.dp.toPx() }
+    var hasRunEntryAnimation by remember { mutableStateOf(false) }
+    // Initialize to final values so screen is always visible by default
+    val screenAlpha = remember { Animatable(1f) }
+    val screenTranslation = remember { Animatable(0f) }
+
+    val animatedHeaderPrimaryColor by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.onBackground,
+        animationSpec = tween(300),
+        label = "homeHeaderPrimary"
+    )
+    val animatedHeaderSecondaryColor by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+        animationSpec = tween(300),
+        label = "homeHeaderSecondary"
+    )
+
+    LaunchedEffect(Unit) {
+        android.util.Log.d("HOME_DEBUG", "[Animation] LaunchedEffect triggered")
+        android.util.Log.d("HOME_DEBUG", "[Animation] hasRunEntryAnimation = $hasRunEntryAnimation")
+        android.util.Log.d("HOME_DEBUG", "[Animation] screenAlpha = ${screenAlpha.value}, screenTranslation = ${screenTranslation.value}")
+        
+        if (!hasRunEntryAnimation) {
+            android.util.Log.d("HOME_DEBUG", "[Animation] Running entry animation...")
+            
+            snapshotFlow { uiState }
+                .filter { it is HomeUiState.Success }
+                .first()
+
+            revealedSections = 0
+            screenAlpha.snapTo(0f)
+            screenTranslation.snapTo(entryOffsetPx)
+
+            launch {
+                screenAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+                )
+                android.util.Log.d("HOME_DEBUG", "[Animation] Alpha animation complete")
+            }
+            launch {
+                screenTranslation.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+                )
+                android.util.Log.d("HOME_DEBUG", "[Animation] Translation animation complete")
+            }
+
+            repeat(7) { index ->
+                kotlinx.coroutines.delay(50)
+                revealedSections = index + 1
+            }
+
+            hasRunEntryAnimation = true
+            android.util.Log.d("HOME_DEBUG", "[Animation] Entry animation complete")
+        } else {
+            android.util.Log.d("HOME_DEBUG", "[Animation] Skipping animation (already run)")
+            android.util.Log.d("HOME_DEBUG", "[Animation] Current values: alpha=${screenAlpha.value}, translate=${screenTranslation.value}, sections=$revealedSections")
+        }
+    }
 
     LaunchedEffect(musicService) {
-        viewModel.attachMusicService(musicService)
+        actualViewModel.attachMusicService(musicService)
     }
     
     LaunchedEffect(authState) {
         if (authState is AuthState.Authenticated) {
-            viewModel.loadHomeData()
-            viewModel.loadRecommendationsIfNeeded()
+            actualViewModel.loadHomeData()
+            actualViewModel.loadRecommendationsIfNeeded()
         } else {
-            viewModel.clearRecommendations()
+            actualViewModel.clearRecommendations()
         }
     }
 
@@ -156,15 +258,15 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(viewModel) {
-        viewModel.mixEvents.collectLatest { event ->
+    LaunchedEffect(actualViewModel) {
+        actualViewModel.mixEvents.collectLatest { event ->
             when (event) {
                 is com.aura.music.ui.viewmodel.MixEvent.ShowMessage -> {
                     snackbarHostState.showSnackbar(event.message)
                 }
                 is com.aura.music.ui.viewmodel.MixEvent.MixSaved -> {
                     // Mix saved successfully
-                    viewModel.clearMixEvent()
+                    actualViewModel.clearMixEvent()
                 }
                 null -> { }
             }
@@ -190,41 +292,24 @@ fun HomeScreen(
             dynamicColorsEnabled = themeState.dynamicAlbumColors,
             modifier = Modifier.padding(paddingValues)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Top navigation with user info
-                Row(
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .pullRefresh(pullRefreshState)
+            ) {
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            alpha = screenAlpha.value,
+                            translationY = screenTranslation.value
+                        )
                 ) {
-                    Column {
-                        Text(
-                            text = "Your Music",
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                        )
-                        Text(
-                            text = "Your AURA",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    IconButton(
-                        onClick = { showMoodSelector = true }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "Find your mood",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                }
-
                 when (val state = uiState) {
                     is HomeUiState.Loading -> {
+                        // Add debug log
+                        android.util.Log.d("HOME_DEBUG", "[HomeScreen] Rendering Loading state")
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
@@ -234,15 +319,48 @@ fun HomeScreen(
                     }
                     is HomeUiState.Success -> {
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(
                                 start = 16.dp,
                                 end = 16.dp,
-                                top = 16.dp,
-                                bottom = 120.dp  // Extra space for mini player
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    top = 16.dp,
+                                    bottom = 120.dp  // Extra space for mini player
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "Your Music",
+                                            fontSize = 16.sp,
+                                            color = animatedHeaderSecondaryColor
+                                        )
+                                        Text(
+                                            text = "Your AURA",
+                                            fontSize = 24.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = animatedHeaderPrimaryColor
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { showMoodSelector = true }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AutoAwesome,
+                                            contentDescription = "Find your mood",
+                                            tint = MaterialTheme.colorScheme.onBackground
+                                        )
+                                    }
+                                }
+                            }
+
                             // Log what we're rendering
                             android.util.Log.d("HomeScreen", "════════════════════════════════════════")
                             android.util.Log.d("HomeScreen", "[HOME_UI] Rendering sections from uiState:")
@@ -255,21 +373,103 @@ fun HomeScreen(
                             // Uses data.recommendations from /api/home endpoint
                             if (sectionLoadingState.isRecommendationsLoading) {
                                 item {
-                                    ShimmerRecommendedSection()
+                                    SectionEntry(
+                                        sectionIndex = 1,
+                                        revealedSections = revealedSections
+                                    ) { ShimmerRecommendedSection() }
                                 }
                             } else if (recommendedSongs.isNotEmpty()) {
                                 item {
-                                    SectionHeader(
-                                        title = "Recommended For You"
-                                    )
+                                    SectionEntry(sectionIndex = 1, revealedSections = revealedSections) {
+                                        SectionHeader(title = "Recommended For You")
+                                    }
                                 }
 
                                 item {
-                                    RecommendationsWithFadeIn(
-                                        songs = recommendedSongs,
+                                    SectionEntry(sectionIndex = 1, revealedSections = revealedSections) {
+                                        RecommendationsWithFadeIn(
+                                            songs = recommendedSongs,
+                                            likedSongIds = likedSongsState.likedSongIds,
+                                            onSongClick = { song, index ->
+                                                actualViewModel.playSongFromList(recommendedSongs, index, "recommendations")
+                                                onNavigateToPlayer()
+                                            },
+                                            onToggleLike = { song ->
+                                                likedSongsViewModel.toggleLike(song)
+                                            },
+                                            onAddToPlaylist = { song ->
+                                                pendingSongForPlaylist = song
+                                            },
+                                            onPlayNext = { song ->
+                                                musicService?.insertNext(song)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (recentlyPlayedSongs.isNotEmpty()) {
+                                item {
+                                    SectionEntry(sectionIndex = 2, revealedSections = revealedSections) {
+                                        SectionHeader(title = "Recently Played")
+                                    }
+                                }
+
+                                item {
+                                    SectionEntry(sectionIndex = 2, revealedSections = revealedSections) {
+                                        RecentlyPlayedGrid(
+                                            songs = recentlyPlayedSongs.take(10),
+                                            onSongClick = { song, index ->
+                                                actualViewModel.playSongFromList(recentlyPlayedSongs, index, "recently_played")
+                                                onNavigateToPlayer()
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Daily Mixes Section - "Made for You" personalized playlists (SECOND)
+                            if (authState is AuthState.Authenticated) {
+                                item {
+                                    SectionEntry(sectionIndex = 3, revealedSections = revealedSections) {
+                                        DailyMixesSection(
+                                            userId = authState.userId,
+                                            onPlayMix = { mixKey, songs ->
+                                                if (songs.isNotEmpty()) {
+                                                    actualViewModel.playSongFromList(songs, 0, mixKey)
+                                                    onNavigateToPlayer()
+                                                }
+                                            },
+                                            onNavigateToMix = { mixKey, mixName, songs ->
+                                                onNavigateToDailyMix(mixKey)
+                                            },
+                                            onShufflePlayMix = { mixKey, songs ->
+                                                actualViewModel.shufflePlayMix(mixKey, songs)
+                                                onNavigateToPlayer()
+                                            },
+                                            onSaveMix = { mixKey, mixName, songs ->
+                                                actualViewModel.saveMixToLibrary(mixKey, mixName, songs)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Trending Now Section (THIRD)
+                            item { 
+                                SectionEntry(sectionIndex = 4, revealedSections = revealedSections) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SectionHeader(title = "Trending Now")
+                                }
+                            }
+
+                            item {
+                                SectionEntry(sectionIndex = 4, revealedSections = revealedSections) {
+                                    TrendingRow(
+                                        songs = state.trending,
                                         likedSongIds = likedSongsState.likedSongIds,
                                         onSongClick = { song, index ->
-                                            viewModel.playSongFromList(recommendedSongs, index, "recommendations")
+                                            actualViewModel.playSongFromList(state.trending, index, "trending")
                                             onNavigateToPlayer()
                                         },
                                         onToggleLike = { song ->
@@ -283,76 +483,6 @@ fun HomeScreen(
                                         }
                                     )
                                 }
-                            }
-
-                            if (recentlyPlayedSongs.isNotEmpty()) {
-                                item {
-                                    SectionHeader(
-                                        title = "Recently Played"
-                                    )
-                                }
-
-                                item {
-                                    RecentlyPlayedGrid(
-                                        songs = recentlyPlayedSongs.take(10),
-                                        onSongClick = { song, index ->
-                                            viewModel.playSongFromList(recentlyPlayedSongs, index, "recently_played")
-                                            onNavigateToPlayer()
-                                        }
-                                    )
-                                }
-                            }
-
-                            // Daily Mixes Section - "Made for You" personalized playlists (SECOND)
-                            if (authState is AuthState.Authenticated) {
-                                item {
-                                    DailyMixesSection(
-                                        userId = authState.userId,
-                                        onPlayMix = { mixKey, songs ->
-                                            if (songs.isNotEmpty()) {
-                                                viewModel.playSongFromList(songs, 0, mixKey)
-                                                onNavigateToPlayer()
-                                            }
-                                        },
-                                        onNavigateToMix = { mixKey, mixName, songs ->
-                                            // Navigate to dedicated mix detail screen
-                                            onNavigateToDailyMix(mixKey)
-                                        },
-                                        onShufflePlayMix = { mixKey, songs ->
-                                            viewModel.shufflePlayMix(mixKey, songs)
-                                            onNavigateToPlayer()
-                                        },
-                                        onSaveMix = { mixKey, mixName, songs ->
-                                            viewModel.saveMixToLibrary(mixKey, mixName, songs)
-                                        }
-                                    )
-                                }
-                            }
-
-                            // Trending Now Section (THIRD)
-                            item { 
-                                Spacer(modifier = Modifier.height(8.dp))
-                                SectionHeader(title = "Trending Now") 
-                            }
-
-                            item {
-                                TrendingRow(
-                                    songs = state.trending,
-                                    likedSongIds = likedSongsState.likedSongIds,
-                                    onSongClick = { song, index ->
-                                        viewModel.playSongFromList(state.trending, index, "trending")
-                                        onNavigateToPlayer()
-                                    },
-                                    onToggleLike = { song ->
-                                        likedSongsViewModel.toggleLike(song)
-                                    },
-                                    onAddToPlaylist = { song ->
-                                        pendingSongForPlaylist = song
-                                    },
-                                    onPlayNext = { song ->
-                                        musicService?.insertNext(song)
-                                    }
-                                )
                             }
 
                             // Collaborative Filtering Section - "From Similar Listeners"
@@ -361,61 +491,73 @@ fun HomeScreen(
                                 android.util.Log.d("HomeScreen", "[HOME_UI] ✓ Rendering CF section with ${state.collaborative.size} tracks")
                                 
                                 item {
-                                    SectionHeader(title = "From listeners like you")
+                                    SectionEntry(sectionIndex = 5, revealedSections = revealedSections) {
+                                        SectionHeader(title = "From listeners like you")
+                                    }
                                 }
 
                                 item {
-                                    RecommendationsWithFadeIn(
-                                        songs = state.collaborative,
-                                        likedSongIds = likedSongsState.likedSongIds,
-                                        onSongClick = { song, index ->
-                                            viewModel.playSongFromList(state.collaborative, index, "collaborative")
-                                            onNavigateToPlayer()
-                                        },
-                                        onToggleLike = { song ->
-                                            likedSongsViewModel.toggleLike(song)
-                                        },
-                                        onAddToPlaylist = { song ->
-                                            pendingSongForPlaylist = song
-                                        },
-                                        onPlayNext = { song ->
-                                            musicService?.insertNext(song)
-                                        }
-                                    )
+                                    SectionEntry(sectionIndex = 5, revealedSections = revealedSections) {
+                                        RecommendationsWithFadeIn(
+                                            songs = state.collaborative,
+                                            likedSongIds = likedSongsState.likedSongIds,
+                                            onSongClick = { song, index ->
+                                                actualViewModel.playSongFromList(state.collaborative, index, "collaborative")
+                                                onNavigateToPlayer()
+                                            },
+                                            onToggleLike = { song ->
+                                                likedSongsViewModel.toggleLike(song)
+                                            },
+                                            onAddToPlaylist = { song ->
+                                                pendingSongForPlaylist = song
+                                            },
+                                            onPlayNext = { song ->
+                                                musicService?.insertNext(song)
+                                            }
+                                        )
+                                    }
                                 }
                             }
 
                             // Trending Playlists Section
                             if (state.trendingPlaylists.isNotEmpty()) {
                                 item { 
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    SectionHeader(title = "Trending Playlists") 
+                                    SectionEntry(sectionIndex = 6, revealedSections = revealedSections) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        SectionHeader(title = "Trending Playlists")
+                                    }
                                 }
 
                                 item {
-                                    TrendingPlaylistsRow(
-                                        playlists = state.trendingPlaylists,
-                                        onPlaylistClick = { playlist ->
-                                            onNavigateToPlaylistPreview(playlist.playlistId)
-                                        }
-                                    )
+                                    SectionEntry(sectionIndex = 6, revealedSections = revealedSections) {
+                                        TrendingPlaylistsRow(
+                                            playlists = state.trendingPlaylists,
+                                            onPlaylistClick = { playlist ->
+                                                onNavigateToPlaylistPreview(playlist.playlistId)
+                                            }
+                                        )
+                                    }
                                 }
                             }
 
                             // Top Artists Section (after Daily Mixes)
                             if (topArtists.isNotEmpty()) {
                                 item {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    SectionHeader(title = "Your Top Artists")
+                                    SectionEntry(sectionIndex = 7, revealedSections = revealedSections) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        SectionHeader(title = "Your Top Artists")
+                                    }
                                 }
 
                                 item {
-                                    TopArtistsRow(
-                                        artists = topArtists,
-                                        onArtistClick = { artist ->
-                                            onNavigateToArtist(artist.browseId)
-                                        }
-                                    )
+                                    SectionEntry(sectionIndex = 7, revealedSections = revealedSections) {
+                                        TopArtistsRow(
+                                            artists = topArtists,
+                                            onArtistClick = { artist ->
+                                                onNavigateToArtist(artist.browseId)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -430,8 +572,15 @@ fun HomeScreen(
                     }
                 }
             }
+
+            PullRefreshIndicator(
+                refreshing = isRefreshing,
+                state = pullRefreshState,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
     }
+}
 
     pendingSongForPlaylist?.let { song ->
         PlaylistPickerBottomSheet(
@@ -456,6 +605,35 @@ fun HomeScreen(
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun SectionEntry(
+    sectionIndex: Int,
+    revealedSections: Int,
+    content: @Composable () -> Unit
+) {
+    val visible = revealedSections >= sectionIndex
+    val initialOffsetPx = with(LocalDensity.current) { 16.dp.toPx() }
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "sectionAlpha$sectionIndex"
+    )
+    val translateY by animateFloatAsState(
+        targetValue = if (visible) 0f else initialOffsetPx,
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "sectionTranslate$sectionIndex"
+    )
+
+    Box(
+        modifier = Modifier.graphicsLayer(
+            alpha = alpha,
+            translationY = translateY
+        )
+    ) {
+        content()
     }
 }
 
@@ -491,12 +669,50 @@ private fun RecentlyPlayedCard(
     song: Song,
     onClick: () -> Unit
 ) {
+    var hasAnimated by remember { mutableStateOf(false) }
+    val scale = remember { Animatable(0.96f) }
+    val alpha = remember { Animatable(0f) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = tween(durationMillis = 130),
+        label = "recentlyPlayedPressScale"
+    )
+    
+    LaunchedEffect(Unit) {
+        if (!hasAnimated) {
+            hasAnimated = true
+            launch {
+                scale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                )
+            }
+            launch {
+                alpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 200)
+                )
+            }
+        }
+    }
+    
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer(
+                scaleX = scale.value * pressScale,
+                scaleY = scale.value * pressScale,
+                alpha = alpha.value
+            )
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
             .padding(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -511,7 +727,10 @@ private fun RecentlyPlayedCard(
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
-                    model = song.thumbnail,
+                    model = coil.request.ImageRequest.Builder(LocalContext.current)
+                        .data(song.thumbnail)
+                        .crossfade(250)
+                        .build(),
                     contentDescription = song.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -614,22 +833,62 @@ private fun TrendingSongCard(
     onPlayNext: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    var hasAnimated by remember { mutableStateOf(false) }
+    val scale = remember { Animatable(0.96f) }
+    val alpha = remember { Animatable(0f) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = tween(durationMillis = 130),
+        label = "trendingCardPressScale"
+    )
+    
+    LaunchedEffect(Unit) {
+        if (!hasAnimated) {
+            hasAnimated = true
+            launch {
+                scale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                )
+            }
+            launch {
+                alpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 200)
+                )
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
-            .width(160.dp),
+            .width(160.dp)
+            .graphicsLayer(
+                scaleX = scale.value * pressScale,
+                scaleY = scale.value * pressScale,
+                alpha = alpha.value
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Surface(
             modifier = Modifier
                 .height(160.dp)
                 .fillMaxWidth()
-                .clickable(onClick = onSongClick),
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onSongClick
+                ),
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             AsyncImage(
-                model = song.thumbnail,
+                model = coil.request.ImageRequest.Builder(LocalContext.current)
+                    .data(song.thumbnail)
+                    .crossfade(250)
+                    .build(),
                 contentDescription = song.title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
@@ -832,9 +1091,36 @@ private fun YTMusicPlaylistCard(
     playlist: com.aura.music.data.model.YTMusicPlaylist,
     onClick: () -> Unit
 ) {
+    var hasAnimated by remember { mutableStateOf(false) }
+    val scale = remember { Animatable(0.96f) }
+    val alpha = remember { Animatable(0f) }
+    
+    LaunchedEffect(Unit) {
+        if (!hasAnimated) {
+            hasAnimated = true
+            launch {
+                scale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                )
+            }
+            launch {
+                alpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 200)
+                )
+            }
+        }
+    }
+    
     Column(
         modifier = Modifier
-            .width(160.dp),
+            .width(160.dp)
+            .graphicsLayer(
+                scaleX = scale.value,
+                scaleY = scale.value,
+                alpha = alpha.value
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Surface(
@@ -846,7 +1132,10 @@ private fun YTMusicPlaylistCard(
             color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             AsyncImage(
-                model = playlist.thumbnail,
+                model = coil.request.ImageRequest.Builder(LocalContext.current)
+                    .data(playlist.thumbnail)
+                    .crossfade(250)
+                    .build(),
                 contentDescription = playlist.title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
@@ -895,16 +1184,46 @@ private fun TopArtistCard(
     artist: com.aura.music.data.remote.dto.TopArtistDto,
     onClick: () -> Unit
 ) {
+    var hasAnimated by remember { mutableStateOf(false) }
+    val scale = remember { Animatable(0.96f) }
+    val alpha = remember { Animatable(0f) }
+    
+    LaunchedEffect(Unit) {
+        if (!hasAnimated) {
+            hasAnimated = true
+            launch {
+                scale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                )
+            }
+            launch {
+                alpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 200)
+                )
+            }
+        }
+    }
+    
     Column(
         modifier = Modifier
             .width(100.dp)
+            .graphicsLayer(
+                scaleX = scale.value,
+                scaleY = scale.value,
+                alpha = alpha.value
+            )
             .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Circular artist image
         AsyncImage(
-            model = artist.thumbnail,
+            model = coil.request.ImageRequest.Builder(LocalContext.current)
+                .data(artist.thumbnail)
+                .crossfade(250)
+                .build(),
             contentDescription = artist.name,
             modifier = Modifier
                 .size(100.dp)

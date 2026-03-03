@@ -46,7 +46,7 @@ class RecentlyPlayedRepository(
      * - Offline mode has recent history available
      * - Cross-device consistency
      */
-    suspend fun syncRecentlyPlayedFromFirestore(limit: Int = 6) {
+    suspend fun syncRecentlyPlayedFromFirestore(limit: Int = 6, forceRefresh: Boolean = false) {
         val currentUserId = getCurrentUserId()
         if (currentUserId.isBlank()) {
             Log.w(TAG, "Cannot sync: no authenticated user")
@@ -54,7 +54,7 @@ class RecentlyPlayedRepository(
         }
 
         try {
-            Log.d(TAG, "Syncing recently played from Firestore for user '$currentUserId'")
+            Log.d(TAG, "Syncing recently played from Firestore for user '$currentUserId' forceRefresh=$forceRefresh")
             
             val firestoreResult = firestoreRepository.getRecentlyPlayedSongs(limit)
             firestoreResult.fold(

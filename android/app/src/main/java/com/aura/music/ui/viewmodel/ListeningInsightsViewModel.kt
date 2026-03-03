@@ -8,10 +8,14 @@ import com.aura.music.data.model.InsightsUiState
 import com.aura.music.data.model.ListeningInsights
 import com.aura.music.data.repository.ListeningInsightsRepository
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 /**
  * ViewModel for Listening Insights analytics screen.
@@ -46,9 +50,11 @@ class ListeningInsightsViewModel(
     private var cachedInsights: ListeningInsights? = null
     private var lastFetchTimeMs: Long = 0
     private var currentUserId: String? = null
+    private var dayBoundaryRefreshJob: Job? = null
 
     init {
         observeAuthStateChanges()
+        startDayBoundaryRefreshLoop()
     }
 
     /**
@@ -150,5 +156,40 @@ class ListeningInsightsViewModel(
                 }
             }
         }
+    }
+
+    private fun startDayBoundaryRefreshLoop() {
+        dayBoundaryRefreshJob?.cancel()
+        dayBoundaryRefreshJob = viewModelScope.launch {
+            while (isActive) {
+                val delayMs = millisUntilNextDayBoundary()
+                delay(delayMs)
+
+                if (auth.currentUser != null) {
+                    Log.d(TAG, "Day boundary reached, refreshing rolling insights")
+                    clearCache()
+                    loadInsights()
+                }
+            }
+        }
+    }
+
+    private fun millisUntilNextDayBoundary(): Long {
+        val now = System.currentTimeMillis()
+        val nextMidnight = Calendar.getInstance().apply {
+            timeInMillis = now
+            add(Calendar.DAY_OF_YEAR, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        return (nextMidnight - now + 1000L).coerceAtLeast(60_000L)
+    }
+
+    override fun onCleared() {
+        dayBoundaryRefreshJob?.cancel()
+        super.onCleared()
     }
 }

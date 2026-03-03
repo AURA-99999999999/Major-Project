@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
@@ -22,6 +23,7 @@ import android.util.Log
 import com.aura.music.auth.state.AuthState
 import com.aura.music.auth.viewmodel.AuthViewModel
 import com.aura.music.player.MusicService
+import com.aura.music.ui.viewmodel.HomeViewModel
 import com.aura.music.ui.screens.home.HomeScreen
 import com.aura.music.ui.screens.search.SearchScreen
 import com.aura.music.ui.screens.player.PlayerScreen
@@ -81,9 +83,15 @@ fun NavGraphBuilder.mainGraph(
     ) {
         // ==================== HOME SCREEN ====================
         composable("main/home") {
+            // Create ViewModel scoped to this NavBackStackEntry
+            val homeViewModel: HomeViewModel = viewModel(
+                factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+            )
+            
             HomeScreen(
                 musicService = musicService,
                 authState = authState,
+                viewModel = homeViewModel,
                 onNavigateToSearch = {
                     navController.navigate("main/search")
                 },

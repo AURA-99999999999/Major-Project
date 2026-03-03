@@ -54,6 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "aura_app.db"
                 )
                 .addMigrations(MIGRATION_1_2)
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .build().also { INSTANCE = it }
             }
         }

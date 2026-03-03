@@ -181,14 +181,15 @@ fun DailyMixesSection(
         
         when {
             isLoading -> {
-                // Show loading state
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
+                // Show shimmer loading state
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(horizontal = 0.dp)
                 ) {
-                    androidx.compose.material3.CircularProgressIndicator()
+                    items(4) {
+                        com.aura.music.ui.components.ShimmerDailyMixCard()
+                    }
                 }
             }
             error != null -> {
