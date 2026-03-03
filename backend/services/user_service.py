@@ -11,7 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SERVICE_ACCOUNT_FILENAME = 'aura-music-65802-firebase-adminsdk-fbsvc-86f9c08a71.json'
+# DEFAULT_SERVICE_ACCOUNT_FILENAME = 'aura-music-65802-firebase-adminsdk-fbsvc-86f9c08a71.json'
 
 try:
     import firebase_admin
@@ -21,46 +21,62 @@ except ImportError:
     FIRESTORE_AVAILABLE = False
 
 
-def _resolve_service_account_path() -> Optional[str]:
-    """Resolve Firebase service account JSON path from env and known locations."""
-    env_path = os.environ.get('FIREBASE_SERVICE_ACCOUNT_PATH')
-    if env_path and os.path.exists(env_path):
-        return env_path
+# def _resolve_service_account_path() -> Optional[str]:
+#     """Resolve Firebase service account JSON path from env and known locations."""
+#     env_path = os.environ.get('FIREBASE_SERVICE_ACCOUNT_PATH')
+#     if env_path and os.path.exists(env_path):
+#         return env_path
 
-    backend_dir = os.path.dirname(os.path.dirname(__file__))
-    candidates = [
-        os.path.join(backend_dir, DEFAULT_SERVICE_ACCOUNT_FILENAME),
-        os.path.join(os.getcwd(), DEFAULT_SERVICE_ACCOUNT_FILENAME),
-        os.path.join(os.getcwd(), 'backend', DEFAULT_SERVICE_ACCOUNT_FILENAME),
-    ]
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
-    return None
+#     backend_dir = os.path.dirname(os.path.dirname(__file__))
+#     candidates = [
+#         os.path.join(backend_dir, DEFAULT_SERVICE_ACCOUNT_FILENAME),
+#         os.path.join(os.getcwd(), DEFAULT_SERVICE_ACCOUNT_FILENAME),
+#         os.path.join(os.getcwd(), 'backend', DEFAULT_SERVICE_ACCOUNT_FILENAME),
+#     ]
+#     for candidate in candidates:
+#         if os.path.exists(candidate):
+#             return candidate
+#     return None
 
 
 def initialize_firebase_admin() -> bool:
-    """Initialize Firebase Admin SDK once, safely."""
+    """Initialize Firebase Admin SDK using environment variable (Render-safe)."""
     if not FIRESTORE_AVAILABLE:
         logger.warning("Firebase Admin SDK unavailable")
         return False
 
     try:
         if firebase_admin._apps:
+            logger.info("Firebase already initialized")
             return True
 
-        service_account_path = _resolve_service_account_path()
-        if service_account_path:
-            firebase_admin.initialize_app(credentials.Certificate(service_account_path))
-        else:
-            firebase_admin.initialize_app(credentials.ApplicationDefault())
+        # 🔍 DEBUG: Check if env variable exists
+        logger.info(f"ENV KEYS: {list(os.environ.keys())}")
 
-        logger.info("Firebase initialized successfully")
+        firebase_json_str = os.environ.get("FIREBASE_CREDENTIALS")
+
+        if not firebase_json_str:
+            logger.error("FIREBASE_CREDENTIALS environment variable NOT FOUND")
+            return False
+
+        logger.info(f"FIREBASE_CREDENTIALS length: {len(firebase_json_str)}")
+
+        # 🔍 DEBUG: Catch JSON formatting errors
+        try:
+            firebase_json = json.loads(firebase_json_str)
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid FIREBASE_CREDENTIALS JSON: {str(e)}")
+            return False
+
+        cred = credentials.Certificate(firebase_json)
+        firebase_admin.initialize_app(cred)
+
+        logger.info("Firebase initialized successfully using environment variable")
         return True
-    except Exception as e:
-        logger.error(f"Firebase initialization failed: {str(e)}")
-        return False
 
+    except Exception as e:
+        logger.error(f"Firebase initialization failed: {str(e)}", exc_info=True)
+        return False
 
 def get_firestore_client():
     """Get a connected Firestore client if possible."""
