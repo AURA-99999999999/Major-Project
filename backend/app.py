@@ -36,10 +36,10 @@ startup_db = get_firestore_client()
 if startup_db is None:
     logger.warning("Firestore not connected at startup")
 
-# Enable CORS for all origins (development mode)
-# This allows Android app and React frontend to access the API
-# In production, restrict this to specific origins
-CORS(app, origins="*", supports_credentials=True, allow_headers="*", methods="*")
+# Enable CORS with environment-based configuration
+# Defaults to all origins for development, restrict in production via environment variable
+cors_origins = os.environ.get('CORS_ORIGINS', '*').split(',')
+CORS(app, origins=cors_origins, supports_credentials=True, allow_headers="*", methods="*")
 
 # Initialize services
 music_service = MusicService(Config.YDL_OPTS)
@@ -1694,14 +1694,14 @@ def add_recently_played(user_id):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Bind to all interfaces so that physical Android devices on the same LAN
-    # can reach this development server. Never expose this setting directly to
-    # the public internet without proper hardening or a production-ready WSGI
-    # server such as gunicorn/uwsgi sitting behind a reverse proxy.
+    # Get port from environment variable, default to 5000 for local development
+    port = int(os.environ.get('PORT', 5000))
+    host = '0.0.0.0'
+    
     logger.info("========================================")
     logger.info("Starting Aura Music API Server")
-    logger.info("Server will be accessible at:")
-    logger.info("  - http://127.0.0.1:5000 (localhost)")
-    logger.info("  - http://192.168.1.3:5000 (LAN IP - for Android devices)")
+    logger.info(f"Server running on {host}:{port}")
     logger.info("========================================")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    
+    # Production uses gunicorn, debug only in development
+    app.run(host=host, port=port, debug=False)
