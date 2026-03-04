@@ -33,9 +33,9 @@ val deviceBaseUrl = normalizeBaseUrl(
     propertyOrDefault("API_BASE_URL_DEVICE", "http://192.168.0.100:5000/api")
 )
 val customBaseUrl = normalizeBaseUrl(
-    propertyOrDefault("API_BASE_URL_CUSTOM", propertyOrDefault("API_BASE_URL", emulatorBaseUrl))
+    propertyOrDefault("API_BASE_URL_CUSTOM", propertyOrDefault("API_BASE_URL", "https://aura-moox.onrender.com/api"))
 )
-val apiEnvironment = propertyOrDefault("API_ENV", "EMULATOR").uppercase()
+val apiEnvironment = propertyOrDefault("API_ENV", "CUSTOM").uppercase()
 val resolvedBaseUrl = when (apiEnvironment) {
     "DEVICE" -> deviceBaseUrl
     "CUSTOM" -> customBaseUrl
