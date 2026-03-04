@@ -14,17 +14,8 @@ class MusicService:
     """Service class for music operations"""
     
     def __init__(self, ydl_opts: dict):
-        # Log yt-dlp configuration including cookie support
-        if ydl_opts.get('cookiefile'):
-            cookie_path = ydl_opts['cookiefile']
-            if os.path.exists(cookie_path):
-                logger.info(f"✓ yt-dlp initialized with YouTube cookies for bot detection bypass: {cookie_path}")
-            else:
-                logger.warning(f"⚠ yt-dlp cookie path specified but file not found: {cookie_path}")
-                logger.warning("  Bot detection bypass unavailable; YouTube may block requests")
-        else:
-            logger.warning("⚠ yt-dlp initialized WITHOUT YouTube cookies")
-            logger.warning("  YouTube may block requests with 'Sign in to confirm you're not a bot' error")
+        logger.info("Initializing MusicService with production-grade yt-dlp configuration")
+        logger.info("yt-dlp using Android client extractor for bot detection bypass (cookie-free)")
         
         # Try to use OAuth if available, otherwise use unauthenticated
         oauth_path = 'oauth.json'
@@ -117,12 +108,12 @@ class MusicService:
             except Exception as ytmusic_error:
                 logger.warning(f"YTMusic API failed: {str(ytmusic_error)}, falling back to yt-dlp")
             
-            # Fallback: Use yt-dlp for video extraction with cookie support
+            # Fallback: Use yt-dlp with Android client extractor (production-grade, cookie-free)
             url = f'https://www.youtube.com/watch?v={video_id}'
             
             # Try with primary options first, then fallback with more permissive options
             ydl_attempts = [
-                self.ydl_opts,  # Primary: with cookies (if available), nocheckcertificate, ignoreerrors
+                self.ydl_opts,  # Primary: Android client extractor
                 {**self.ydl_opts, 'format': 'worst'},  # Fallback: any format that works
             ]
             
@@ -131,9 +122,7 @@ class MusicService:
             
             for attempt_num, opts in enumerate(ydl_attempts, 1):
                 try:
-                    has_cookies = bool(opts.get('cookiefile') and os.path.exists(opts.get('cookiefile')))
-                    cookie_status = "with cookies" if has_cookies else "without cookies"
-                    logger.info(f"yt-dlp attempt {attempt_num}/{len(ydl_attempts)} for {video_id} {cookie_status}")
+                    logger.info(f"yt-dlp attempt {attempt_num}/{len(ydl_attempts)} for {video_id} using Android client")
                     with YoutubeDL(opts) as ydl:
                         info = ydl.extract_info(url, download=False)
                     if info:
