@@ -33,7 +33,7 @@ val deviceBaseUrl = normalizeBaseUrl(
     propertyOrDefault("API_BASE_URL_DEVICE", "http://192.168.0.100:5000/api")
 )
 val customBaseUrl = normalizeBaseUrl(
-    propertyOrDefault("API_BASE_URL_CUSTOM", propertyOrDefault("API_BASE_URL", "https://aura-moox.onrender.com/api"))
+    propertyOrDefault("API_BASE_URL_CUSTOM", propertyOrDefault("API_BASE_URL", "https://aura-b7vm.onrender.com/api"))
 )
 val apiEnvironment = propertyOrDefault("API_ENV", "CUSTOM").uppercase()
 val resolvedBaseUrl = when (apiEnvironment) {
