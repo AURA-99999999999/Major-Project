@@ -3,6 +3,7 @@ package com.aura.music.data.repository
 import android.util.Log
 import com.aura.music.data.mapper.toPlaylist
 import com.aura.music.data.mapper.toPlaylists
+import com.aura.music.data.mapper.toSaavnArtists
 import com.aura.music.data.mapper.toSearchResults
 import com.aura.music.data.mapper.toSong
 import com.aura.music.data.mapper.toSongDtoMap
@@ -10,122 +11,177 @@ import com.aura.music.data.mapper.toSongs
 import com.aura.music.data.mapper.toUser
 import com.aura.music.data.model.CollaborativeSection
 import com.aura.music.data.model.HomeData
+import com.aura.music.data.model.JioSaavnPlaylist
 import com.aura.music.data.model.Playlist
 import com.aura.music.data.model.SearchResults
 import com.aura.music.data.model.Song
+import com.aura.music.data.model.TrendingData
 import com.aura.music.data.model.User
 import com.aura.music.data.remote.MusicApi
+import com.aura.music.data.remote.dto.AddSongToPlaylistRequest
 import com.aura.music.data.remote.dto.LoginRequest
+import com.aura.music.data.remote.dto.PlaylistSongRequest
 import com.aura.music.data.remote.dto.RegisterRequest
+import com.aura.music.data.remote.dto.TrackEventRequest
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 class MusicRepository(
     private val api: MusicApi,
     private val firestoreLogger: FirestoreLogger = NoOpFirestoreLogger
 ) {
-    suspend fun searchSongs(query: String, limit: Int = 20): Result<List<Song>> {
+    private fun toTrackingSongPayload(song: Song): Map<String, Any> {
+        val artistValue = song.artist?.takeIf { it.isNotBlank() }
+            ?: song.artists?.firstOrNull()?.takeIf { it.isNotBlank() }
+            ?: ""
+
+        val yearValue = song.year.takeIf { it.isNotBlank() && it != "unknown" } ?: ""
+
+        return mapOf(
+            "id" to song.videoId,
+            "title" to song.title,
+            "album" to (song.album ?: ""),
+            "artist" to artistValue,
+            "language" to song.language,
+            "global_play_count" to song.playCount,
+            "starring" to (song.starring ?: ""),
+            "image" to (song.thumbnail ?: ""),
+            "url" to (song.url ?: ""),
+            "year" to yearValue,
+        )
+    }
+
+    suspend fun trackPlayEvent(song: Song): Result<Unit> {
         return try {
-            safeLog { 
-                Log.d(TAG, "========================================")
-                Log.d(TAG, "searchSongs() called (DEPRECATED - use searchAllCategories)")
-                Log.d(TAG, "Query: $query")
-                Log.d(TAG, "Limit: $limit")
-                Log.d(TAG, "========================================")
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid.isNullOrBlank()) {
+                return Result.failure(Exception("User not authenticated"))
             }
-            try {
-                firestoreLogger.logSearch(query)
-                    .onFailure { error ->
-                        safeLog { Log.w(TAG, "searchSongs() - Firestore logSearch failed", error) }
-                    }
-            } catch (e: Exception) {
-                safeLog { Log.w(TAG, "searchSongs() - Firestore logSearch threw", e) }
-            }
-            
-            // Use new multi-category search but only return songs for backward compatibility
-            val response = api.searchAllCategories(query)
-            if (response.success && response.songs != null) {
-                safeLog { 
-                    Log.d(TAG, "========================================")
-                    Log.d(TAG, "searchSongs() SUCCESS")
-                    Log.d(TAG, "Results count: ${response.songs.size}")
-                    Log.d(TAG, "========================================")
-                }
-                Result.success(response.songs.toSongs())
+
+            val response = api.trackPlay(
+                TrackEventRequest(
+                    uid = uid,
+                    song = toTrackingSongPayload(song)
+                )
+            )
+
+            if (response.success) {
+                Result.success(Unit)
             } else {
-                val error = response.error ?: "Search failed"
-                safeLog { 
-                    Log.w(TAG, "========================================")
-                    Log.w(TAG, "searchSongs() API ERROR")
-                    Log.w(TAG, "Error: $error")
-                    Log.w(TAG, "========================================")
-                }
-                Result.failure(Exception(error))
+                Result.failure(Exception(response.error ?: "Failed to track play"))
             }
         } catch (e: Exception) {
-            safeLog { 
-                Log.e(TAG, "========================================")
-                Log.e(TAG, "searchSongs() EXCEPTION")
-                Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
-                Log.e(TAG, "Exception message: ${e.message}")
-                Log.e(TAG, "Stack trace:", e)
-                Log.e(TAG, "========================================")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun trackLikeEvent(song: Song): Result<Unit> {
+        return try {
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid.isNullOrBlank()) return Result.failure(Exception("User not authenticated"))
+
+            val response = api.trackLike(
+                TrackEventRequest(
+                    uid = uid,
+                    song = toTrackingSongPayload(song)
+                )
+            )
+
+            if (response.success) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(response.error ?: "Failed to track like"))
             }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun searchSongs(query: String, limit: Int = 20): Result<List<Song>> {
+        return try {
+            val response = api.searchAllCategories(query)
+            if (response.success) {
+                Result.success(response.songs?.toSongs().orEmpty().take(limit))
+            } else {
+                Result.failure(Exception(response.error ?: "Search failed"))
+            }
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     suspend fun searchAllCategories(query: String): Result<SearchResults> {
         return try {
-            safeLog { 
-                Log.d(TAG, "========================================")
-                Log.d(TAG, "searchAllCategories() called")
-                Log.d(TAG, "Query: $query")
-                Log.d(TAG, "========================================")
-            }
-            try {
-                firestoreLogger.logSearch(query)
-                    .onFailure { error ->
-                        safeLog { Log.w(TAG, "searchAllCategories() - Firestore logSearch failed", error) }
-                    }
-            } catch (e: Exception) {
-                safeLog { Log.w(TAG, "searchAllCategories() - Firestore logSearch threw", e) }
-            }
-            
             val response = api.searchAllCategories(query)
-            if (response.success) {
-                val searchResults = response.toSearchResults()
-                safeLog { 
-                    Log.d(TAG, "========================================")
-                    Log.d(TAG, "searchAllCategories() SUCCESS")
-                    Log.d(TAG, "Songs: ${searchResults.songs.size}")
-                    Log.d(TAG, "Albums: ${searchResults.albums.size}")
-                    Log.d(TAG, "Artists: ${searchResults.artists.size}")
-                    Log.d(TAG, "Playlists: ${searchResults.playlists.size}")
-                    Log.d(TAG, "Total: ${searchResults.count}")
-                    Log.d(TAG, "========================================")
+            val saavnArtists = try {
+                val saavnResponse = api.searchArtists(query)
+                if (saavnResponse.success) {
+                    saavnResponse.data.results.toSaavnArtists()
+                } else {
+                    emptyList()
                 }
-                Result.success(searchResults)
-            } else {
-                val error = response.error ?: "Search failed"
-                safeLog { 
-                    Log.w(TAG, "========================================")
-                    Log.w(TAG, "searchAllCategories() API ERROR")
-                    Log.w(TAG, "Error: $error")
-                    Log.w(TAG, "========================================")
-                }
-                Result.failure(Exception(error))
+            } catch (e: Exception) {
+                emptyList()
             }
+
+            if (!response.success) {
+                return Result.failure(Exception(response.error ?: "Search failed"))
+            }
+
+            val baseResults = response.toSearchResults()
+            Result.success(
+                SearchResults(
+                    songs = baseResults.songs,
+                    albums = baseResults.albums,
+                    artists = saavnArtists.take(SEARCH_CATEGORY_LIMIT),
+                    playlists = baseResults.playlists,
+                    count = baseResults.songs.size + baseResults.albums.size + saavnArtists.take(SEARCH_CATEGORY_LIMIT).size + baseResults.playlists.size,
+                    query = query,
+                )
+            )
         } catch (e: Exception) {
-            safeLog { 
-                Log.e(TAG, "========================================")
-                Log.e(TAG, "searchAllCategories() EXCEPTION")
-                Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
-                Log.e(TAG, "Exception message: ${e.message}")
-                Log.e(TAG, "Stack trace:", e)
-                Log.e(TAG, "========================================")
-            }
             Result.failure(e)
         }
+    }
+
+    private fun limitAndDedupeSearchResults(results: SearchResults): SearchResults {
+        val songs = results.songs
+            .distinctBy { song ->
+                val id = song.videoId.trim()
+                if (id.isNotEmpty()) id else "${song.title}|${song.artist.orEmpty()}"
+            }
+            .take(SEARCH_CATEGORY_LIMIT)
+
+        val albums = results.albums
+            .distinctBy { album ->
+                val id = album.browseId.trim()
+                if (id.isNotEmpty()) id else "${album.title}|${album.artists.joinToString(",")}"
+            }
+            .take(SEARCH_CATEGORY_LIMIT)
+
+        val artists = results.artists
+            .distinctBy { artist ->
+                val id = artist.browseId.trim()
+                if (id.isNotEmpty()) id else artist.name
+            }
+            .take(SEARCH_CATEGORY_LIMIT)
+
+        val playlists = results.playlists
+            .distinctBy { playlist ->
+                val id = playlist.playlistId.trim()
+                if (id.isNotEmpty()) id else playlist.browseId.trim().ifEmpty { playlist.title }
+            }
+            .take(SEARCH_CATEGORY_LIMIT)
+
+        return results.copy(
+            songs = songs,
+            albums = albums,
+            artists = artists,
+            playlists = playlists,
+            count = songs.size + albums.size + artists.size + playlists.size
+        )
     }
 
     suspend fun getSearchSuggestions(query: String): Result<List<String>> {
@@ -168,14 +224,45 @@ class MusicRepository(
         return try {
             safeLog { Log.d(TAG, "getArtistDetails() browseId=$browseId") }
             val response = api.getArtistDetails(browseId)
-            if (response.success && response.artist != null) {
-                safeLog { Log.d(TAG, "getArtistDetails() success: ${response.artist.name}") }
-                Result.success(response.artist)
-            } else {
-                val error = response.error ?: "Failed to get artist details"
-                safeLog { Log.w(TAG, "getArtistDetails() failed: $error") }
-                Result.failure(Exception(error))
+            val mappedSongs = response.songs.map { song ->
+                com.aura.music.data.model.Song(
+                    videoId = song.id,
+                    title = song.name,
+                    artist = song.primaryArtists,
+                    artists = song.primaryArtists?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() },
+                    thumbnail = song.image,
+                    duration = null,
+                    url = song.mediaUrl,
+                    album = song.album,
+                    artistId = browseId
+                )
             }
+
+            val mappedAlbums = response.albums.map { album ->
+                com.aura.music.data.remote.dto.ArtistAlbumDto(
+                    browseId = album.query ?: "",
+                    title = album.title,
+                    thumbnail = album.image ?: "",
+                    year = null,
+                    type = "album"
+                )
+            }
+
+            val mappedArtist = com.aura.music.data.remote.dto.ArtistDetailDto(
+                artistId = browseId,
+                name = response.artist,
+                thumbnail = mappedSongs.firstOrNull()?.thumbnail ?: "",
+                subscribers = null,
+                description = null,
+                topSongs = mappedSongs,
+                albums = mappedAlbums
+            )
+
+            safeLog {
+                Log.d(TAG, "getArtistDetails() success: ${mappedArtist.name}")
+                Log.d(TAG, "getArtistDetails() songs=${mappedArtist.topSongs.size} albums=${mappedArtist.albums.size}")
+            }
+            Result.success(mappedArtist)
         } catch (e: Exception) {
             safeLog { Log.e(TAG, "getArtistDetails() exception", e) }
             Result.failure(e)
@@ -218,128 +305,120 @@ class MusicRepository(
         }
     }
 
+    /**
+     * Fetches trending songs grouped by language (Hindi, Telugu, English)
+     * Matches web app.js implementation using JioSaavn search queries.
+     */
+    suspend fun getTrendingByLanguage(): Result<TrendingData> = Result.success(TrendingData())
+
+    /**
+     * Legacy getTrending() for backward compatibility.
+     * Returns all trending songs combined.
+     */
     suspend fun getTrending(limit: Int = 20): Result<List<Song>> {
         return try {
-            safeLog { Log.d(TAG, "getTrending() limit=$limit") }
-            val response = api.getTrending(limit)
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            val response = api.getTrending(limit, uid)
             if (response.success && response.results != null) {
-                safeLog { Log.d(TAG, "getTrending() success count=${response.results.size}") }
                 Result.success(response.results.toSongs())
             } else {
-                val error = response.error ?: "Failed to get trending"
-                safeLog { Log.w(TAG, "getTrending() failed: $error") }
-                Result.failure(Exception(error))
+                Result.failure(Exception(response.error ?: "Trending failed"))
             }
         } catch (e: Exception) {
-            safeLog { Log.e(TAG, "getTrending() exception", e) }
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getFreshPicks(limit: Int = 15): Result<List<Song>> {
+        return try {
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            val response = api.getFreshPicks(uid = uid, limit = limit)
+            val songs = when {
+                response.songs != null -> response.songs.toSongs()
+                response.results != null -> response.results.toSongs()
+                else -> emptyList()
+            }
+
+            if (response.success) {
+                Result.success(songs)
+            } else {
+                Result.failure(Exception(response.error ?: "Fresh picks failed"))
+            }
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     suspend fun getHomeData(forceRefresh: Boolean = false): Result<HomeData> {
         return try {
-            // STEP 1: Get current user ID for CF recommendations
-            val uid = FirebaseAuth.getInstance().currentUser?.uid
-            safeLog { Log.d(TAG, "[HOME_API] Fetching home data with uid=${uid ?: "null"} forceRefresh=$forceRefresh") }
-            
-            // STEP 2: Make API call with uid parameter
-            val response = api.getHome(uid = uid)
-            
-            // STEP 3: Log raw response structure
-            safeLog { 
-                Log.d(TAG, "════════════════════════════════════════")
-                Log.d(TAG, "[HOME_API] Raw Response from /api/home:")
-                Log.d(TAG, "[HOME_API]   - trending size: ${response.trending?.size ?: 0}")
-                Log.d(TAG, "[HOME_API]   - recommendations size: ${response.recommendations?.size ?: 0}")
-                Log.d(TAG, "[HOME_API]   - collaborative size: ${response.collaborative?.size ?: 0}")
-                Log.d(TAG, "[HOME_API]   - CF section exists: ${response.collaborativeRecommendations != null}")
-                if (response.collaborativeRecommendations != null) {
-                    Log.d(TAG, "[HOME_API]   - CF tracks size: ${response.collaborativeRecommendations.tracks?.size ?: 0}")
-                    Log.d(TAG, "[HOME_API]   - CF title: ${response.collaborativeRecommendations.title}")
-                }
-                Log.d(TAG, "════════════════════════════════════════")
-            }
-            
-            val trending = response.trending?.toSongs().orEmpty()
+            val freshPicksResult = getFreshPicks(limit = 15)
+            val response = api.getHome(uid = FirebaseAuth.getInstance().currentUser?.uid)
+            val trending = freshPicksResult.getOrDefault(response.trending?.toSongs().orEmpty())
             val recommendations = response.recommendations?.toSongs().orEmpty()
-            
-            // STEP 4: Extract collaborative recommendations if available
             val collaborative = response.collaborative?.toSongs().orEmpty()
-            safeLog { Log.d(TAG, "[HOME_REPO] ✓ Collaborative (flat): ${collaborative.size} songs") }
-            
-            // STEP 4b: Extract nested collaborative recommendations if available (legacy)
-            val collaborativeSection = response.collaborativeRecommendations?.let { cfDto ->
-                val tracks = cfDto.tracks?.toSongs() ?: emptyList()
-                safeLog { Log.d(TAG, "[HOME_PARSE] ✓ CF nested section: ${tracks.size} songs") }
-                
-                CollaborativeSection(
-                    title = cfDto.title ?: "Users like you also listen to",
-                    tracks = tracks,
-                    count = cfDto.count ?: 0
+
+            Result.success(
+                HomeData(
+                    trendingData = TrendingData(),
+                    trending = trending,
+                    recommendations = recommendations,
+                    collaborative = collaborative,
                 )
-            }
-            
-            // STEP 5: Log parsed data and validation
-            safeLog { 
-                Log.d(TAG, "════════════════════════════════════════")
-                Log.d(TAG, "[HOME_REPO] Parsed HomeData:")
-                Log.d(TAG, "[HOME_REPO]   ✓ Trending: ${trending.size}")
-                Log.d(TAG, "[HOME_REPO]   ✓ Recommendations: ${recommendations.size}")
-                Log.d(TAG, "[HOME_REPO]   ✓ Collaborative (flat): ${collaborative.size}")
-                Log.d(TAG, "[HOME_REPO]   ✓ CF Section: ${collaborativeSection?.tracks?.size ?: 0} (nested)")
-                Log.d(TAG, "════════════════════════════════════════")
-            }
-            
-            // STEP 6: Validation - Check for swapped fields
-            if (recommendations.isEmpty() && collaborative.isNotEmpty()) {
-                Log.w(TAG, "[HOME_REPO] ⚠ WARNING: recommendations is empty but collaborative has data")
-            }
-            if (recommendations.isNotEmpty() && collaborative.isEmpty()) {
-                Log.w(TAG, "[HOME_REPO] ⚠ WARNING: recommendations has data but collaborative is empty")
-            }
-            
-            Result.success(HomeData(
-                trending = trending,
-                recommendations = recommendations,
-                collaborativeRecommendations = collaborativeSection,
-                collaborative = collaborative
-            ))
+            )
         } catch (e: Exception) {
-            safeLog { Log.e(TAG, "[HOME_REPO] Exception in getHomeData()", e) }
             Result.failure(e)
         }
     }
 
     suspend fun fetchUserRecommendations(): List<Song> {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid
-            ?: return emptyList()
-
         return try {
-            val response = api.getRecommendations(uid)
-            response.results.toSongs()
-        } catch (e: Exception) {
-            safeLog { Log.e(TAG, "fetchUserRecommendations() exception", e) }
+            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: "guest"
+            api.getRecommendations(uid).results.toSongs()
+        } catch (_: Exception) {
             emptyList()
         }
     }
 
-    suspend fun getTopArtists(limit: Int = 10, forceRefresh: Boolean = false): Result<List<com.aura.music.data.remote.dto.TopArtistDto>> {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid
-        if (uid == null) {
-            safeLog { Log.w(TAG, "getTopArtists() - No authenticated user") }
-            return Result.success(emptyList())
-        }
-
+    suspend fun fetchCollaborativeRecommendations(limit: Int = 12): Result<CollaborativeSection> {
         return try {
-            safeLog { Log.d(TAG, "getTopArtists() uid=$uid limit=$limit forceRefresh=$forceRefresh") }
-            val response = api.getTopArtists(uid, limit)
-            if (response.success) {
-                safeLog { Log.d(TAG, "getTopArtists() success: ${response.count} artists") }
-                Result.success(response.artists)
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid.isNullOrBlank() || uid == "guest") {
+                return Result.success(
+                    CollaborativeSection(
+                        title = "Users Like You Also Listen To",
+                        tracks = emptyList(),
+                        count = 0
+                    )
+                )
+            }
+
+            val response = api.getCollaborativeRecommendations(uid = uid, limit = limit)
+            val tracks = response.results.toSongs()
+            Result.success(
+                CollaborativeSection(
+                    title = "Users Like You Also Listen To",
+                    tracks = tracks,
+                    count = tracks.size
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getTopArtists(limit: Int = 10, forceRefresh: Boolean = false): Result<List<com.aura.music.data.remote.dto.TopArtistDto>> {
+        return try {
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid.isNullOrBlank()) {
+                Result.success(emptyList())
             } else {
-                val error = response.error ?: "Failed to fetch top artists"
-                safeLog { Log.w(TAG, "getTopArtists() failed: $error") }
-                Result.failure(Exception(error))
+                safeLog { Log.d(TAG, "getTopArtists() uid=$uid limit=$limit") }
+                val response = api.getTopArtists(uid = uid, limit = limit)
+                if (response.success) {
+                    Result.success(response.artists)
+                } else {
+                    Result.failure(Exception(response.error ?: "Failed to get top artists"))
+                }
             }
         } catch (e: Exception) {
             safeLog { Log.e(TAG, "getTopArtists() exception", e) }
@@ -348,75 +427,49 @@ class MusicRepository(
     }
 
     suspend fun getDailyMixes(refresh: Boolean = false): Result<com.aura.music.data.remote.dto.DailyMixResponse> {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid
-        if (uid == null) {
-            safeLog { Log.w(TAG, "getDailyMixes() - No authenticated user") }
-            return Result.failure(Exception("User not authenticated"))
-        }
-
         return try {
-            safeLog { Log.d(TAG, "getDailyMixes() uid=$uid refresh=$refresh") }
-            val response = api.getDailyMixes(uid, refresh)
-            
-            safeLog { 
-                Log.d(TAG, "getDailyMixes() success - " +
-                    "daily1=${response.mixes?.dailyMix1?.count ?: 0}, " +
-                    "daily2=${response.mixes?.dailyMix2?.count ?: 0}, " +
-                    "discover=${response.mixes?.discoverMix?.count ?: 0}, " +
-                    "mood=${response.mixes?.moodMix?.count ?: 0}")
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid.isNullOrBlank() || uid == "guest") {
+                Result.failure(Exception("User not authenticated"))
+            } else {
+                safeLog { Log.d(TAG, "getDailyMixes() uid=$uid refresh=$refresh") }
+                Result.success(api.getDailyMixes(uid = uid, refresh = refresh))
             }
-            Result.success(response)
         } catch (e: Exception) {
             safeLog { Log.e(TAG, "getDailyMixes() exception", e) }
             Result.failure(e)
         }
     }
 
-    suspend fun getTrendingPlaylists(limit: Int = 10, forceRefresh: Boolean = false): Result<List<com.aura.music.data.model.YTMusicPlaylist>> {
-        return try {
-            safeLog { Log.d(TAG, "getTrendingPlaylists() limit=$limit forceRefresh=$forceRefresh") }
-            val response = api.getTrendingPlaylists(limit)
-            if (response.success) {
-                val playlists = response.playlists.map { it.toYTMusicPlaylist() }
-                safeLog { Log.d(TAG, "getTrendingPlaylists() success count=${playlists.size}") }
-                Result.success(playlists)
-            } else {
-                safeLog { Log.w(TAG, "getTrendingPlaylists() failed") }
-                Result.failure(Exception("Failed to get trending playlists"))
-            }
-        } catch (e: Exception) {
-            safeLog { Log.e(TAG, "getTrendingPlaylists() exception", e) }
-            Result.failure(e)
-        }
+    suspend fun getTrendingPlaylists(limit: Int = 10, forceRefresh: Boolean = false): Result<List<JioSaavnPlaylist>> {
+        return Result.success(emptyList())
     }
 
     suspend fun getMoodCategories(): Result<List<com.aura.music.data.model.MoodCategory>> {
-        return try {
-            safeLog { Log.d(TAG, "getMoodCategories()") }
-            val response = api.getMoodCategories()
-            if (response.success) {
-                val categories = response.categories.map { it.toMoodCategory() }
-                val filteredCategories = filterSupportedMoods(categories)
-                safeLog { 
-                    Log.d(TAG, "getMoodCategories() total=${categories.size} filtered=${filteredCategories.size}") 
-                }
-                Result.success(filteredCategories)
-            } else {
-                safeLog { Log.w(TAG, "getMoodCategories() failed") }
-                Result.failure(Exception("Failed to get mood categories"))
-            }
-        } catch (e: Exception) {
-            safeLog { Log.e(TAG, "getMoodCategories() exception", e) }
-            Result.failure(e)
-        }
+        return Result.success(
+            listOf(
+                com.aura.music.data.model.MoodCategory("Chill", "Chill"),
+                com.aura.music.data.model.MoodCategory("Workout", "Workout"),
+                com.aura.music.data.model.MoodCategory("Party", "Party"),
+                com.aura.music.data.model.MoodCategory("Focus", "Focus"),
+                com.aura.music.data.model.MoodCategory("Romantic", "Romantic"),
+                com.aura.music.data.model.MoodCategory("Energetic", "Energetic"),
+                com.aura.music.data.model.MoodCategory("Sad", "Sad"),
+                com.aura.music.data.model.MoodCategory("Happy", "Happy"),
+                com.aura.music.data.model.MoodCategory("Meditation", "Meditation"),
+                com.aura.music.data.model.MoodCategory("Sleep", "Sleep"),
+                com.aura.music.data.model.MoodCategory("Study", "Study"),
+                com.aura.music.data.model.MoodCategory("Driving", "Driving"),
+            )
+        )
     }
 
-    suspend fun getMoodPlaylists(params: String, limit: Int = 10): Result<List<com.aura.music.data.model.YTMusicPlaylist>> {
+    suspend fun getMoodPlaylists(mood: String, limit: Int = 10): Result<List<JioSaavnPlaylist>> {
         return try {
-            safeLog { Log.d(TAG, "getMoodPlaylists() params=$params limit=$limit") }
-            val response = api.getMoodPlaylists(params, limit)
+            safeLog { Log.d(TAG, "getMoodPlaylists() mood=$mood limit=$limit") }
+            val response = api.getMoodPlaylists(mood, limit)
             if (response.success) {
-                val playlists = response.playlists.map { it.toYTMusicPlaylist() }
+                val playlists = response.playlists.map { it.toJioSaavnPlaylist() }
                 safeLog { Log.d(TAG, "getMoodPlaylists() success count=${playlists.size}") }
                 Result.success(playlists)
             } else {
@@ -429,28 +482,63 @@ class MusicRepository(
         }
     }
 
-    suspend fun getYTMusicPlaylistSongs(playlistId: String, limit: Int = 50): Result<com.aura.music.data.model.YTMusicPlaylistDetail> {
+    suspend fun getYTMusicPlaylistSongs(playlistId: String, limit: Int = 50): Result<com.aura.music.data.model.PlaylistDetail> {
         return try {
+            if (playlistId.startsWith("http", ignoreCase = true)) {
+                return getJioSaavnPlaylistSongs(playlistId)
+            }
             safeLog { Log.d(TAG, "getYTMusicPlaylistSongs() playlistId=$playlistId limit=$limit") }
-            val response = api.getYTMusicPlaylistSongs(playlistId, limit)
-            if (response.success) {
-                val playlistDetail = com.aura.music.data.model.YTMusicPlaylistDetail(
-                    id = response.playlist.id,
-                    title = response.playlist.title,
-                    description = response.playlist.description ?: "",
-                    thumbnail = response.playlist.thumbnail ?: "",
-                    author = response.playlist.author ?: "YouTube Music",
-                    songCount = response.playlist.songCount,
-                    songs = response.songs.toSongs()
+            // For ID-based playlists, use the detail endpoint because it already returns
+            // playlist metadata + songs in the schema the app expects.
+            val response = api.getYTPlaylistDetails(playlistId)
+            if (response.success && response.playlist != null) {
+                val playlistDto = response.playlist
+                val playlistDetail = com.aura.music.data.model.PlaylistDetail(
+                    id = playlistDto.playlistId,
+                    title = playlistDto.title,
+                    description = playlistDto.description ?: "",
+                    thumbnail = playlistDto.thumbnail,
+                    author = playlistDto.author,
+                    songCount = playlistDto.trackCount,
+                    songs = playlistDto.songs.take(limit)
                 )
                 safeLog { Log.d(TAG, "getYTMusicPlaylistSongs() success songCount=${playlistDetail.songs.size}") }
                 Result.success(playlistDetail)
             } else {
-                safeLog { Log.w(TAG, "getYTMusicPlaylistSongs() failed") }
-                Result.failure(Exception("Failed to get playlist songs"))
+                val error = response.error ?: "Failed to get playlist songs"
+                safeLog { Log.w(TAG, "getYTMusicPlaylistSongs() failed: $error") }
+                Result.failure(Exception(error))
             }
         } catch (e: Exception) {
             safeLog { Log.e(TAG, "getYTMusicPlaylistSongs() exception", e) }
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun getJioSaavnPlaylistSongs(playlistUrl: String): Result<com.aura.music.data.model.PlaylistDetail> {
+        return try {
+            safeLog { Log.d(TAG, "getJioSaavnPlaylistSongs() playlist_url=$playlistUrl") }
+            val response = api.getPlaylistSongsByUrl(playlistUrl)
+            if (!response.success) {
+                return Result.failure(Exception(response.error ?: "Failed to get playlist songs"))
+            }
+
+            val songs = response.data.orEmpty().map { it.toSong() }
+
+            val playlistDetail = com.aura.music.data.model.PlaylistDetail(
+                id = playlistUrl,
+                title = "Playlist",
+                description = "",
+                thumbnail = songs.firstOrNull()?.thumbnail.orEmpty(),
+                author = "JioSaavn",
+                songCount = songs.size,
+                songs = songs
+            )
+
+            safeLog { Log.d(TAG, "getJioSaavnPlaylistSongs() success songCount=${songs.size}") }
+            Result.success(playlistDetail)
+        } catch (e: Exception) {
+            safeLog { Log.e(TAG, "getJioSaavnPlaylistSongs() exception", e) }
             Result.failure(e)
         }
     }
@@ -543,9 +631,24 @@ class MusicRepository(
         userId: String
     ): Result<Playlist> {
         return try {
-            val body = mapOf(
-                "userId" to userId,
-                "song" to song.toSongDtoMap()
+            val artistValue = song.artist?.takeIf { it.isNotBlank() }
+                ?: song.artists?.firstOrNull()?.takeIf { it.isNotBlank() }
+                ?: ""
+
+            val body = AddSongToPlaylistRequest(
+                userId = userId,
+                song = PlaylistSongRequest(
+                    videoId = song.videoId,
+                    title = song.title,
+                    artist = artistValue,
+                    artists = song.artists ?: emptyList(),
+                    starring = song.starring ?: "",
+                    thumbnail = song.thumbnail ?: "",
+                    duration = song.duration ?: "",
+                    url = song.url ?: "",
+                    album = song.album ?: "",
+                    artistId = song.artistId ?: ""
+                )
             )
             val response = api.addSongToPlaylist(playlistId, body)
             if (response.success && response.playlist != null) {
@@ -681,6 +784,7 @@ class MusicRepository(
 
     companion object {
         private const val TAG = "MusicRepository"
+        private const val SEARCH_CATEGORY_LIMIT = 5
         
         /**
          * Supported mood categories that have API backend support.

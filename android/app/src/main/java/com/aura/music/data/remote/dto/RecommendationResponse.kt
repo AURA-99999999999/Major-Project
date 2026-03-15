@@ -10,3 +10,14 @@ data class RecommendationResponse(
     @SerializedName("source")
     val source: String
 )
+
+data class CollaborativeRecommendationResponse(
+    @SerializedName("count")
+    val count: Int,
+    @SerializedName("results")
+    val results: List<SongDto>,
+    @SerializedName("source")
+    val source: String,
+    @SerializedName("title")
+    val title: String? = null
+)

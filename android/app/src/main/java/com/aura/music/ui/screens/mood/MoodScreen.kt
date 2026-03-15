@@ -55,8 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.aura.music.data.model.JioSaavnPlaylist
 import com.aura.music.data.model.Song
-import com.aura.music.data.model.YTMusicPlaylist
 import com.aura.music.di.ServiceLocator
 import com.aura.music.player.MusicService
 import com.aura.music.ui.utils.MoodGradientMapper
@@ -72,7 +72,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun MoodScreen(
     moodTitle: String,
-    moodParams: String,
+    mood: String,
     musicService: MusicService?,
     onNavigateBack: () -> Unit,
     onNavigateToPlaylist: (String) -> Unit
@@ -80,7 +80,7 @@ fun MoodScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     
     var isLoading by remember { mutableStateOf(true) }
-    var playlists by remember { mutableStateOf<List<YTMusicPlaylist>>(emptyList()) }
+    var playlists by remember { mutableStateOf<List<JioSaavnPlaylist>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
 
     // Mood-based colors and descriptions
@@ -96,12 +96,12 @@ fun MoodScreen(
         MoodIconMapper.getIconContentDescription(moodTitle)
     }
 
-    LaunchedEffect(moodParams) {
+    LaunchedEffect(mood) {
         isLoading = true
         try {
             val repository = ServiceLocator.getMusicRepository()
             val response = withContext(Dispatchers.IO) {
-                repository.getMoodPlaylists(moodParams, limit = 20)
+                repository.getMoodPlaylists(mood, limit = 20)
             }
             
             response.onSuccess { loadedPlaylists ->
@@ -287,7 +287,7 @@ fun MoodScreen(
                                             // This would ideally aggregate tracks from top playlists
                                             // For now, just navigate to first playlist
                                             if (playlists.isNotEmpty()) {
-                                                onNavigateToPlaylist(playlists.first().playlistId)
+                                                onNavigateToPlaylist(playlists.first().id)
                                             }
                                         },
                                         modifier = Modifier
@@ -340,7 +340,7 @@ fun MoodScreen(
                         items(playlists) { playlist ->
                             PlaylistCard(
                                 playlist = playlist,
-                                onClick = { onNavigateToPlaylist(playlist.playlistId) }
+                                onClick = { onNavigateToPlaylist(playlist.id) }
                             )
                         }
 
@@ -357,9 +357,12 @@ fun MoodScreen(
 
 @Composable
 private fun PlaylistCard(
-    playlist: YTMusicPlaylist,
+    playlist: JioSaavnPlaylist,
     onClick: () -> Unit
 ) {
+    val safeName = playlist.name.ifBlank { "Untitled Playlist" }
+    val safeImage = playlist.image.ifBlank { null }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -377,8 +380,8 @@ private fun PlaylistCard(
         ) {
             // Playlist Artwork
             AsyncImage(
-                model = playlist.thumbnail.takeIf { it.isNotEmpty() },
-                contentDescription = playlist.title,
+                model = safeImage,
+                contentDescription = safeName,
                 modifier = Modifier
                     .size(72.dp)
                     .clip(RoundedCornerShape(8.dp))
@@ -392,7 +395,7 @@ private fun PlaylistCard(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = playlist.title,
+                    text = safeName,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -400,9 +403,9 @@ private fun PlaylistCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 
-                if (playlist.description.isNotEmpty()) {
+                if (playlist.song_count > 0) {
                     Text(
-                        text = playlist.description,
+                        text = "${playlist.song_count} songs",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

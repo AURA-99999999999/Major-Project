@@ -4,8 +4,25 @@ Test script to verify Collaborative Filtering is working and appearing on home s
 import requests
 import json
 import sys
+import pytest
 
 BASE_URL = "http://localhost:5000"  # Adjust if your Flask app runs on a different port
+
+
+@pytest.fixture
+def uid():
+    """Default user id for integration smoke tests."""
+    return "test_user_123"
+
+
+@pytest.fixture
+def server_available():
+    """Skip integration tests when local Flask server is not running."""
+    try:
+        response = requests.get(f"{BASE_URL}/api/health", timeout=3)
+        return response.status_code == 200
+    except Exception:
+        return False
 
 def print_section(title):
     """Print a section header"""
@@ -13,8 +30,11 @@ def print_section(title):
     print(title)
     print("=" * 60)
 
-def test_cf_debug(uid):
+def test_cf_debug(uid, server_available):
     """Test the CF debug endpoint"""
+    if not server_available:
+        pytest.skip("Local Flask server is not running on localhost:5000")
+
     print_section("1. Testing CF Debug Endpoint")
     
     url = f"{BASE_URL}/api/debug/cf-status?uid={uid}"
@@ -40,21 +60,25 @@ def test_cf_debug(uid):
             if data['similar_users']['similarity_scores']:
                 print(f"  Similarity Scores: {data['similar_users']['similarity_scores'][:3]}")
             
-            return data
+            assert isinstance(data, dict)
+            assert "diagnostics" in data
         else:
             print(f"✗ Error: {response.text}")
-            return None
+            pytest.fail(f"CF debug endpoint failed with status {response.status_code}")
             
     except requests.exceptions.ConnectionError:
         print("\n✗ Error: Could not connect to Flask server!")
         print("  Make sure the Flask app is running: python app.py")
-        return None
+        pytest.skip("Flask server is not reachable")
     except Exception as e:
         print(f"\n✗ Error: {str(e)}")
-        return None
+        pytest.fail(f"Unexpected error: {e}")
 
-def test_cf_recommendations(uid):
+def test_cf_recommendations(uid, server_available):
     """Test the CF recommendations endpoint"""
+    if not server_available:
+        pytest.skip("Local Flask server is not running on localhost:5000")
+
     print_section("2. Testing CF Recommendations Endpoint")
     
     url = f"{BASE_URL}/api/recommendations/collaborative?uid={uid}&limit=10&debug=true"
@@ -81,17 +105,21 @@ def test_cf_recommendations(uid):
             else:
                 print("\n  ⚠ No recommendations returned")
             
-            return data
+            assert isinstance(data, dict)
+            assert "results" in data
         else:
             print(f"✗ Error: {response.text}")
-            return None
+            pytest.fail(f"CF recommendations endpoint failed with status {response.status_code}")
             
     except Exception as e:
         print(f"\n✗ Error: {str(e)}")
-        return None
+        pytest.fail(f"Unexpected error: {e}")
 
-def test_home_endpoint(uid):
+def test_home_endpoint(uid, server_available):
     """Test the home endpoint with CF section"""
+    if not server_available:
+        pytest.skip("Local Flask server is not running on localhost:5000")
+
     print_section("3. Testing Home Endpoint (with CF)")
     
     url = f"{BASE_URL}/api/home?uid={uid}"
@@ -122,14 +150,15 @@ def test_home_endpoint(uid):
                 if 'cf_debug' in data:
                     print(f"    Debug Info: {data['cf_debug']}")
             
-            return data
+            assert isinstance(data, dict)
+            assert "count" in data
         else:
             print(f"✗ Error: {response.text}")
-            return None
+            pytest.fail(f"Home endpoint failed with status {response.status_code}")
             
     except Exception as e:
         print(f"\n✗ Error: {str(e)}")
-        return None
+        pytest.fail(f"Unexpected error: {e}")
 
 def print_summary(debug_data, cf_data, home_data):
     """Print summary of test results"""

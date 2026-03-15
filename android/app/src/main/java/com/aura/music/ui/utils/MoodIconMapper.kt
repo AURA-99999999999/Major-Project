@@ -79,8 +79,12 @@ object MoodIconMapper {
                 Icons.Default.Album
             
             // Commute / Travel moods
-            "commute", "travel", "road trip", "drive", "journey" -> 
+            "commute", "travel", "road trip", "drive", "driving", "journey" -> 
                 Icons.Default.DirectionsCar
+            
+            // Meditation / Mindfulness moods
+            "meditation", "meditate", "mindfulness", "zen", "peaceful", "tranquil" ->
+                Icons.Default.SelfImprovement
             
             // Feel good / Positive uplifting moods
             "feel good", "feel-good", "uplifting", "uplifted" -> 
@@ -121,7 +125,8 @@ object MoodIconMapper {
             "nostalgic", "nostalgia" -> "History icon"
             "excited", "excitement" -> "Star icon"
             "groovy", "funky" -> "Album icon"
-            "commute", "travel", "drive" -> "Car icon"
+            "commute", "travel", "drive", "driving" -> "Car icon"
+            "meditation", "meditate", "mindfulness" -> "Meditation icon"
             "feel good", "feel-good" -> "Grade icon"
             "gaming", "game" -> "Game controller icon"            "decades", "decade", "classic" -> "Clock icon"            else -> "Music note icon"
         }

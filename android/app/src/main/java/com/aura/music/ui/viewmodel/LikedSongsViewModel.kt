@@ -99,7 +99,7 @@ class LikedSongsViewModel(
         }
 
         viewModelScope.launch {
-            firestoreRepository.addToLikedSongs(userId, song)
+            musicRepository.trackLikeEvent(song)
                 .onSuccess {
                     _events.tryEmit(LikedSongsEvent.ShowMessage("Added to Liked Songs"))
                 }

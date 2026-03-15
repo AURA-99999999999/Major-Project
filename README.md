@@ -1,121 +1,20 @@
-# Aura Music Streaming Platform
+# Aura Music
 
-A modern, full-stack music streaming application with Flask backend, React frontend, and Kotlin Android app featuring an advanced ML-inspired recommendation engine.
+Aura Music is a multi-client music app with a Flask backend, a React web frontend, and a Kotlin Android app.
 
-## 🎵 Key Features
+## What is here
 
-### 🤖 Advanced Recommendation Engine
+- `backend/`: API, recommendation logic, Firestore integration, and music provider services
+- `frontend/`: Vite + React web client
+- `android/`: Jetpack Compose Android client
 
-**Production-grade hybrid recommender system** with intelligent personalization:
-
-#### Core Algorithm
-- **Weighted Signal Processing**
-  - Liked songs: 2x preference weight
-  - Play history: 1x base weight with playCount multiplier
-  - Combines both signals for comprehensive taste profile
-
-- **Time-Decay Weighting** (Exponential Freshness)
-  - Formula: `weight = base_weight × exp(-λ × days_since_play)`
-  - Default λ = 0.15 (configurable via `RECOMMENDER_DECAY_LAMBDA`)
-  - Recent plays (today): ~100% influence
-  - Week-old plays: ~35% influence
-  - Month-old plays: ~1% influence
-
-- **Diversity Layer** (Anti-Dominance)
-  - Maximum 2 songs per artist
-  - Maximum 3 songs per album
-  - Prevents artist/album saturation
-  - Maintains ranking order without re-scoring
-
-- **Cold-Start Handling**
-  - Trending songs fallback for new users
-  - Works seamlessly with zero history
-
-#### Smart Candidate Generation
-- Top 5 weighted artists extraction
-- Top 3 weighted albums clustering
-- Multi-source search (YouTube Music API)
-- Artist similarity and related songs
-- Real-time query optimization
-
-#### Top Artists Feature
-- Displays personalized top 5-10 artists on home screen
-- Based on weighted listening history
-- Circular artist thumbnails with subscriber count
-- Click to view artist details, songs, and albums
-
-### 🎵 Music Features
-- **Search & Discovery**: Real-time song search with YouTube Music integration
-- **Explore by Mood**: Browse curated playlists by mood/genre categories
-- **Music Filtering**: Smart filtering excludes non-music content (interviews, podcasts, etc.)
-- **Trending Songs**: Updated trending charts with proper validation
-- **Daily Mixes**: AI-generated personalized playlists (Favorites, Similar Artists, Discover, Mood)
-  - 🔀 **Shuffle Play**: Instantly play mix with randomized track order
-  - 💾 **Save to Library**: Save mixes as persistent playlists for later
-  - Full integration with existing playlist system
-- **Playlists**: Create custom playlists and manage liked songs
-- **Persistent Mini Player**: Now Playing Bar visible across all screens
-- **Queue Management**: Full playback control with queue support
-
-#### Recommendation Engine Improvements & Optimizations
-
-**Caching Strategy (3-Tier)**
-- ✅ **Result-Level Cache**: Full recommendation lists cached for 1 hour
-  - First request: 1.5-2.5s | Cached requests: 5ms | **99% faster**
-- ✅ **User Profile Cache**: Weighted signals (artists/albums) cached for 30 minutes
-  - Eliminates redundant computation on every request | **30% faster generation**
-- ✅ **Background Prefetch**: Warm cache after song plays
-  - Next home screen load is instant | **Predictive optimization**
-
-**Parallel Processing**
-- ✅ Concurrent YTMusic API calls (ThreadPoolExecutor with 6-10 workers)
-  - Sequential: 6 queries @ 300ms = 1800ms
-  - Parallel: 6 queries @ 300ms = 300ms | **6x faster search phase**
-
-**Cache Performance**
-| Operation | Before | After | Improvement |
-|-----------|--------|-------|-------------|
-| Generate recommendations | 1.5-2.5s | 0.3-0.8s | **60-70% faster** |
-| Cached recommendations | N/A | 5ms | **Instant** |
-| Backend CPU load | High | 70% reduction | **Scales to 1000+ users** |
-| Cache hit rate | 0% | 85%+ | **Enterprise-grade** |
-
-### 🔐 Authentication & Security
-- Firebase Google Sign-In with OAuth
-- Email verification for password reset
-- Secure token-based sessions
-- Auto-login on app restart
-- Logout clears all user data
-
-## 🏗️ Tech Stack
-
-**Backend**: Flask (Python), YTMusic API  
-**Frontend**: React, Vite, Tailwind CSS  
-**Android**: Kotlin, Jetpack Compose, Material 3  
-**Auth**: Firebase Authentication  
-**Database**: Firestore  
-**Audio**: ExoPlayer (Android), Web Audio API (Web)  
-**State**: StateFlow, MVVM Pattern
-
-## 🚀 Quick Start
+## Run locally
 
 ### Backend
 ```bash
 cd backend
 pip install -r requirements.txt
 python app.py
-```
-Server: `http://localhost:5000/api/`
-
-#### Upgrading Dependencies
-To upgrade yt-dlp or other dependencies:
-```bash
-cd backend
-.venv\Scripts\activate  # On Windows
-# source .venv/bin/activate  # On Linux/Mac
-pip install --upgrade yt-dlp
-# Or upgrade all dependencies:
-pip install --upgrade -r requirements.txt
 ```
 
 ### Frontend
@@ -124,111 +23,22 @@ cd frontend
 npm install
 npm run dev
 ```
-App: `http://localhost:3000`
 
 ### Android
 ```bash
 cd android
 ./gradlew assembleDebug
-./gradlew installDebug
 ```
 
-## 📂 Project Structure
+## Notes
 
-```
-Major-Project/
-├── README.md                    # Project documentation
-├── backend/                     # Flask backend server
-│   ├── app.py                   # Main Flask application
-│   ├── requirements.txt         # Python dependencies
-│   ├── config.py                # Configuration
-│   ├── services/                # Backend business logic
-│   │   ├── recommendation_service.py  # ML recommendation engine
-│   │   ├── music_service.py           # Music search & trending
-│   │   ├── music_filter.py            # Smart content filtering
-│   │   ├── mood_service.py            # Mood-based discovery
-│   │   ├── detail_service.py          # Artist/album details
-│   │   ├── playlist_service.py        # Playlist management
-│   │   └── user_service.py            # User data management
-│   ├── data/                    # Local data storage
-│   ├── templates/               # HTML templates
-│   └── test_*.py                # Test files
-├── frontend/                    # React web app
-│   └── src/
-│       ├── pages/               # Home, Search, Player, etc.
-│       ├── components/          # Reusable UI components
-│       └── services/            # API integration
-└── android/                     # Kotlin Android app
-    └── app/src/main/java/com/aura/music/
-        ├── navigation/          # App navigation
-        ├── ui/screens/          # Composable screens
-        ├── ui/viewmodel/        # ViewModels (MVVM)
-        ├── data/repository/     # Data layer
-        └── player/              # ExoPlayer service
-```
+- Main backend URL: `http://localhost:5000/api`
+- Music data is served through the backend
+- Firebase/Firestore is used for auth and user data
 
-## 🎯 API Endpoints
+## Documentation
 
-### Recommendations
-- `GET /api/recommendations?uid={uid}&limit=20` - Personalized song recommendations (cached)
-- `GET /api/home/top-artists?uid={uid}&limit=10` - Top artists for user
-- `GET /api/daily-mixes?uid={uid}` - Daily Mix collections (AI-generated playlists)
-- `GET /api/home` - Complete home screen data (trending, recommendations, collaborative filtering, top artists)
-
-### Music Discovery
-- `GET /api/search?query={query}` - Search songs
-- `GET /api/trending?limit=20` - Trending songs
-- `GET /api/mood/categories` - Explore by mood categories
-- `GET /api/mood/playlists?params={params}` - Mood playlists
-
-### Song Details
-- `GET /api/get-song/{videoId}` - Get streaming URL
-- `GET /api/song/{videoId}` - Get song metadata
-- `GET /api/artist/{browseId}` - Get artist details
-- `GET /api/album/{browseId}` - Get album details
-
-### User Management
-- `POST /api/play` - Track song play
-- `POST /api/like` - Like/unlike song
-- `GET /api/user/{uid}/plays` - Get play history
-- `GET /api/user/{uid}/liked` - Get liked songs
-
-## 💾 Data Persistence
-
-**Firestore Structure**:
-```
-users/{uid}/
-  ├── userProfile/          # User info
-  ├── lastPlayed/current    # Mini player persistence
-  ├── plays/                # Play history with timestamps (for time-decay recommendations)
-  ├── playlists/            # User playlists + saved daily mixes
-  │   └── {mixId}/          # Daily mix saved as playlist (type: "generated_mix")
-  │       └── songs/        # Mix songs collection
-  └── likedSongs/           # Liked songs collection with timestamps
-```
-
-## 🔄 Recommendation Algorithm Details
-
-### Weighted Signals
-The recommender combines multiple signal sources:
-```python
-SIGNAL_WEIGHTS = {
-    'liked_songs': 2.0,    # User explicitly liked
-    'play_history': 1.0,   # User listened to
-}
-```
-
-### Time-Decay Function
-Recent activity is prioritized using exponential decay:
-```python
-def calculate_time_weight(days_since):
-    return math.exp(-decay_lambda * days_since)
-
-# Examples with λ=0.15:
-# Today (0 days):    weight = 1.00 (100%)
-# 1 week (7 days):   weight = 0.35 (35%)
-# 1 month (30 days): weight = 0.01 (1%)
-```
+- See `backend/README.md` for backend-specific setup and testing
 
 ### Artist/Album Extraction
 1. Fetch all user plays and liked songs
@@ -238,7 +48,7 @@ def calculate_time_weight(days_since):
 5. Extract top 3 albums by score
 
 ### Candidate Generation (Multi-Source)
-- Search top 5 artists on YouTube Music
+- Search top 5 artists on JioSaavn
 - Fetch related artists for each top artist
 - Get artist radio/similar songs
 - Fetch album tracks for top 3 albums
@@ -348,7 +158,7 @@ Comprehensive optimization suite for production-grade performance:
 ### Backend Recommendation Engine
 - **6. Result-Level Caching** - Recommendations cached for 1 hour (1000ms → 5ms cached)
 - **7. User Profile Caching** - Weighted artist/album signals cached for 30 min (30% faster generation)
-- **8. Parallel YTMusic Calls** - ThreadPoolExecutor processes 6-10 search queries simultaneously (1500ms saved)
+- **8. Parallel JioSaavn Calls** - ThreadPoolExecutor processes multiple search queries simultaneously (1500ms saved)
 - **9. Background Prefetch** - Warm cache after song plays (instant next load)
 
 ### Performance Metrics
@@ -371,7 +181,7 @@ Comprehensive optimization suite for production-grade performance:
 
 ### Backend Issues
 - **Port 5000 in use**: Change port in `app.py` or kill conflicting process
-- **YTMusic errors**: Check internet connection, YTMusic API may be rate-limiting
+- **Upstream API rate limits**: Retry request and check outbound network connectivity
 - **Import errors**: Run `pip install -r requirements.txt`
 
 ### Frontend Issues

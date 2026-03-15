@@ -139,16 +139,10 @@ class MusicService : MediaSessionService() {
                                         "album='${currentSong.album ?: ""}', " +
                                         "artists=${artists.size}"
                                 )
-                                firestoreRepository.logSongPlay(
-                                    videoId = currentSong.videoId,
-                                    songName = currentSong.title,
-                                    albumName = currentSong.album ?: "",
-                                    artists = artists,
-                                    source = currentPlaybackSource,
-                                    thumbnail = currentSong.thumbnail
-                                ).onFailure { error ->
-                                    Log.e(TAG, "Failed to log song play to Firestore", error)
-                                }
+                                repository.trackPlayEvent(currentSong)
+                                    .onFailure { error ->
+                                        Log.e(TAG, "Failed to track play via backend", error)
+                                    }
                             }
                         }
                     }
@@ -426,6 +420,7 @@ class MusicService : MediaSessionService() {
 
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
         // Handle notification action intents
         when (intent?.action) {
             MusicNotificationManager.ACTION_PLAY_PAUSE -> togglePlayPause()
@@ -571,9 +566,12 @@ class MusicService : MediaSessionService() {
                             Log.d(TAG, "Removed from liked songs: ${currentSong.title}")
                         }
                 } else {
-                    firestoreRepository.addToLikedSongs(userId, currentSong)
+                    repository.trackLikeEvent(currentSong)
                         .onSuccess {
-                            Log.d(TAG, "Added to liked songs: ${currentSong.title}")
+                            Log.d(TAG, "Added to liked songs via backend: ${currentSong.title}")
+                        }
+                        .onFailure { error ->
+                            Log.e(TAG, "Failed to add to liked songs via backend", error)
                         }
                 }
             } catch (e: Exception) {

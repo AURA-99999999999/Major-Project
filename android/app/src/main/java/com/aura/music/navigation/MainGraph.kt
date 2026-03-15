@@ -1,5 +1,6 @@
 package com.aura.music.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import com.aura.music.ui.screens.playlist.PlaylistPreviewScreen
 import com.aura.music.ui.screens.liked.LikedSongsScreen
 import com.aura.music.ui.screens.profile.ProfileScreen
 import com.aura.music.ui.screens.profile.EditProfileScreen
+import com.aura.music.ui.screens.language.LanguageSelectionScreen
 import com.aura.music.ui.screens.theme.ThemeSettingsScreen
 import com.aura.music.ui.screens.dailymix.DailyMixDetailScreen
 import com.aura.music.ui.screens.insights.ListeningInsightsScreen
@@ -74,6 +76,8 @@ fun NavGraphBuilder.mainGraph(
     musicService: MusicService?,
     authViewModel: AuthViewModel,
     authState: AuthState,
+    hasLanguagePreferences: Boolean,
+    selectedLanguages: List<String>,
     playerViewModel: com.aura.music.ui.viewmodel.PlayerViewModel? = null,
     themeManager: ThemeManager? = null
 ) {
@@ -105,7 +109,7 @@ fun NavGraphBuilder.mainGraph(
                     navController.navigate("main/profile")
                 },
                 onNavigateToPlaylistPreview = { playlistId ->
-                    navController.navigate("main/playlist-preview/$playlistId")
+                    navController.navigate("main/playlist-preview/${Uri.encode(playlistId)}")
                 },
                 onNavigateToArtist = { browseId ->
                     navController.navigate(Screen.ArtistDetail.createRoute(browseId))
@@ -113,8 +117,8 @@ fun NavGraphBuilder.mainGraph(
                 onNavigateToDailyMix = { mixKey ->
                     navController.navigate(Screen.DailyMixDetail.createRoute(mixKey))
                 },
-                onNavigateToMood = { moodTitle, moodParams ->
-                    navController.navigate(Screen.MoodDetail.createRoute(moodTitle, moodParams))
+                onNavigateToMood = { moodTitle, mood ->
+                    navController.navigate(Screen.MoodDetail.createRoute(moodTitle, mood))
                 }
             )
 
@@ -294,7 +298,7 @@ fun NavGraphBuilder.mainGraph(
                 }
             )
         ) { backStackEntry ->
-            val playlistId = backStackEntry.arguments?.getString("playlistId") ?: ""
+            val playlistId = Uri.decode(backStackEntry.arguments?.getString("playlistId") ?: "")
             val context = LocalContext.current
             val repository = ViewModelFactory.getMusicRepository(context.applicationContext as android.app.Application)
             
@@ -353,6 +357,8 @@ fun NavGraphBuilder.mainGraph(
                 onNavigateToEditProfile = {
                     navController.navigate("main/edit-profile")
                 },
+                hasLanguagePreferences = hasLanguagePreferences,
+                selectedLanguages = selectedLanguages,
                 authViewModel = authViewModel,
                 themeManager = themeManager
             )
@@ -441,7 +447,59 @@ fun NavGraphBuilder.mainGraph(
             EditProfileScreen(
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onNavigateToLanguageSelection = {
+                    navController.navigate("main/language-selection")
+                },
+                hasLanguagePreferences = hasLanguagePreferences,
+                selectedLanguages = selectedLanguages
+            )
+
+            // If user logs out, return to auth
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
                 }
+            }
+        }
+
+        // ==================== LANGUAGE SELECTION SCREEN ====================
+        composable(
+            route = "main/language-selection?isFirstTime={isFirstTime}",
+            arguments = listOf(
+                navArgument("isFirstTime") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
+        ) { backStackEntry ->
+            val context = LocalContext.current
+            val languageViewModel: com.aura.music.ui.screens.language.LanguageSelectionViewModel = viewModel(
+                factory = ViewModelFactory.create(context.applicationContext as android.app.Application)
+            )
+            val isFirstTime = backStackEntry.arguments?.getBoolean("isFirstTime") ?: false
+            
+            LanguageSelectionScreen(
+                onNavigateBack = {
+                    if (!isFirstTime) {
+                        navController.popBackStack()
+                    }
+                },
+                onLanguagesSaved = {
+                    // If first time, navigate to home after saving
+                    if (isFirstTime) {
+                        navController.navigate("main/home") {
+                            popUpTo("main/language-selection") { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                },
+                initialSelectedLanguages = selectedLanguages,
+                isFirstTime = isFirstTime,
+                viewModel = languageViewModel
             )
 
             // If user logs out, return to auth
@@ -487,7 +545,8 @@ fun NavGraphBuilder.mainGraph(
             route = Screen.ArtistDetail.route,
             arguments = listOf(navArgument("browseId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val browseId = backStackEntry.arguments?.getString("browseId") ?: return@composable
+            val browseId = Uri.decode(backStackEntry.arguments?.getString("browseId") ?: "")
+            if (browseId.isBlank()) return@composable
             com.aura.music.ui.screens.detail.ArtistDetailScreen(
                 browseId = browseId,
                 musicService = musicService,
@@ -571,21 +630,21 @@ fun NavGraphBuilder.mainGraph(
             route = Screen.MoodDetail.route,
             arguments = listOf(
                 navArgument("moodTitle") { type = NavType.StringType },
-                navArgument("moodParams") { type = NavType.StringType }
+                navArgument("mood") { type = NavType.StringType }
             )
         ) { backStackEntry ->
             val moodTitle = backStackEntry.arguments?.getString("moodTitle") ?: return@composable
-            val moodParams = backStackEntry.arguments?.getString("moodParams") ?: return@composable
+            val mood = backStackEntry.arguments?.getString("mood") ?: return@composable
             
             com.aura.music.ui.screens.mood.MoodScreen(
                 moodTitle = moodTitle,
-                moodParams = moodParams,
+                mood = mood,
                 musicService = musicService,
                 onNavigateBack = {
                     navController.popBackStack()
                 },
                 onNavigateToPlaylist = { playlistId ->
-                    navController.navigate("main/playlist-preview/$playlistId")
+                    navController.navigate("main/playlist-preview/${Uri.encode(playlistId)}")
                 }
             )
 

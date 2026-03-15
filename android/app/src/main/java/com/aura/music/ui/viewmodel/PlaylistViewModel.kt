@@ -8,6 +8,7 @@ import com.aura.music.data.model.Song
 import com.aura.music.data.model.UserPlaylist
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +39,7 @@ class PlaylistViewModel(
     private val playlistRepository: PlaylistRepository,
     private val musicRepository: MusicRepository
 ) : ViewModel() {
+    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
     private val _uiState = MutableStateFlow(PlaylistUiState())
     val uiState: StateFlow<PlaylistUiState> = _uiState.asStateFlow()
 
@@ -76,6 +78,13 @@ class PlaylistViewModel(
         playlistJob?.cancel()
         songsJob?.cancel()
 
+        _uiState.value = _uiState.value.copy(
+            currentPlaylist = null,
+            songs = emptyList(),
+            isLoading = true,
+            error = null
+        )
+
         playlistJob = viewModelScope.launch {
             playlistRepository.observePlaylist(playlistId)
                 .onStart {
@@ -100,7 +109,13 @@ class PlaylistViewModel(
         songsJob = viewModelScope.launch {
             playlistRepository.observePlaylistSongs(playlistId)
                 .onEach { songs ->
-                    _uiState.value = _uiState.value.copy(songs = songs)
+                    val expectedCount = _uiState.value.currentPlaylist?.songCount ?: 0
+                    val mergedSongs = mergePlaylistSongs(
+                        existingSongs = _uiState.value.songs,
+                        incomingSongs = songs,
+                        expectedCount = expectedCount
+                    )
+                    _uiState.value = _uiState.value.copy(songs = mergedSongs)
                 }
                 .catch { e ->
                     Log.e(TAG, "observePlaylistSongs() failed", e)
@@ -109,6 +124,35 @@ class PlaylistViewModel(
                     )
                 }
                 .collect { }
+        }
+
+        val userId = auth.currentUser?.uid
+        if (!userId.isNullOrBlank()) {
+            viewModelScope.launch {
+                musicRepository.getPlaylist(playlistId, userId)
+                    .onSuccess { playlist ->
+                        val fallbackSongs = playlist.songs.map { song -> song.toPlaylistSong() }
+                        val fallbackPlaylist = UserPlaylist(
+                            id = playlist.id,
+                            name = playlist.name,
+                            songCount = playlist.songs.size,
+                            createdAt = null
+                        )
+
+                        _uiState.value = _uiState.value.copy(
+                            currentPlaylist = _uiState.value.currentPlaylist ?: fallbackPlaylist,
+                            songs = mergePlaylistSongs(
+                                existingSongs = _uiState.value.songs,
+                                incomingSongs = fallbackSongs,
+                                expectedCount = fallbackPlaylist.songCount
+                            ),
+                            error = null
+                        )
+                    }
+                    .onFailure { e ->
+                        Log.w(TAG, "getPlaylist() fallback failed for playlistId=$playlistId", e)
+                    }
+            }
         }
     }
 
@@ -163,8 +207,14 @@ class PlaylistViewModel(
     }
 
     fun addSongToPlaylist(playlistId: String, song: Song) {
+        val userId = auth.currentUser?.uid
+        if (userId.isNullOrBlank()) {
+            _events.tryEmit(PlaylistEvent.ShowMessage("Please sign in to add songs to playlists"))
+            return
+        }
+
         viewModelScope.launch {
-            playlistRepository.addSongToPlaylist(playlistId, song)
+            musicRepository.addSongToPlaylist(playlistId, song, userId)
                 .onSuccess {
                     _events.tryEmit(PlaylistEvent.ShowMessage("Added to playlist"))
                 }
@@ -209,5 +259,30 @@ class PlaylistViewModel(
     companion object {
         private const val TAG = "PlaylistViewModel"
     }
+}
+
+private fun mergePlaylistSongs(
+    existingSongs: List<PlaylistSong>,
+    incomingSongs: List<PlaylistSong>,
+    expectedCount: Int
+): List<PlaylistSong> {
+    if (incomingSongs.isNotEmpty()) {
+        return incomingSongs
+    }
+    if (expectedCount == 0) {
+        return emptyList()
+    }
+    return existingSongs
+}
+
+private fun Song.toPlaylistSong(): PlaylistSong {
+    return PlaylistSong(
+        videoId = videoId,
+        title = title,
+        album = album ?: "",
+        artists = artists ?: artist?.let { listOf(it) } ?: emptyList(),
+        thumbnail = thumbnail ?: "",
+        addedAt = null
+    )
 }
 

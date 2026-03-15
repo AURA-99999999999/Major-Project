@@ -1,6 +1,7 @@
 package com.aura.music.ui.screens.search
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,7 +46,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -290,16 +293,16 @@ fun SearchScreen(
                             }
                             
                             // Songs Section
+                            item {
+                                Text(
+                                    text = "Songs",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
+
                             if (results.hasAnySongs()) {
-                                item {
-                                    Text(
-                                        text = "Songs",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.padding(vertical = 8.dp)
-                                    )
-                                }
-                                
                                 items(
                                     items = results.songs,
                                     key = { it.videoId }
@@ -315,23 +318,32 @@ fun SearchScreen(
                                         onPlayNext = { musicService?.insertNext(song) }
                                     )
                                 }
-                                
+                            } else {
                                 item {
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "No songs found",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
                                 }
+                            }
+
+                            item {
+                                Spacer(modifier = Modifier.height(16.dp))
                             }
                             
                             // Albums Section
+                            item {
+                                Text(
+                                    text = "Albums",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
+
                             if (results.hasAnyAlbums()) {
-                                item {
-                                    Text(
-                                        text = "Albums",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.padding(vertical = 8.dp)
-                                    )
-                                }
-                                
                                 items(
                                     items = results.albums,
                                     key = { it.browseId }
@@ -341,49 +353,67 @@ fun SearchScreen(
                                         onClick = { onNavigateToAlbum(album.browseId) }
                                     )
                                 }
-                                
+                            } else {
                                 item {
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "No albums found",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
                                 }
+                            }
+
+                            item {
+                                Spacer(modifier = Modifier.height(16.dp))
                             }
                             
                             // Artists Section
+                            item {
+                                Text(
+                                    text = "Artists",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
+
                             if (results.hasAnyArtists()) {
-                                item {
-                                    Text(
-                                        text = "Artists",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.padding(vertical = 8.dp)
-                                    )
-                                }
-                                
                                 items(
                                     items = results.artists,
                                     key = { it.browseId }
                                 ) { artist ->
                                     ArtistItem(
                                         artist = artist,
-                                        onClick = { onNavigateToArtist(artist.browseId) }
+                                        onClick = { onNavigateToArtist(artist.name) }
                                     )
                                 }
-                                
+                            } else {
                                 item {
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "No artists found",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
                                 }
+                            }
+
+                            item {
+                                Spacer(modifier = Modifier.height(16.dp))
                             }
                             
                             // Playlists Section
+                            item {
+                                Text(
+                                    text = "Playlists",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
+
                             if (results.hasAnyPlaylists()) {
-                                item {
-                                    Text(
-                                        text = "Playlists",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.padding(vertical = 8.dp)
-                                    )
-                                }
-                                
                                 items(
                                     items = results.playlists,
                                     key = { it.playlistId }
@@ -391,6 +421,15 @@ fun SearchScreen(
                                     PlaylistSearchItem(
                                         playlist = playlist,
                                         onClick = { onNavigateToPlaylist(playlist.browseId) }
+                                    )
+                                }
+                            } else {
+                                item {
+                                    Text(
+                                        text = "No playlists found",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(bottom = 8.dp)
                                     )
                                 }
                             }
@@ -469,6 +508,7 @@ fun SearchScreen(
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 fun AlbumItem(
     album: Album,
     onClick: () -> Unit,
@@ -494,7 +534,9 @@ fun AlbumItem(
                 contentDescription = "Album cover",
                 modifier = Modifier
                     .size(56.dp)
-                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -504,6 +546,9 @@ fun AlbumItem(
             ) {
                 Text(
                     text = album.title,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .basicMarquee(iterations = Int.MAX_VALUE),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
@@ -512,25 +557,21 @@ fun AlbumItem(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = album.artists.joinToString(", "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    album.year?.let { year ->
-                        Text(
-                            text = " • $year",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                val albumMeta = buildString {
+                    append(album.artists.joinToString(", "))
+                    album.year?.let { append(" • ").append(it) }
                 }
+
+                Text(
+                    text = albumMeta,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .basicMarquee(iterations = Int.MAX_VALUE),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
 
                 album.type?.let { type ->
                     Text(
@@ -651,7 +692,11 @@ fun PlaylistSearchItem(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "Playlist • ${playlist.author}",
+                    text = if (playlist.author.isBlank() || playlist.author.equals("YouTube Music", ignoreCase = true)) {
+                        "Playlist"
+                    } else {
+                        "Playlist • ${playlist.author}"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

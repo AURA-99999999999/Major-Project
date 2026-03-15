@@ -94,6 +94,7 @@ class PlaylistRepository(
     fun observePlaylistSongs(playlistId: String): Flow<List<PlaylistSong>> = callbackFlow {
         val userId = auth.currentUser?.uid
         if (userId == null) {
+            Log.w(TAG, "observePlaylistSongs() skipped because auth user is null")
             trySend(emptyList())
             close()
             return@callbackFlow
@@ -104,7 +105,8 @@ class PlaylistRepository(
             .collection(SUBCOLLECTION_PLAYLISTS)
             .document(playlistId)
             .collection(SUBCOLLECTION_SONGS)
-            .orderBy(FIELD_ADDED_AT, Query.Direction.DESCENDING)
+
+        Log.d(TAG, "observePlaylistSongs() listening on users/$userId/playlists/$playlistId/songs")
 
         val listener = songsRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -114,8 +116,30 @@ class PlaylistRepository(
             }
 
             val songs = snapshot?.documents
-                ?.mapNotNull { it.toPlaylistSong() }
+                ?.mapNotNull { document ->
+                    val title = document.getString(FIELD_TITLE) ?: return@mapNotNull null
+                    val album = document.getString(FIELD_ALBUM) ?: ""
+                    val artists = (document.get(FIELD_ARTISTS) as? List<*>)
+                        ?.mapNotNull { it as? String }
+                        ?.filter { it.isNotBlank() }
+                        ?: emptyList()
+                    val thumbnail = document.getString(FIELD_THUMBNAIL) ?: ""
+                    val videoId = document.getString(FIELD_VIDEO_ID) ?: document.id
+                    val addedAt = document.getTimestamp(FIELD_ADDED_AT)?.toDate()?.time
+
+                    PlaylistSong(
+                        title = title,
+                        album = album,
+                        artists = artists,
+                        thumbnail = thumbnail,
+                        videoId = videoId,
+                        addedAt = addedAt
+                    )
+                }
+                ?.sortedByDescending { it.addedAt ?: 0L }
                 ?: emptyList()
+
+            Log.d(TAG, "PLAYLIST_DEBUG loaded ${songs.size} songs for playlist=$playlistId")
             trySend(songs)
         }
 
@@ -284,6 +308,7 @@ class PlaylistRepository(
                 FIELD_SONG_COUNT to songs.size,
                 "mixId" to mixId,
                 "type" to "generated_mix",
+                "source" to "daily_mix",
                 "updatedAt" to FieldValue.serverTimestamp()
             )
 
@@ -366,14 +391,24 @@ private fun com.google.firebase.firestore.DocumentSnapshot.toUserPlaylist(): Use
 }
 
 private fun com.google.firebase.firestore.DocumentSnapshot.toPlaylistSong(): PlaylistSong? {
-    val title = getString("title") ?: return null
-    val videoId = getString("videoId") ?: id
-    val album = getString("album")
-    val thumbnail = getString("thumbnail")
+    val title = getString("title") ?: getString("song") ?: getString("name") ?: return null
+    val videoId = getString("videoId") ?: getString("id") ?: id
+    val album = getString("album") ?: ""
+    val thumbnail = getString("thumbnail") ?: getString("image") ?: ""
     val artists = (get("artists") as? List<*>)
         ?.mapNotNull { it as? String }
-        ?: emptyList()
+        ?.filter { it.isNotBlank() }
+        ?: run {
+            val primaryArtists = getString("primary_artists") ?: getString("artist")
+            if (!primaryArtists.isNullOrBlank()) {
+                primaryArtists.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            } else {
+                emptyList()
+            }
+        }
     val addedAt = getTimestamp("addedAt")?.toDate()?.time
+        ?: getTimestamp("likedAt")?.toDate()?.time
+        ?: getTimestamp("lastPlayedAt")?.toDate()?.time
 
     return PlaylistSong(
         videoId = videoId,

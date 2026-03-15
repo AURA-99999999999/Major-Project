@@ -25,6 +25,8 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,13 +62,25 @@ import com.aura.music.data.mapper.toSongs
 import com.aura.music.data.model.Song
 import com.aura.music.di.ServiceLocator
 import com.aura.music.player.MusicService
+import com.aura.music.ui.screens.playlist.PlaylistPickerBottomSheet
 import com.aura.music.ui.theme.ColorBlendingUtils
 import com.aura.music.ui.viewmodel.HomeViewModel
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
+import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withContext
+
+private fun normalizeMixName(mixKey: String, rawName: String?): String {
+    val trimmed = rawName?.trim().orEmpty()
+    return when (mixKey) {
+        "dailyMix1" -> if (trimmed.equals("Daily Mix 1", ignoreCase = true) || trimmed.isBlank()) "Favorites Mix" else trimmed
+        "dailyMix2" -> if (trimmed.equals("Daily Mix 2", ignoreCase = true) || trimmed.isBlank()) "Similar Artists Mix" else trimmed
+        "discoverMix" -> if (trimmed.equals("Daily Mix 3", ignoreCase = true) || trimmed.isBlank()) "Discover Mix" else trimmed
+        "moodMix" -> if (trimmed.isBlank()) "Mood Mix" else trimmed
+        else -> if (trimmed.isBlank()) "Daily Mix" else trimmed
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,9 +108,16 @@ fun DailyMixDetailScreen(
     var mixColor by remember { mutableStateOf(Color(0xFF9B87F5)) }
     var mixIcon by remember { mutableStateOf("🎧") }
     var error by remember { mutableStateOf<String?>(null) }
+    var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
+
+    val playlistViewModel: PlaylistViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val playlistState by playlistViewModel.uiState.collectAsState()
 
     LaunchedEffect(Unit) {
         likedSongsViewModel.observeLikedSongs()
+        playlistViewModel.observePlaylists()
     }
 
     LaunchedEffect(mixKey) {
@@ -110,28 +131,28 @@ fun DailyMixDetailScreen(
             response.onSuccess { dailyMixResponse ->
                 val mixData = when (mixKey) {
                     "dailyMix1" -> {
-                        mixName = dailyMixResponse.mixes?.dailyMix1?.name ?: "Favorites Mix"
+                        mixName = normalizeMixName("dailyMix1", dailyMixResponse.mixes?.dailyMix1?.name)
                         mixDescription = dailyMixResponse.mixes?.dailyMix1?.description ?: ""
                         mixColor = Color(0xFF9B87F5)
                         mixIcon = "🎧"
                         dailyMixResponse.mixes?.dailyMix1?.songs?.toSongs()
                     }
                     "dailyMix2" -> {
-                        mixName = dailyMixResponse.mixes?.dailyMix2?.name ?: "Similar Artists Mix"
+                        mixName = normalizeMixName("dailyMix2", dailyMixResponse.mixes?.dailyMix2?.name)
                         mixDescription = dailyMixResponse.mixes?.dailyMix2?.description ?: ""
                         mixColor = Color(0xFF87F5E0)
                         mixIcon = "🎶"
                         dailyMixResponse.mixes?.dailyMix2?.songs?.toSongs()
                     }
                     "discoverMix" -> {
-                        mixName = dailyMixResponse.mixes?.discoverMix?.name ?: "Discover Mix"
+                        mixName = normalizeMixName("discoverMix", dailyMixResponse.mixes?.discoverMix?.name)
                         mixDescription = dailyMixResponse.mixes?.discoverMix?.description ?: ""
                         mixColor = Color(0xFFF5B787)
                         mixIcon = "✨"
                         dailyMixResponse.mixes?.discoverMix?.songs?.toSongs()
                     }
                     "moodMix" -> {
-                        mixName = dailyMixResponse.mixes?.moodMix?.name ?: "Mood Mix"
+                        mixName = normalizeMixName("moodMix", dailyMixResponse.mixes?.moodMix?.name)
                         mixDescription = dailyMixResponse.mixes?.moodMix?.description ?: ""
                         mixColor = Color(0xFFF587B2)
                         mixIcon = "🌙"
@@ -251,6 +272,12 @@ fun DailyMixDetailScreen(
                                     } else {
                                         likedSongsViewModel.addToLikedSongs(song)
                                     }
+                                },
+                                onPlayNext = {
+                                    musicService?.insertNext(song)
+                                },
+                                onAddToPlaylist = {
+                                    pendingSongForPlaylist = song
                                 }
                             )
                         }
@@ -262,6 +289,17 @@ fun DailyMixDetailScreen(
                 }
             }
         }
+    }
+
+    pendingSongForPlaylist?.let { selectedSong ->
+        PlaylistPickerBottomSheet(
+            playlists = playlistState.playlists,
+            onDismiss = { pendingSongForPlaylist = null },
+            onPlaylistSelected = { playlist ->
+                playlistViewModel.addSongToPlaylist(playlist.id, selectedSong)
+                pendingSongForPlaylist = null
+            }
+        )
     }
 }
 
@@ -442,8 +480,12 @@ fun DailyMixSongItem(
     song: Song,
     isLiked: Boolean,
     onSongClick: () -> Unit,
-    onToggleLike: () -> Unit
+    onToggleLike: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToPlaylist: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -495,13 +537,46 @@ fun DailyMixSongItem(
         }
         
         // More options
-        IconButton(onClick = { /* TODO: Show options */ }) {
-            Icon(
-                imageVector = Icons.Filled.MoreVert,
-                contentDescription = "More options",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp)
-            )
+        Box {
+            IconButton(onClick = { showMenu = true }) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "More options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Play Next") },
+                    onClick = {
+                        showMenu = false
+                        onPlayNext()
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (isLiked) "Remove from Liked Songs" else "Add to Liked Songs"
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onToggleLike()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to playlist") },
+                    onClick = {
+                        showMenu = false
+                        onAddToPlaylist()
+                    }
+                )
+            }
         }
     }
 }

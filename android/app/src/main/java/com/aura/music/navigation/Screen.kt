@@ -1,5 +1,7 @@
 package com.aura.music.navigation
 
+import android.net.Uri
+
 sealed class Screen(val route: String) {
     // Auth Screens
     object Login : Screen("login")
@@ -20,7 +22,7 @@ sealed class Screen(val route: String) {
         fun createRoute(browseId: String) = "album_detail/$browseId"
     }
     object ArtistDetail : Screen("artist_detail/{browseId}") {
-        fun createRoute(browseId: String) = "artist_detail/$browseId"
+        fun createRoute(browseId: String) = "artist_detail/${Uri.encode(browseId)}"
     }
     object YTPlaylistDetail : Screen("yt_playlist_detail/{browseId}") {
         fun createRoute(browseId: String) = "yt_playlist_detail/$browseId"
@@ -28,9 +30,13 @@ sealed class Screen(val route: String) {
     object DailyMixDetail : Screen("daily_mix_detail/{mixKey}") {
         fun createRoute(mixKey: String) = "daily_mix_detail/$mixKey"
     }
-    object MoodDetail : Screen("mood_detail/{moodTitle}/{moodParams}") {
-        fun createRoute(moodTitle: String, moodParams: String) = "mood_detail/$moodTitle/$moodParams"
+    object MoodDetail : Screen("mood_detail/{moodTitle}/{mood}") {
+        fun createRoute(moodTitle: String, mood: String) = "mood_detail/$moodTitle/$mood"
     }
     object Profile : Screen("profile")
+    object LanguageSelection : Screen("language_selection")
+    object EditProfile : Screen("edit_profile")
+    object ThemeSettings : Screen("theme_settings")
+    object ListeningInsights : Screen("listening_insights")
 }
 

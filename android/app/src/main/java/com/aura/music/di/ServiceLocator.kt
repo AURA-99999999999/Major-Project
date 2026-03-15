@@ -4,12 +4,18 @@ import android.content.Context
 import android.util.Log
 import com.aura.music.BuildConfig
 import com.aura.music.data.local.AppDatabase
+import com.aura.music.data.local.LanguagePreferencesManager
 import com.aura.music.data.remote.MusicApi
 import com.aura.music.data.remote.NetworkConfig
 import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
 import com.aura.music.data.repository.RecentlyPlayedRepository
+import com.aura.music.data.repository.LanguagePreferencesRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -31,6 +37,8 @@ object ServiceLocator {
     private var playlistRepository: PlaylistRepository? = null
     private var appDatabase: AppDatabase? = null
     private var recentlyPlayedRepository: RecentlyPlayedRepository? = null
+    private var languagePreferencesManager: LanguagePreferencesManager? = null
+    private var languagePreferencesRepository: LanguagePreferencesRepository? = null
 
     @Volatile
     private var initialized = false
@@ -90,16 +98,45 @@ object ServiceLocator {
             // Initialize API
             musicApi = retrofit!!.create(MusicApi::class.java)
 
+            // Perform health check to verify backend connectivity
+            performHealthCheck()
+
             // Initialize Repository
             firestoreRepository = FirestoreRepository()
             playlistRepository = PlaylistRepository()
             musicRepository = MusicRepository(musicApi!!, firestoreRepository!!)
             appDatabase = AppDatabase.getInstance(context)
-            recentlyPlayedRepository = RecentlyPlayedRepository(
-                appDatabase!!.recentlyPlayedDao()
+            recentlyPlayedRepository = RecentlyPlayedRepository(appDatabase!!.recentlyPlayedDao())
+            
+            // Initialize Language Preferences
+            languagePreferencesManager = LanguagePreferencesManager(context)
+            languagePreferencesRepository = LanguagePreferencesRepository(
+                languagePreferencesManager!!
             )
 
             initialized = true
+        }
+    }
+
+    /**
+     * Performs a health check request to verify backend connectivity
+     * This confirms the Android app can reach the local backend server
+     */
+    private fun performHealthCheck() {
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                val response = musicApi!!.getHealth()
+                Log.i(TAG, "========================================")
+                Log.i(TAG, "Backend Health Check: SUCCESS")
+                Log.i(TAG, "Status: ${response.status}")
+                Log.i(TAG, "Service: ${response.service}")
+                Log.i(TAG, "========================================")
+            } catch (e: Exception) {
+                Log.e(TAG, "========================================")
+                Log.e(TAG, "Backend Health Check: FAILED")
+                Log.e(TAG, "Error: ${e.message}")
+                Log.e(TAG, "========================================", e)
+            }
         }
     }
 
@@ -121,6 +158,11 @@ object ServiceLocator {
     fun getMusicApi(): MusicApi {
         checkInitialized()
         return musicApi!!
+    }
+
+    fun getLanguagePreferencesRepository(): LanguagePreferencesRepository {
+        checkInitialized()
+        return languagePreferencesRepository!!
     }
 
     fun getRecentlyPlayedRepository(): RecentlyPlayedRepository {

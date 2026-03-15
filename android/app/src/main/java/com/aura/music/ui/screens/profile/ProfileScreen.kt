@@ -63,6 +63,8 @@ fun ProfileScreen(
     onNavigateToThemeSettings: () -> Unit = {},
     onNavigateToInsights: () -> Unit = {},
     onNavigateToEditProfile: () -> Unit = {},
+    hasLanguagePreferences: Boolean = true,
+    selectedLanguages: List<String> = emptyList(),
     authViewModel: AuthViewModel = viewModel(),
     themeManager: ThemeManager? = null
 ) {
@@ -189,6 +191,12 @@ fun ProfileScreen(
                         ProfileActionRow(
                             icon = Icons.Outlined.Edit,
                             label = "Edit Profile",
+                            showIndicator = !hasLanguagePreferences,
+                            helperText = if (!hasLanguagePreferences) {
+                                "Add your language preferences"
+                            } else {
+                                null
+                            },
                             onClick = onNavigateToEditProfile
                         )
 
@@ -210,11 +218,25 @@ fun ProfileScreen(
 private fun ProfileActionRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
+    showIndicator: Boolean = false,
+    helperText: String? = null,
     onClick: () -> Unit
 ) {
     ListItem(
         headlineContent = {
-            Text(text = label, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Medium)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                RowWithIndicator(
+                    label = label,
+                    showIndicator = showIndicator
+                )
+                if (!helperText.isNullOrEmpty()) {
+                    Text(
+                        text = helperText,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
         },
         leadingContent = {
             Surface(
@@ -247,5 +269,28 @@ private fun ProfileActionRow(
             containerColor = Color.Transparent
         )
     )
+}
+
+@Composable
+private fun RowWithIndicator(
+    label: String,
+    showIndicator: Boolean
+) {
+    androidx.compose.foundation.layout.Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Medium)
+        if (showIndicator) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.error,
+                        shape = CircleShape
+                    )
+            )
+        }
+    }
 }
 

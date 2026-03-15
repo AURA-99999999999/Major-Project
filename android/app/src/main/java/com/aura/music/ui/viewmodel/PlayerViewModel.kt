@@ -124,6 +124,15 @@ class PlayerViewModel(
     }
 
     /**
+     * Hides mini player from UI without affecting playback service lifecycle.
+     */
+    fun dismissMiniPlayer() {
+        _currentSong.update { null }
+        _lastPlayedSong.update { null }
+        Log.d(TAG, "Mini player dismissed")
+    }
+
+    /**
      * Persists currently playing song to Firestore as lastPlayed
      * Called whenever a song starts playing
      */

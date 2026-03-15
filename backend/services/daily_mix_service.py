@@ -1,1515 +1,1338 @@
+"""Daily Mix generation for AURA.
+
+Builds four personalized mixes from Firestore listening signals, collaborative
+filtering, JioSaavn search, and the existing canonical/diversity pipeline.
 """
-Daily Mix Service - Generates personalized daily mixes using engagement signals
-Reuses existing recommender logic and Firestore data
-"""
+
+from __future__ import annotations
+
 import logging
+import math
+import random
 import time
-import os
-from typing import List, Dict, Optional, Set
-from datetime import datetime, timedelta
-from collections import defaultdict, Counter
-from services.music_filter import filter_music_tracks
+from collections import Counter
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+
+from services.cache_manager import get_cache
+from services.canonical_track_resolver import resolve_canonical_tracks
+from services.collaborative_service import CollaborativeFilteringService
+from services.jiosaavn_service import JioSaavnService
+from services.user_profile_service import UserProfileService
+from services.user_service import UserService, get_firestore_client
 
 logger = logging.getLogger(__name__)
 
-# Cache configuration
-CACHE_TTL_DAILY_MIXES = 86400  # 24 hours
-
 
 class DailyMixService:
-    """
-    Generates 4 types of personalized daily mixes:
-    1. Favorites Mix - Songs from user's top 5 artists
-    2. Similar Artists Mix - Songs from related artists
-    3. Discover Mix - Trending + new + similar to taste
-    4. Mood Mix - Contextual listening based on time of day
-    """
-    
-    # Artist appearance limit for diversity
-    ARTIST_LIMIT_PER_MIX = 3
-    MIX_SIZE = 30
-    MINIMUM_MIX_SIZE = 15  # Guarantee minimum mix size
-    
-    def __init__(self, ytmusic, recommendation_service, user_service):
-        """
-        Initialize DailyMixService
-        
-        Args:
-            ytmusic: YTMusic instance for API calls
-            recommendation_service: RecommendationService for shared utilities
-            user_service: UserService for Firestore access
-        """
-        self.ytmusic = ytmusic
-        self.rec_service = recommendation_service
-        self.user_service = user_service
-        self.cache: Dict[str, tuple] = {}  # {cache_key: (data, timestamp)}
+    MIX_SIZE = 24
+    MIN_MIX_SIZE = 20
+    MAX_MIX_SIZE = 30
+    MAX_SONGS_PER_ARTIST = 2
+    MAX_SONGS_PER_ALBUM = 3
+    MIN_UNIQUE_ARTISTS = 6
+    CACHE_TTL_SECONDS = 24 * 60 * 60
+    MOOD_MIX_TTL_SECONDS = 3 * 60 * 60
 
-    def get_daily_mixes(self, uid: str) -> Dict[str, List[Dict]]:
-        """
-        Generate all daily mixes for a user
-        
-        Args:
-            uid: User ID
-            
-        Returns:
-            Dict with all 4 mixes:
-            {
-                "dailyMix1": [...],
-                "dailyMix2": [...],
-                "discoverMix": [...],
-                "moodMix": [...]
-            }
-        """
-        try:
-            logger.info(f"Generating daily mixes for user: {uid}")
-            
-            # Check cache first
-            cache_key = f"daily_mixes_{uid}"
-            cached_data = self._get_from_cache(cache_key)
-            if cached_data:
-                logger.info(f"Returning cached mixes for {uid}")
-                return cached_data
-            
-            # Build user profile from engagement signals
-            profile = self._build_user_profile(uid)
-            logger.info(f"User profile built: artists={len(profile.get('top_artists', []))}, "
-                       f"plays={len(profile.get('plays', []))}")
-            
-            # Generate all mixes
-            mixes = {
-                "dailyMix1": self._generate_favorites_mix(profile),
-                "dailyMix2": self._generate_similar_mix(profile),
-                "discoverMix": self._generate_discover_mix(profile),
-                "moodMix": self._generate_mood_mix(profile)
-            }
-            
-            # Deduplicate before filtering
-            logger.info("Deduplicating tracks before filtering")
-            mixes = self._deduplicate_all_mixes(mixes)
-            
-            # Filter all songs through music_filter with relaxed rules for mixes
-            mixes = self._filter_all_mixes(mixes)
-            
-            # Ensure minimum mix sizes with fallbacks
-            mixes = self._ensure_minimum_sizes(mixes)
-            
-            # Only cache if mixes are not empty
-            if self._mixes_valid(mixes):
-                self._set_in_cache(cache_key, mixes, CACHE_TTL_DAILY_MIXES)
-                logger.info("Cached valid mixes")
-            else:
-                logger.warning("Skipping cache due to empty/invalid mixes")
-            
-            logger.info(f"Daily mixes generated: "
-                       f"favorites={len(mixes['dailyMix1'])}, "
-                       f"similar={len(mixes['dailyMix2'])}, "
-                       f"discover={len(mixes['discoverMix'])}, "
-                       f"mood={len(mixes['moodMix'])}")
-            
-            return mixes
-            
-        except Exception as e:
-            logger.error(f"Error generating daily mixes: {str(e)}", exc_info=True)
-            # Return trending as fallback
-            return self._get_fallback_mixes()
+    MOOD_PLAYLIST_MAP: Dict[str, List[str]] = {
+        "morning": ["workout", "energetic", "feel good", "morning motivation"],
+        "afternoon": ["chill", "focus", "light music"],
+        "evening": ["relax", "melody", "romantic"],
+        "night": ["soft songs", "sad songs", "night vibes"],
+    }
 
-    def _build_user_profile(self, uid: str) -> Dict:
-        """
-        Build user taste profile from Firestore engagement signals
-        
-        Returns profile with:
-        - top_artists: List of artists weighted by plays/likes
-        - plays: User's recent plays
-        - liked: User's liked songs
-        - artist_listen_count: Dict of artist -> listen count
-        """
-        try:
-            # Fetch user signals from recommendation service
-            signals = self.rec_service._fetch_user_signals(uid)
-            plays = signals.get('plays', [])
-            liked = signals.get('liked', [])
-            
-            # Build weighted signals
-            weighted = self.rec_service._build_weighted_signals(plays, liked)
-            top_artists = weighted.get('top_artists', [])
-            
-            # Build artist listen counts for diversity checking
-            artist_listen_count = defaultdict(int)
-            for song in plays:
-                artist = song.get('artist', 'Unknown')
-                artist_listen_count[artist] += 1
-            for song in liked:
-                artist = song.get('artist', 'Unknown')
-                artist_listen_count[artist] += 2  # Like counts as 2x
-            
-            profile = {
-                'top_artists': top_artists[:10],  # Top 10 artists
-                'plays': plays,
-                'liked': liked,
-                'artist_listen_count': dict(artist_listen_count),
-                'all_consumed': {s.get('videoId') for s in plays + liked if s.get('videoId')}
-            }
-            
-            logger.info(f"Profile built: {len(profile['top_artists'])} artists, "
-                       f"{len(profile['plays'])} plays, {len(profile['liked'])} likes")
-            
-            return profile
-            
-        except Exception as e:
-            logger.error(f"Error building user profile: {str(e)}")
-            return {
-                'top_artists': [],
-                'plays': [],
-                'liked': [],
-                'artist_listen_count': {},
-                'all_consumed': set()
-            }
+    MOOD_SUBTITLES: Dict[str, str] = {
+        "morning": "Morning Workout Boost",
+        "afternoon": "Afternoon Chill Focus",
+        "evening": "Evening Relax Session",
+        "night": "Night Soft Vibes",
+    }
 
-    def _generate_favorites_mix(self, profile: Dict) -> List[Dict]:
-        """
-        Generate Favorites Mix: Songs from user's top 5 artists
-        """
-        try:
-            logger.info("Generating Favorites Mix")
-            top_artists = profile.get('top_artists', [])[:5]
-            all_consumed = profile.get('all_consumed', set())
-            
-            if not top_artists:
-                logger.warning("No top artists for Favorites Mix, using trending")
-                return self._get_trending_songs()
-            
-            songs_dict = {}  # {videoId: song_data}
-            
-            # Fetch top tracks for each artist (expanded to 25 for better candidate pool)
-            for artist in top_artists:
-                try:
-                    logger.info(f"Fetching tracks for artist: {artist}")
-                    query = f"{artist} top tracks"
-                    results = self.rec_service._search_songs(query, limit=25)
-                    songs_dict.update(results)
-                    logger.info(f"Fetched {len(results)} tracks for {artist}")
-                except Exception as e:
-                    logger.warning(f"Error fetching tracks for {artist}: {str(e)}")
-                    continue
-            
-            logger.info(f"Total candidates before diversity: {len(songs_dict)} songs")
-            
-            # Ensure diversity and remove overplayed songs
-            songs = self._ensure_diversity(
-                list(songs_dict.values()),
-                profile.get('artist_listen_count', {}),
-                all_consumed
+    MOOD_EXCLUDED_VERSION_KEYWORDS: Tuple[str, ...] = (
+        "lofi",
+        "slowed",
+        "reverb",
+        "remix",
+    )
+
+    LANGUAGE_ALIASES: Dict[str, Set[str]] = {
+        "english": {"english", "eng"},
+        "hindi": {"hindi", "hin"},
+        "telugu": {"telugu", "tel"},
+        "tamil": {"tamil", "tam"},
+        "kannada": {"kannada", "kan"},
+        "malayalam": {"malayalam", "mal"},
+        "punjabi": {"punjabi", "punjabi pop", "punjabi-pop"},
+        "marathi": {"marathi", "mar"},
+        "bengali": {"bengali", "bangla", "ben"},
+    }
+
+    MIX_SPECS: Tuple[Dict[str, str], ...] = (
+        {
+            "key": "dailyMix1",
+            "storage_id": "daily_mix_1",
+            "name": "Favorites Mix",
+            "type": "favorites",
+            "description": "Songs from your favorite artists.",
+        },
+        {
+            "key": "dailyMix2",
+            "storage_id": "daily_mix_2",
+            "name": "Similar Artists Mix",
+            "type": "similar_artists",
+            "description": "Artists adjacent to what you already love.",
+        },
+        {
+            "key": "dailyMix3",
+            "storage_id": "daily_mix_3",
+            "name": "Discover Mix",
+            "type": "discover",
+            "description": "Fresh discovery picks tuned to your taste.",
+        },
+        {
+            "key": "moodMix",
+            "storage_id": "mood_mix",
+            "name": "Mood Mix",
+            "type": "time_based",
+            "description": "A time-aware mix for the current part of your day.",
+        },
+    )
+
+    def __init__(
+        self,
+        jiosaavn_service: Optional[JioSaavnService] = None,
+        user_profile_service: Optional[UserProfileService] = None,
+        collaborative_service: Optional[CollaborativeFilteringService] = None,
+        user_service: Optional[UserService] = None,
+        recommendation_service: Any = None,
+        decay_lambda: float = 0.15,
+    ) -> None:
+        self.jiosaavn_service = jiosaavn_service or JioSaavnService()
+        self.user_profile_service = user_profile_service or UserProfileService()
+        self.user_service = user_service or UserService()
+        self.collaborative_service = collaborative_service or CollaborativeFilteringService(
+            self.user_service,
+            recommendation_service=recommendation_service,
+            decay_lambda=decay_lambda,
+        )
+        self.recommendation_service = recommendation_service
+        self.decay_lambda = decay_lambda
+        self.cache = get_cache()
+        self.db = getattr(self.user_service, "db", None) or get_firestore_client()
+
+    def get_daily_mixes(self, uid: str, refresh: bool = False) -> Dict[str, Any]:
+        uid = str(uid or "").strip()
+        if not uid or uid == "guest":
+            return self._empty_response(uid)
+
+        if not refresh:
+            cached = self._load_cached_response(uid)
+            if cached is not None:
+                return cached
+
+        generated = self.generate_daily_mixes(uid)
+        response = self._response_from_mix_map(uid, generated, cached=False)
+        self._store_mixes(uid, generated)
+        self.cache.set(self._response_cache_key(uid), response, ttl=self.CACHE_TTL_SECONDS)
+        return response
+
+    def generate_daily_mixes(self, uid: str) -> Dict[str, Dict[str, Any]]:
+        profile = self._build_user_taste_profile(uid)
+        used_ids: Set[str] = set()
+
+        favorites = self._generate_favorites_mix(profile, used_ids)
+        used_ids.update(self._song_ids(favorites))
+
+        similar = self._generate_similar_artists_mix(profile, used_ids)
+        used_ids.update(self._song_ids(similar))
+
+        discover = self._generate_discover_mix(profile, used_ids)
+        used_ids.update(self._song_ids(discover))
+
+        mood_name, mood_description, mood_tracks, mood_time_block, mood_subtitle = self._generate_mood_mix(profile, used_ids)
+
+        specs = {
+            "dailyMix1": {**self.MIX_SPECS[0], "songs": favorites},
+            "dailyMix2": {**self.MIX_SPECS[1], "songs": similar},
+            "dailyMix3": {**self.MIX_SPECS[2], "songs": discover},
+            "moodMix": {
+                **self.MIX_SPECS[3],
+                "name": mood_name,
+                "description": mood_description,
+                "subtitle": mood_subtitle,
+                "timeBlock": mood_time_block,
+                "songs": mood_tracks,
+            },
+        }
+
+        for mix in specs.values():
+            songs = mix.get("songs") or []
+            mix["count"] = len(songs)
+            mix["tracks"] = songs
+            mix["generatedAt"] = int(time.time())
+            mix["source"] = "daily_mix"
+
+        return specs
+
+    def _build_user_taste_profile(self, uid: str) -> Dict[str, Any]:
+        cache_key = f"daily_mix_profile:{uid}"
+        cached = self.cache.get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+
+        plays = self.user_profile_service._fetch_user_plays(uid)
+        liked = self.user_profile_service._fetch_liked_songs(uid)
+        preferred_languages = list(self.user_service.get_user_languages(uid) or [])
+
+        artist_scores: Counter[str] = Counter()
+        artist_display: Dict[str, str] = {}
+        language_scores: Counter[str] = Counter()
+        consumed_ids: Set[str] = set()
+        recent_entries: List[Tuple[float, Dict[str, Any]]] = []
+
+        for entry in plays:
+            timestamp = self._entry_timestamp(entry)
+            weight = self._entry_weight(entry, timestamp, liked=False)
+            recent_entries.append((timestamp, entry))
+            song_id = self._song_id(entry)
+            if song_id:
+                consumed_ids.add(song_id)
+            self._accumulate_artist_scores(entry, weight, artist_scores, artist_display)
+            self._accumulate_language(entry, weight, language_scores)
+
+        for entry in liked:
+            timestamp = self._entry_timestamp(entry)
+            weight = self._entry_weight(entry, timestamp, liked=True)
+            recent_entries.append((timestamp, entry))
+            song_id = self._song_id(entry)
+            if song_id:
+                consumed_ids.add(song_id)
+            self._accumulate_artist_scores(entry, weight, artist_scores, artist_display)
+            self._accumulate_language(entry, weight, language_scores)
+
+        sorted_artists = [
+            artist_display.get(name, name.title())
+            for name, _ in artist_scores.most_common(8)
+            if name
+        ]
+        sorted_languages = [name for name, _ in language_scores.most_common(4) if name]
+        recent_entries.sort(key=lambda item: item[0], reverse=True)
+
+        profile = {
+            "uid": uid,
+            "plays": plays,
+            "liked": liked,
+            "consumed_ids": consumed_ids,
+            "top_artists": sorted_artists,
+            "top_artist_norms": {self._normalize_artist_name(name) for name in sorted_artists if name},
+            "top_languages": preferred_languages or sorted_languages,
+            "recent_entries": [entry for _, entry in recent_entries[:40]],
+        }
+        self.cache.set(cache_key, profile, ttl=30 * 60)
+        return profile
+
+    def _generate_favorites_mix(self, profile: Dict[str, Any], exclude_ids: Set[str]) -> List[Dict[str, Any]]:
+        top_artists = profile.get("top_artists", [])[:3]
+        candidates: List[Dict[str, Any]] = []
+
+        for artist in top_artists:
+            candidates.extend(self._search_songs(f"{artist} songs", limit=12))
+
+        if not candidates:
+            candidates = self._get_personalized_candidates(profile, limit=36)
+
+        filtered = [
+            song
+            for song in candidates
+            if self._song_id(song) not in profile["consumed_ids"]
+            and self._song_id(song) not in exclude_ids
+        ]
+        return self._finalize_mix(filtered, profile, limit=self.MIX_SIZE)
+
+    def _generate_similar_artists_mix(self, profile: Dict[str, Any], exclude_ids: Set[str]) -> List[Dict[str, Any]]:
+        personalized = self._get_personalized_candidates(profile, limit=36)
+        collaborative = self._get_collaborative_candidates(profile, limit=24)
+
+        related_artist_counts: Counter[str] = Counter()
+        related_artist_display: Dict[str, str] = {}
+        top_artist_norms = set(profile.get("top_artist_norms", set()))
+
+        for song in personalized + collaborative:
+            for artist in self._extract_artists(song):
+                norm = self._normalize_artist_name(artist)
+                if norm and norm not in top_artist_norms:
+                    related_artist_counts[norm] += 1
+                    related_artist_display.setdefault(norm, artist)
+
+        search_artists = [
+            related_artist_display[name]
+            for name, _ in related_artist_counts.most_common(3)
+            if name in related_artist_display
+        ]
+
+        search_results: List[Dict[str, Any]] = []
+        for artist in search_artists:
+            search_results.extend(self._search_songs(f"{artist} hits", limit=10))
+
+        candidates = collaborative + personalized + search_results
+        filtered = [
+            song
+            for song in candidates
+            if self._song_id(song) not in profile["consumed_ids"]
+            and self._song_id(song) not in exclude_ids
+        ]
+        return self._finalize_mix(filtered, profile, limit=self.MIX_SIZE)
+
+    def _generate_discover_mix(self, profile: Dict[str, Any], exclude_ids: Set[str]) -> List[Dict[str, Any]]:
+        candidates: List[Dict[str, Any]] = []
+        candidates.extend(self._get_collaborative_candidates(profile, limit=30))
+        candidates.extend(self._get_personalized_candidates(profile, limit=30))
+
+        preferred_languages = profile.get("top_languages") or []
+        for language in preferred_languages[:2]:
+            candidates.extend(self._search_songs(f"latest {language} songs", limit=10))
+
+        if not candidates:
+            candidates.extend(self._search_songs("trending songs", limit=20))
+
+        filtered = [
+            song
+            for song in candidates
+            if self._song_id(song) not in profile["consumed_ids"]
+            and self._song_id(song) not in exclude_ids
+        ]
+        return self._finalize_mix(filtered, profile, limit=self.MIX_SIZE)
+
+    def _generate_mood_mix(
+        self,
+        profile: Dict[str, Any],
+        exclude_ids: Set[str],
+    ) -> Tuple[str, str, List[Dict[str, Any]], str, str]:
+        TOTAL_TRACKS = self.MIX_SIZE  # 24
+
+        time_block = self._current_time_block()
+        subtitle = self.MOOD_SUBTITLES.get(time_block, "Mood Picks")
+        mood_name = "Mood Mix"
+        mood_description = subtitle
+
+        # Step 1: Load user language preferences
+        uid = profile.get("uid", "")
+        user_selected_languages = self.user_service.get_user_languages(uid)
+        languages = self._normalize_language_list(
+            user_selected_languages or profile.get("top_languages") or []
+        )
+        if not languages:
+            languages = ["hindi"]
+
+        # Step 2: Equal per-language quota
+        tracks_per_language = TOTAL_TRACKS // len(languages)
+
+        # Step 3: Mood keywords for the current time block
+        mood_keywords = self.MOOD_PLAYLIST_MAP.get(time_block, self.MOOD_PLAYLIST_MAP["night"])
+
+        # Steps 4-8: Language-aware retrieval, strict validation, canon + diversity.
+        # Keep API usage bounded while still giving each preferred language a fair pool.
+        max_searches_per_lang = max(1, min(5, 8 // len(languages)))
+        consumed_ids: Set[str] = profile.get("consumed_ids", set())
+
+        language_pools: Dict[str, List[Dict[str, Any]]] = {}
+        for language in languages:
+            language_pools[language] = self._retrieve_language_mood_pool(
+                language=language,
+                mood_keywords=mood_keywords,
+                consumed_ids=consumed_ids | exclude_ids,
+                max_searches=max_searches_per_lang,
             )
-            
-            logger.info(f"Favorites Mix generated: {len(songs)} songs")
-            return songs[:self.MIX_SIZE]
-            
-        except Exception as e:
-            logger.error(f"Error generating Favorites Mix: {str(e)}")
-            return []
 
-    def _generate_similar_mix(self, profile: Dict) -> List[Dict]:
-        """
-        Generate Similar Artists Mix: Songs from NEW related artists
-        
-        ROBUST ALGORITHM with multiple fallback layers:
-        1. Extract related artists with validation (not channel titles)
-        2. Expand candidate pool if insufficient 
-        3. Search with multiple formats + retries
-        4. Temporarily relax filtering for discovery
-        5. Relax diversity limits if empty to prevent 0 songs
-        6. Fallback hierarchy (related → genre → collaborators → top artists → taste → trending)
-        7. Ensure minimum songs before returning
-        8. Comprehensive debug logging
-        """
-        try:
-            logger.info("=" * 80)
-            logger.info("[SimilarMix] STARTING SIMILAR ARTISTS MIX GENERATION")
-            logger.info("=" * 80)
-            
-            top_artists = profile.get('top_artists', [])[:3]
-            top_artist_names = set(top_artists)
-            all_consumed = profile.get('all_consumed', set())
-            
-            if not top_artists:
-                logger.warning("[SimilarMix] No top artists available")
-                return self._fallback_trending()
-            
-            logger.info(f"[SimilarMix] Top artists: {top_artists}")
-            
-            # ═══════════════════════════════════════════════════════════════════════════════
-            # TASK 1 & 2: Extract & expand related artists with validation
-            # ═══════════════════════════════════════════════════════════════════════════════
-            
-            related_artists_by_source = {
-                'direct': Counter(),      # Direct related artists
-                'secondary': Counter(),   # Related to related artists
-                'collaborators': Counter(),  # Featured artists
-                'album_artists': Counter()   # Artists from albums
-            }
-            artist_channel_ids = {}
-            
-            logger.info("[SimilarMix] Task 1 & 2: Extracting & expanding related artists...")
-            
-            # Primary: Extract from top artists
-            for artist_name in top_artists:
-                try:
-                    logger.info(f"[SimilarMix] Extracting related artists for: {artist_name}")
-                    related_list = self._extract_related_artists_robust(artist_name)
-                    
-                    logger.debug(f"[SimilarMix] Retrieved {len(related_list)} items for {artist_name}")
-                    
-                    for related_artist, channel_id in related_list:
-                        # Filter - exclude original top artists
-                        if related_artist.lower() not in {a.lower() for a in top_artist_names}:
-                            related_artists_by_source['direct'][related_artist] += 1
-                            artist_channel_ids[related_artist] = channel_id
-                            logger.debug(f"[SimilarMix]   ✓ {related_artist}")
-                    
-                except Exception as e:
-                    logger.warning(f"[SimilarMix] Error extracting related for {artist_name}: {str(e)}")
-                    continue
-            
-            # Expand if needed: Extract secondary related artists
-            if len(related_artists_by_source['direct']) < 5:
-                logger.info("[SimilarMix] Expanding: Fetching secondary related artists...")
-                try:
-                    primary_related = list(related_artists_by_source['direct'].keys())[:3]
-                    for primary_artist in primary_related:
-                        try:
-                            channel_id = artist_channel_ids.get(primary_artist)
-                            if not channel_id:
-                                continue
-                            
-                            secondary_list = self._extract_related_artists_robust(primary_artist)
-                            for secondary_artist, sec_channel_id in secondary_list[:3]:
-                                if secondary_artist.lower() not in {a.lower() for a in top_artist_names}:
-                                    if secondary_artist not in related_artists_by_source['direct']:
-                                        related_artists_by_source['secondary'][secondary_artist] += 1
-                                        artist_channel_ids[secondary_artist] = sec_channel_id
-                                        logger.debug(f"[SimilarMix]   ⊙ Secondary: {secondary_artist}")
-                        except Exception as e:
-                            logger.debug(f"[SimilarMix] Error getting secondary: {str(e)}")
-                            continue
-                except Exception as e:
-                    logger.debug(f"[SimilarMix] Secondary expansion error: {str(e)}")
-            
-            # Expand: Extract featured artists & collaborators from top artists
-            logger.info("[SimilarMix] Expanding: Fetching collaborators & featured artists...")
-            try:
-                for top_artist in top_artists[:2]:
-                    channel_id = None
-                    # Find channel ID for this top artist
-                    try:
-                        search_results = self.rec_service.ytmusic.search(top_artist, filter='artists', limit=1)
-                        if search_results:
-                            channel_id = search_results[0].get('browseId')
-                    except:
-                        pass
-                    
-                    if channel_id:
-                        try:
-                            artist_songs = self.rec_service._fetch_artist_songs_cached(channel_id)
-                            for song in artist_songs[:5]:
-                                # Extract featured artists from song
-                                featured = song.get('artists', [])
-                                for feat_artist_data in featured:
-                                    feat_name = feat_artist_data.get('name') if isinstance(feat_artist_data, dict) else str(feat_artist_data)
-                                    if feat_name and feat_name.lower() not in {a.lower() for a in top_artist_names}:
-                                        related_artists_by_source['collaborators'][feat_name] += 1
-                                        logger.debug(f"[SimilarMix]   ◇ Collaborator: {feat_name}")
-                        except Exception as e:
-                            logger.debug(f"[SimilarMix] Error extracting collaborators: {str(e)}")
-            except Exception as e:
-                logger.debug(f"[SimilarMix] Collaborator expansion error: {str(e)}")
-            
-            # Consolidate all artist sources
-            all_related_artists = Counter()
-            for source_name, source_counter in related_artists_by_source.items():
-                all_related_artists.update(source_counter)
-                logger.info(f"[SimilarMix] {source_name}: {len(source_counter)} artists")
-            
-            logger.info(f"[SimilarMix] TOTAL RELATED ARTISTS: {len(all_related_artists)}")
-            if all_related_artists:
-                logger.info(f"[SimilarMix] Top candidates: {[(a, c) for a, c in all_related_artists.most_common(5)]}")
-            
-            if not all_related_artists:
-                logger.warning("[SimilarMix] No related artists found, using fallback")
-                return self._similar_mix_fallback_hierarchy(profile, step="no_related")
-            
-            # ═══════════════════════════════════════════════════════════════════════════════
-            # TASK 3: Improve artist search success with retries & multiple formats
-            # ═══════════════════════════════════════════════════════════════════════════════
-            
-            logger.info("[SimilarMix] Task 3: Searching songs with multiple formats...")
-            
-            ranked_artists = all_related_artists.most_common(15)
-            songs_dict = {}
-            artist_song_count = defaultdict(int)
-            tracks_removed_by_filter = 0
-            
-            # Discovery diversity: Start relaxed, tighten if needed
-            discovery_max_per_artist = 3  # More generous initially
-            
-            for related_artist_name, frequency_score in ranked_artists:
-                try:
-                    logger.debug(f"[SimilarMix] Processing: {related_artist_name} (score={frequency_score})")
-                    channel_id = artist_channel_ids.get(related_artist_name)
-                    
-                    artist_songs_found = 0
-                    
-                    # Try fetching from channel ID (Primary)
-                    if channel_id:
-                        try:
-                            logger.debug(f"[SimilarMix]   Attempt 1: Direct channel fetch")
-                            artist_songs = self.rec_service._fetch_artist_songs_cached(channel_id)
-                            artist_songs_found = len(artist_songs)
-                            logger.debug(f"[SimilarMix]   Found {artist_songs_found} songs")
-                        except Exception as e:
-                            logger.debug(f"[SimilarMix]   Attempt 1 failed: {str(e)}")
-                            artist_songs = []
-                    else:
-                        artist_songs = []
-                    
-                    # Fallback 1: Search with multiple formats
-                    if len(artist_songs) < 3:
-                        for query_format in [
-                            f"{related_artist_name} songs",
-                            f"{related_artist_name} top tracks",
-                            f"{related_artist_name} official",
-                            f"{related_artist_name}",
-                        ]:
-                            if len(artist_songs) >= 3:
-                                break
-                            try:
-                                logger.debug(f"[SimilarMix]   Attempt: '{query_format}'")
-                                results = self.rec_service._search_songs(query_format, limit=10)
-                                if results:
-                                    artist_songs.extend(list(results.values()))
-                                    logger.debug(f"[SimilarMix]   Found {len(results)} via: {query_format}")
-                            except Exception as e:
-                                logger.debug(f"[SimilarMix]   Query failed: {str(e)}")
-                                continue
-                    
-                    if not artist_songs:
-                        logger.warning(f"[SimilarMix] No songs found for {related_artist_name} via any method")
+        # Step 9: Select per-language quota
+        selected_tracks: List[Dict[str, Any]] = []
+        selected_ids: Set[str] = set()
+
+        for language in languages:
+            pool = language_pools[language]
+            available = [s for s in pool if self._song_id(s) not in selected_ids]
+            chosen = available[:tracks_per_language]
+            selected_tracks.extend(chosen)
+            selected_ids.update(self._song_id(s) for s in chosen)
+
+        # Step 10: Fill any shortfall from remaining per-language pools in round-robin.
+        # This prevents one language from taking all leftover slots.
+        remaining_needed = TOTAL_TRACKS - len(selected_tracks)
+        if remaining_needed > 0:
+            remainder_by_language: Dict[str, List[Dict[str, Any]]] = {}
+            for language in languages:
+                remainder_by_language[language] = [
+                    song
+                    for song in language_pools.get(language, [])
+                    if self._song_id(song) and self._song_id(song) not in selected_ids
+                ]
+
+            index = 0
+            progressed = True
+            while remaining_needed > 0 and progressed:
+                progressed = False
+                for language in languages:
+                    bucket = remainder_by_language.get(language, [])
+                    if index >= len(bucket):
                         continue
-                    
-                    # Add songs with relaxed filtering for Similar Mix
-                    songs_before_filter = len(artist_songs)
-                    for song in artist_songs:
-                        video_id = song.get('videoId')
-                        if not video_id:
-                            continue
-                        
-                        # Skip if consumed
-                        if video_id in all_consumed:
-                            continue
-                        
-                        # Limit per artist (relaxed initially)
-                        if artist_song_count[related_artist_name] >= discovery_max_per_artist:
-                            continue
-                        
-                        songs_dict[video_id] = song
-                        artist_song_count[related_artist_name] += 1
-                    
-                    songs_added = artist_song_count[related_artist_name]
-                    logger.debug(f"[SimilarMix]   Added {songs_added} songs from {related_artist_name}")
-                    
-                except Exception as e:
-                    logger.warning(f"[SimilarMix] Error processing {related_artist_name}: {str(e)}")
+                    song = bucket[index]
+                    sid = self._song_id(song)
+                    if sid and sid not in selected_ids:
+                        selected_tracks.append(song)
+                        selected_ids.add(sid)
+                        remaining_needed -= 1
+                        progressed = True
+                        if remaining_needed <= 0:
+                            break
+                index += 1
+
+        # Step 11: Shuffle final mix
+        random.shuffle(selected_tracks)
+        return mood_name, mood_description, selected_tracks[:TOTAL_TRACKS], time_block, subtitle
+
+    def _normalize_language_list(self, languages: Sequence[str]) -> List[str]:
+        normalized: List[str] = []
+        seen: Set[str] = set()
+        for language in languages:
+            value = self._canonical_language(str(language))
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            normalized.append(value)
+        return normalized
+
+    def _canonical_language(self, language: str) -> str:
+        value = str(language or "").strip().lower()
+        if not value:
+            return ""
+        for canonical, aliases in self.LANGUAGE_ALIASES.items():
+            if value == canonical or value in aliases:
+                return canonical
+        return value
+
+    def _is_undesirable_mood_version(self, song: Dict[str, Any]) -> bool:
+        title = str(song.get("title") or song.get("song") or song.get("name") or "").strip().lower()
+        if not title:
+            return False
+        return any(keyword in title for keyword in self.MOOD_EXCLUDED_VERSION_KEYWORDS)
+
+    def _select_balanced_language_quota_tracks(
+        self,
+        candidates: Sequence[Dict[str, Any]],
+        profile: Dict[str, Any],
+        preferred_languages: Sequence[str],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        preferred = self._normalize_language_list(preferred_languages)
+        if not preferred:
+            return self._finalize_mix(candidates, profile, limit=limit)
+
+        strict_candidates = self._filter_songs_by_languages_strict(candidates, preferred)
+        strict_candidates = [song for song in strict_candidates if not self._is_undesirable_mood_version(song)]
+
+        buckets: Dict[str, List[Dict[str, Any]]] = {language: [] for language in preferred}
+        assigned_ids: Set[str] = set()
+
+        # Build language pools in one pass and spread multi-language songs fairly.
+        for song in strict_candidates:
+            song_id = self._song_id(song)
+            if not song_id or song_id in assigned_ids:
+                continue
+
+            song_langs = self._song_languages(song)
+            matched_languages = [language for language in preferred if language in song_langs]
+            if not matched_languages:
+                continue
+
+            chosen_language = min(matched_languages, key=lambda language: len(buckets[language]))
+            if len(buckets[chosen_language]) < 40:
+                buckets[chosen_language].append(song)
+                assigned_ids.add(song_id)
+
+        per_language_quota = limit // len(preferred)
+        extra_slots = limit % len(preferred)
+        quotas: Dict[str, int] = {language: per_language_quota for language in preferred}
+        for index in range(extra_slots):
+            quotas[preferred[index]] += 1
+
+        selected: List[Dict[str, Any]] = []
+        selected_ids: Set[str] = set()
+        bucket_indices: Dict[str, int] = {language: 0 for language in preferred}
+
+        # First pass: satisfy exact per-language quota where supply exists.
+        for language in preferred:
+            ranked_bucket = sorted(
+                buckets.get(language, []),
+                key=lambda song: self._preference_score(song, profile),
+                reverse=True,
+            )
+            take = quotas.get(language, 0)
+            for song in ranked_bucket[:take]:
+                song_id = self._song_id(song)
+                if not song_id or song_id in selected_ids:
                     continue
-            
-            logger.info(f"[SimilarMix] Candidates gathered: {len(songs_dict)} songs from {len(artist_song_count)} artists")
-            if not songs_dict:
-                logger.critical("[SimilarMix] No songs gathered from any related artist")
-                return self._similar_mix_fallback_hierarchy(profile, step="no_songs_from_related")
-            
-            # ═══════════════════════════════════════════════════════════════════════════════
-            # TASK 4: Apply filtering with RELAXED rules for discovery
-            # ═══════════════════════════════════════════════════════════════════════════════
-            
-            logger.info("[SimilarMix] Task 4: Applying relaxed filtering for discovery...")
-            
-            # First pass: Normal filtering
-            filtered_songs_list = filter_music_tracks(
-                list(songs_dict.values()),
-                source="similar_mix"  # Use "similar_mix" source for relaxed rules
-            )
-            
-            logger.info(f"[SimilarMix] After filtering: {len(filtered_songs_list)} / {len(songs_dict)} songs")
-            filtered_songs_dict = {s.get('videoId'): s for s in filtered_songs_list}
-            
-            # If filtering removed too many, use unfiltered as fallback
-            if len(filtered_songs_dict) < len(songs_dict) * 0.3:  # If <30% remain
-                logger.warning("[SimilarMix] Filtering too aggressive, relaxing restrictions...")
-                logger.info(f"[SimilarMix] Using {len(songs_dict)} unfiltered songs as fallback")
-                filtered_songs_dict = songs_dict
-            
-            if not filtered_songs_dict:
-                logger.critical("[SimilarMix] No songs after filtering")
-                return self._similar_mix_fallback_hierarchy(profile, step="all_filtered_out")
-            
-            # ═══════════════════════════════════════════════════════════════════════════════
-            # TASK 5: Apply diversity with relaxation if empty
-            # ═══════════════════════════════════════════════════════════════════════════════
-            
-            logger.info("[SimilarMix] Task 5: Applying diversity layer...")
-            
-            songs = self._ensure_diversity_resilient(
-                list(filtered_songs_dict.values()),
-                profile.get('artist_listen_count', {}),
-                all_consumed,
-                exclude_played=True,
-                min_threshold=20,
-                mix_type="similar"
-            )
-            
-            logger.info(f"[SimilarMix] After diversity: {len(songs)} songs")
-            
-            if not songs:
-                logger.critical("[SimilarMix] ⚠️ Diversity removed ALL songs!")
-                # TASK 5: Relax diversity - allow up to 3 per artist
-                logger.info("[SimilarMix] Relaxing diversity limits (allow 3 per artist)...")
-                songs = self._ensure_diversity_resilient(
-                    list(filtered_songs_dict.values()),
-                    profile.get('artist_listen_count', {}),
-                    all_consumed,
-                    exclude_played=False,  # Relax exclude_played
-                    min_threshold=20,
-                    max_per_artist=4,      # Relax to 4 per artist
-                    mix_type="similar"
-                )
-                logger.info(f"[SimilarMix] After relaxed diversity: {len(songs)} songs")
-            
-            # ═══════════════════════════════════════════════════════════════════════════════
-            # TASK 6 & 7: Fallback hierarchy & ensure minimum output
-            # ═══════════════════════════════════════════════════════════════════════════════
-            
-            if len(songs) < 10:
-                logger.warning(f"[SimilarMix] Only {len(songs)} songs, using fallback hierarchy...")
-                return self._similar_mix_fallback_hierarchy(profile, step="insufficient")
-            
-            logger.info(f"[SimilarMix] ✅ SUCCESS: Generated {len(songs)} quality songs")
-            logger.info("=" * 80)
-            
-            final_mix = songs[:20]  # Trim to 20 songs for Similar Mix
-            
-            # ═══════════════════════════════════════════════════════════════════════════════
-            # TASK 8: DEBUG LOGGING SUMMARY
-            # ═══════════════════════════════════════════════════════════════════════════════
-            
-            artist_counts = Counter(s.get('artist') for s in final_mix if s.get('artist'))
-            logger.info(f"[SimilarMix] Final Mix Artists: {len(artist_counts)} unique artists")
-            logger.info(f"[SimilarMix]   Top artists in mix: {artist_counts.most_common(5)}")
-            logger.info(f"[SimilarMix]   Final size: {len(final_mix)} tracks")
-            
-            return final_mix
-            
-        except Exception as e:
-            logger.error(f"[SimilarMix] 🚨 CRITICAL ERROR: {str(e)}", exc_info=True)
-            logger.info("[SimilarMix] Falling back to trending...")
-            return self._fallback_trending()
+                selected.append(song)
+                selected_ids.add(song_id)
+                bucket_indices[language] += 1
 
-    def _generate_discover_mix(self, profile: Dict) -> List[Dict]:
-        """
-        Generate Discover Mix: Trending + new releases + fresh content
-        Introduces new music while respecting taste profile
-        """
-        try:
-            logger.info("Generating Discover Mix")
-            all_consumed = profile.get('all_consumed', set())
-            
-            songs_dict = {}
-            
-            # Get trending songs as base
-            try:
-                trending = self.rec_service._get_trending_fallback(country='IN')
-                songs_dict.update(trending)
-                logger.info(f"Added {len(trending)} trending songs")
-            except Exception as e:
-                logger.warning(f"Error fetching trending: {str(e)}")
-            
-            # Add new releases
-            try:
-                new_releases = self.rec_service._search_songs("new releases", limit=20)
-                songs_dict.update(new_releases)
-                logger.info(f"Added {len(new_releases)} new releases")
-            except Exception as e:
-                logger.warning(f"Error fetching new releases: {str(e)}")
-            
-            # Add recommendations based on taste (but fresh songs)
-            try:
-                recommendations = self.rec_service._search_songs(
-                    "latest in " + (profile.get('top_artists', ['pop'])[0] or 'pop'),
-                    limit=20
+        # Second pass: fill remaining slots from language buckets in round-robin order.
+        while len(selected) < limit:
+            progressed = False
+            for language in preferred:
+                ranked_bucket = sorted(
+                    buckets.get(language, []),
+                    key=lambda song: self._preference_score(song, profile),
+                    reverse=True,
                 )
-                songs_dict.update(recommendations)
-                logger.info(f"Added {len(recommendations)} taste-based recommendations")
-            except Exception as e:
-                logger.warning(f"Error fetching taste recommendations: {str(e)}")
-            
-            # If still low on songs, add global trending as fallback
-            if len(songs_dict) < 30:
+                index = bucket_indices[language]
+                while index < len(ranked_bucket):
+                    song = ranked_bucket[index]
+                    index += 1
+                    song_id = self._song_id(song)
+                    if not song_id or song_id in selected_ids:
+                        continue
+                    selected.append(song)
+                    selected_ids.add(song_id)
+                    bucket_indices[language] = index
+                    progressed = True
+                    break
+                if len(selected) >= limit:
+                    break
+            if not progressed:
+                break
+
+        if len(selected) < limit:
+            remainder_pool: List[Dict[str, Any]] = []
+            for language in preferred:
+                ranked_bucket = sorted(
+                    buckets.get(language, []),
+                    key=lambda song: self._preference_score(song, profile),
+                    reverse=True,
+                )
+                remainder_pool.extend(ranked_bucket)
+
+            for song in remainder_pool:
+                if len(selected) >= limit:
+                    break
+                song_id = self._song_id(song)
+                if not song_id or song_id in selected_ids:
+                    continue
+                selected.append(song)
+                selected_ids.add(song_id)
+
+        return selected[:limit]
+
+    def _current_time_block(self) -> str:
+        hour = datetime.now().hour
+        if 5 <= hour < 11:
+            return "morning"
+        if 11 <= hour < 17:
+            return "afternoon"
+        if 17 <= hour < 21:
+            return "evening"
+        return "night"
+
+    def _playlist_candidates_for_time_block(self, time_block: str) -> List[Dict[str, Any]]:
+        keywords = self.MOOD_PLAYLIST_MAP.get(time_block, self.MOOD_PLAYLIST_MAP["night"])
+
+        # Cap at 5 upstream calls: 2 playlist searches + 2 playlist fetches + optional artist fallback.
+        playlist_search_keywords = keywords[:2]
+        playlists: List[Dict[str, Any]] = []
+        for keyword in playlist_search_keywords:
+            try:
+                playlists.extend(self.jiosaavn_service.get_mood_playlists(keyword, limit=2) or [])
+            except Exception as exc:
+                logger.warning("Mood playlist discovery failed for '%s': %s", keyword, exc)
+
+        playlist_urls: List[str] = []
+        for playlist in playlists:
+            url = str(playlist.get("url") or "").strip()
+            if url and url not in playlist_urls:
+                playlist_urls.append(url)
+            if len(playlist_urls) >= 2:
+                break
+
+        songs: List[Dict[str, Any]] = []
+        for playlist_url in playlist_urls:
+            try:
+                songs.extend(
+                    [self._to_song_dto(song) for song in self.jiosaavn_service.get_playlist_songs_from_url(playlist_url)[:60]]
+                )
+            except Exception as exc:
+                logger.warning("Mood playlist songs fetch failed for '%s': %s", playlist_url, exc)
+
+        # Keep candidate pool in the requested 80-120 range where possible.
+        return songs[:120]
+
+    def _retrieve_language_mood_pool(
+        self,
+        language: str,
+        mood_keywords: Sequence[str],
+        consumed_ids: Set[str],
+        max_searches: int = 2,
+    ) -> List[Dict[str, Any]]:
+        """Fetch up to 60 songs for one language matched to the current mood keywords.
+
+        For each keyword (up to *max_searches*) the query is composed as
+        ``"{language} {keyword}"`` so that JioSaavn returns language-specific
+        playlists rather than generic Hindi/mixed playlists.  Songs are then
+        validated strictly against the requested language before being added to
+        the pool.
+        """
+        MAX_POOL = 80
+        MIN_LANGUAGE_SUPPLY = 24
+        lang_norm = self._canonical_language(language)
+        candidate_songs: List[Dict[str, Any]] = []
+        fetched_urls: Set[str] = set()
+
+        # Step 4: Language + keyword combined queries
+        for keyword in list(mood_keywords)[:max_searches]:
+            query = f"{language} {keyword}"
+            try:
+                playlists = self.jiosaavn_service.get_mood_playlists(query, limit=2) or []
+            except Exception as exc:
+                logger.warning("Mood playlist search failed for '%s': %s", query, exc)
+                playlists = []
+
+            for playlist in playlists[:2]:
+                url = str(playlist.get("url") or "").strip()
+                if not url or url in fetched_urls:
+                    continue
+                fetched_urls.add(url)
                 try:
-                    logger.info("Adding global trending as fallback")
-                    global_trending = self._get_trending_songs(limit=30)
-                    for song in global_trending:
-                        if song.get('videoId'):
-                            songs_dict[song['videoId']] = song
-                    logger.info(f"Total after fallback: {len(songs_dict)} songs")
-                except Exception as e:
-                    logger.warning(f"Error fetching global trending fallback: {str(e)}")
-            
-            # Ensure diversity and remove previously played
-            songs = self._ensure_diversity(
-                list(songs_dict.values()),
-                profile.get('artist_listen_count', {}),
-                all_consumed,
-                exclude_played=True,
-                favor_new=True
+                    raw_songs = self.jiosaavn_service.get_playlist_songs_from_url(url)[:30]
+                    candidate_songs.extend(self._to_song_dto(s) for s in raw_songs)
+                except Exception as exc:
+                    logger.warning("Mood playlist songs fetch failed for '%s': %s", url, exc)
+
+            if len(candidate_songs) >= MAX_POOL * 2:
+                # Have enough candidates to fill the pool even after strict filtering
+                break
+
+        # Secondary retrieval: direct song search when playlist retrieval is sparse.
+        if len(candidate_songs) < MIN_LANGUAGE_SUPPLY:
+            for keyword in list(mood_keywords)[:max_searches]:
+                query = f"{keyword} {language} songs"
+                candidate_songs.extend(self._search_songs(query, limit=12))
+                if len(candidate_songs) >= MAX_POOL * 2:
+                    break
+
+        # Tertiary retrieval: language discovery queries for low-supply languages.
+        if len(candidate_songs) < MIN_LANGUAGE_SUPPLY:
+            broad_queries = [
+                f"latest {language} songs",
+                f"{language} hits",
+                f"{language} trending songs",
+            ]
+            for query in broad_queries:
+                candidate_songs.extend(self._search_songs(query, limit=12))
+                if len(candidate_songs) >= MAX_POOL * 2:
+                    break
+
+        # Steps 6-8: Strict language validation + remove undesirable versions + consumed
+        validated: List[Dict[str, Any]] = []
+        seen_ids: Set[str] = set()
+
+        for song in candidate_songs:
+            # Step 6: song must belong to the requested language
+            song_langs = self._song_languages(song)
+            if lang_norm not in song_langs:
+                continue
+
+            # Step 7: skip lofi / slowed / reverb / remix versions
+            if self._is_undesirable_mood_version(song):
+                continue
+
+            # Step 8: skip already-played and excluded tracks
+            sid = self._song_id(song)
+            if not sid or sid in consumed_ids or sid in seen_ids:
+                continue
+
+            seen_ids.add(sid)
+            validated.append(song)
+
+            if len(validated) >= MAX_POOL:
+                break
+
+        random.shuffle(validated)
+
+        # Step 8 (cont.): canonicalize and then apply diversity capping per language pool.
+        validated = resolve_canonical_tracks(validated)
+        validated = self._ensure_diversity_resilient(
+            validated,
+            artist_listen_count={},
+            all_consumed=consumed_ids,
+            exclude_played=True,
+            min_threshold=min(12, MAX_POOL),
+            max_per_artist=self.MAX_SONGS_PER_ARTIST,
+            mix_type="mood_mix_language_pool",
+            limit=MAX_POOL,
+        )
+
+        return validated[:MAX_POOL]
+
+    def _filter_songs_by_languages(
+        self,
+        songs: Sequence[Dict[str, Any]],
+        preferred_languages: Sequence[str],
+    ) -> List[Dict[str, Any]]:
+        normalized_prefs = {str(lang).strip().lower() for lang in preferred_languages if str(lang).strip()}
+        if not normalized_prefs:
+            return list(songs)
+
+        filtered: List[Dict[str, Any]] = []
+        for song in songs:
+            language = str(song.get("language") or "").strip().lower()
+            if not language:
+                continue
+            parts = {part.strip() for part in language.replace("/", ",").replace("|", ",").split(",") if part.strip()}
+            if not parts:
+                parts = {language}
+            if parts & normalized_prefs:
+                filtered.append(song)
+
+        return filtered or list(songs)
+
+    def _filter_songs_by_languages_strict(
+        self,
+        songs: Sequence[Dict[str, Any]],
+        preferred_languages: Sequence[str],
+    ) -> List[Dict[str, Any]]:
+        normalized_prefs = {str(lang).strip().lower() for lang in preferred_languages if str(lang).strip()}
+        if not normalized_prefs:
+            return list(songs)
+
+        filtered: List[Dict[str, Any]] = []
+        for song in songs:
+            song_langs = self._song_languages(song)
+            if song_langs and (song_langs & normalized_prefs):
+                filtered.append(song)
+
+        return filtered
+
+    def _song_languages(self, song: Dict[str, Any]) -> Set[str]:
+        raw = str(song.get("language") or "").strip().lower()
+        if not raw:
+            return set()
+        parts = {
+            part.strip()
+            for part in raw.replace("/", ",").replace("|", ",").replace("&", ",").split(",")
+            if part.strip()
+        }
+        canonical = {self._canonical_language(part) for part in parts if self._canonical_language(part)}
+        if canonical:
+            return canonical
+        single = self._canonical_language(raw)
+        return {single} if single else set()
+
+    def _balance_languages(
+        self,
+        songs: Sequence[Dict[str, Any]],
+        preferred_languages: Sequence[str],
+        target_size: int,
+    ) -> List[Dict[str, Any]]:
+        preferred = [str(language).strip().lower() for language in preferred_languages if str(language).strip()]
+        if not preferred:
+            return list(songs)[:target_size]
+
+        buckets: Dict[str, List[Dict[str, Any]]] = {language: [] for language in preferred}
+        remainder: List[Dict[str, Any]] = []
+
+        for song in songs:
+            song_langs = self._song_languages(song)
+            matched = [language for language in preferred if language in song_langs]
+            if matched:
+                buckets[matched[0]].append(song)
+            else:
+                remainder.append(song)
+
+        # Round-robin keeps all preferred languages represented in the candidate pool.
+        balanced: List[Dict[str, Any]] = []
+        exhausted = False
+        index = 0
+        while len(balanced) < target_size and not exhausted:
+            exhausted = True
+            for language in preferred:
+                bucket = buckets.get(language, [])
+                if index < len(bucket):
+                    balanced.append(bucket[index])
+                    exhausted = False
+                    if len(balanced) >= target_size:
+                        break
+            index += 1
+
+        if len(balanced) < target_size:
+            balanced.extend(remainder[: target_size - len(balanced)])
+
+        return balanced[:target_size]
+
+    def _enforce_near_equal_language_mix(
+        self,
+        finalized_songs: Sequence[Dict[str, Any]],
+        fallback_songs: Sequence[Dict[str, Any]],
+        preferred_languages: Sequence[str],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        preferred: List[str] = []
+        for language in preferred_languages:
+            normalized = str(language).strip().lower()
+            if normalized and normalized not in preferred:
+                preferred.append(normalized)
+
+        if not preferred:
+            return list(finalized_songs)[:limit]
+
+        # Primary pool is the finalized ranking; fallback allows filling missing language quotas.
+        primary_pool = list(finalized_songs)
+        all_pool = primary_pool + [song for song in fallback_songs if self._song_id(song)]
+
+        buckets: Dict[str, List[Dict[str, Any]]] = {language: [] for language in preferred}
+        remainder: List[Dict[str, Any]] = []
+        seen_pool_ids: Set[str] = set()
+
+        for song in all_pool:
+            song_id = self._song_id(song)
+            if not song_id or song_id in seen_pool_ids:
+                continue
+            seen_pool_ids.add(song_id)
+
+            song_langs = self._song_languages(song)
+            matched = [language for language in preferred if language in song_langs]
+            if matched:
+                buckets[matched[0]].append(song)
+            else:
+                remainder.append(song)
+
+        language_count = len(preferred)
+        base_quota = limit // language_count
+        remainder_slots = limit % language_count
+        quotas: Dict[str, int] = {language: base_quota for language in preferred}
+        for index in range(remainder_slots):
+            quotas[preferred[index]] += 1
+
+        selected: List[Dict[str, Any]] = []
+        selected_ids: Set[str] = set()
+        used_per_language: Dict[str, int] = {language: 0 for language in preferred}
+
+        # First pass: satisfy per-language quotas where available.
+        for language in preferred:
+            quota = quotas.get(language, 0)
+            for song in buckets.get(language, []):
+                if used_per_language[language] >= quota:
+                    break
+                song_id = self._song_id(song)
+                if not song_id or song_id in selected_ids:
+                    continue
+                selected.append(song)
+                selected_ids.add(song_id)
+                used_per_language[language] += 1
+
+        # Second pass: fill remaining slots using round-robin to keep near-equal distribution.
+        bucket_indices: Dict[str, int] = {language: 0 for language in preferred}
+        exhausted = False
+        while len(selected) < limit and not exhausted:
+            exhausted = True
+            for language in preferred:
+                bucket = buckets.get(language, [])
+                index = bucket_indices[language]
+                while index < len(bucket):
+                    song = bucket[index]
+                    index += 1
+                    song_id = self._song_id(song)
+                    if not song_id or song_id in selected_ids:
+                        continue
+                    selected.append(song)
+                    selected_ids.add(song_id)
+                    used_per_language[language] += 1
+                    exhausted = False
+                    break
+                bucket_indices[language] = index
+                if len(selected) >= limit:
+                    break
+
+        # Final fallback for low-supply languages: fill from any remaining songs.
+        if len(selected) < limit:
+            for song in remainder:
+                if len(selected) >= limit:
+                    break
+                song_id = self._song_id(song)
+                if not song_id or song_id in selected_ids:
+                    continue
+                selected.append(song)
+                selected_ids.add(song_id)
+
+        return selected[:limit]
+
+    def _favorite_artist_candidates(self, profile: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
+        top_artists = list(profile.get("top_artists") or [])[:1]
+        candidates: List[Dict[str, Any]] = []
+
+        for artist in top_artists:
+            try:
+                candidates.extend([self._to_song_dto(song) for song in self.jiosaavn_service.get_artist_songs(artist)[:limit]])
+            except Exception as exc:
+                logger.warning("Favorite-artist candidates failed for '%s': %s", artist, exc)
+
+        if not candidates:
+            fallback = self._get_personalized_candidates(profile, limit=limit)
+            norm_top_artists = set(profile.get("top_artist_norms") or set())
+            candidates = [
+                song
+                for song in fallback
+                if {self._normalize_artist_name(name) for name in self._extract_artists(song)} & norm_top_artists
+            ]
+        return candidates
+
+    def _boost_favorite_artists(self, songs: Sequence[Dict[str, Any]], profile: Dict[str, Any]) -> List[Dict[str, Any]]:
+        top_artist_norms = set(profile.get("top_artist_norms") or set())
+        boosted: List[Dict[str, Any]] = []
+        for song in songs:
+            copy_song = dict(song)
+            song_artists = {self._normalize_artist_name(artist) for artist in self._extract_artists(copy_song)}
+            if song_artists & top_artist_norms:
+                copy_song["_boost_score"] = 2.5
+            boosted.append(copy_song)
+        return boosted
+
+    def _get_personalized_candidates(self, profile: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
+        cache_key = f"daily_mix_personalized:{profile['uid']}:{limit}"
+        cached = self.cache.get(cache_key)
+        if isinstance(cached, list):
+            return cached
+
+        try:
+            from services.personalized_recommender import get_recommendations
+
+            songs = get_recommendations(
+                profile["uid"],
+                limit=min(15, max(10, limit // 2)),
+                lang_fallback=profile.get("top_languages") or [],
             )
-            
-            logger.info(f"Discover Mix generated: {len(songs)} songs")
-            return songs[:self.MIX_SIZE]
-            
-        except Exception as e:
-            logger.error(f"Error generating Discover Mix: {str(e)}")
+            normalized = [self._to_song_dto(song) for song in songs]
+            self.cache.set(cache_key, normalized, ttl=30 * 60)
+            return normalized
+        except Exception as exc:
+            logger.warning("Daily mix personalized candidates failed for %s: %s", profile["uid"], exc)
             return []
 
-    def _generate_mood_mix(self, profile: Dict) -> List[Dict]:
-        """
-        Generate Mood Mix: Contextual + Taste-filtered
-        
-        Process:
-        1. Detect mood based on time of day
-        2. Build taste profile from top artists and plays
-        3. Fetch mood-based songs
-        4. Score songs using hybrid: mood_score * 0.5 + taste_similarity * 0.4 + discovery_bonus * 0.1
-        5. Rank and filter by combined score
-        6. Include taste-aligned tracks, similar artist tracks, discovery tracks
-        """
+    def _get_collaborative_candidates(self, profile: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
+        cache_key = f"daily_mix_cf:{profile['uid']}:{limit}"
+        cached = self.cache.get(cache_key)
+        if isinstance(cached, list):
+            return cached
+
         try:
-            logger.info("Generating Mood Mix")
-            
-            # Step 1: Detect mood based on time
-            hour = datetime.now().hour
-            if hour < 12:
-                mood = "calm"
-                mood_keywords = ["morning calm", "ambient", "peaceful", "soft"]
-            elif hour < 18:
-                mood = "energetic"
-                mood_keywords = ["upbeat", "energetic", "workout", "motivation", "power"]
-            else:
-                mood = "chill"
-                mood_keywords = ["chill", "relaxing", "evening", "acoustic", "lofi"]
-            
-            logger.info(f"[MoodMix] Detected mood: {mood} (hour={hour})")
-            
-            # Step 2: Build taste profile
-            taste_profile = self._build_taste_profile(profile)
-            logger.info(f"[MoodMix] Taste profile: {len(taste_profile.get('top_artists', []))} artists, "
-                       f"{len(taste_profile.get('taste_albums', []))} albums")
-            
-            # Step 3 & 4: Fetch mood songs and score them
-            scored_songs = self._fetch_and_score_mood_songs(
-                mood_keywords,
-                taste_profile,
-                profile.get('all_consumed', set())
-            )
-            
-            if not scored_songs:
-                logger.warning("[MoodMix] No scored songs, using fallback strategy")
-                return self._fallback_mood_mix(profile, taste_profile)
-            
-            # Step 5: Sort by score and filter
-            sorted_songs = sorted(scored_songs, key=lambda x: x['_score'], reverse=True)
-            top_titles = [f"{s.get('title', 'Unknown')[:20]}={s['_score']:.2f}" for s in sorted_songs[:5]]
-            logger.info(f"[MoodMix] Top 5 scores: {top_titles}")
-            
-            # Extract just the song data without scores
-            songs = [s for s in sorted_songs]
-            
-            # Ensure diversity
-            songs = self._ensure_diversity(
-                songs,
-                profile.get('artist_listen_count', {}),
-                profile.get('all_consumed', set()),
-                exclude_played=False
-            )
-            
-            logger.info(f"[MoodMix] Generated: {len(songs)} songs with mood={mood} + taste filtering")
-            return songs[:self.MIX_SIZE]
-            
-        except Exception as e:
-            logger.error(f"Error generating Mood Mix: {str(e)}")
-            return self._get_trending_songs()
-    
-    # ==================== HELPER METHODS FOR IMPROVED RECOMMENDATIONS ====================
-    
-    def _extract_related_artists_robust(self, artist_name: str) -> List[tuple]:
-        """
-        ROBUST related artist extraction:
-        - Extract artist names (NOT channel titles/IDs)
-        - Ignore invalid entries
-        - Normalize artist names
-        - Multiple fallback strategies
-        
-        Returns: List of (artist_name, channel_id) tuples
-        """
-        try:
-            logger.debug(f"[RelatedArtists·Robust] Extracting for: {artist_name}")
-            
-            # Strategy 1: Search for artist directly
-            try:
-                search_results = self.rec_service.ytmusic.search(artist_name, filter='artists', limit=1)
-                
-                if not search_results:
-                    logger.debug(f"[RelatedArtists·Robust] Search found no artist")
-                    return []
-                
-                artist_result = search_results[0]
-                channel_id = artist_result.get('browseId')
-                
-                if not channel_id:
-                    logger.debug(f"[RelatedArtists·Robust] No browseId in search result")
-                    return []
-                
-                logger.debug(f"[RelatedArtists·Robust] Found artist with browseId: {channel_id}")
-                
-                # Fetch artist data
-                artist_data = self.rec_service.ytmusic.get_artist(channel_id)
-                related_artists = []
-                
-                # Extract related artists
-                if artist_data.get('related', {}).get('results'):
-                    for related in artist_data['related']['results'][:15]:  # Up to 15 related
-                        if not isinstance(related, dict):
-                            continue
-                        
-                        # Extract artist name - prioritize actual name fields
-                        related_name = None
-                        for name_field in ['name', 'title']:
-                            candidate = related.get(name_field)
-                            if candidate and isinstance(candidate, str) and len(candidate) > 0:
-                                # Validate it's a real name (not a channel ID or weird string)
-                                if not candidate.startswith(('UC', 'RDCLAK', 'RDTM')):
-                                    related_name = candidate.strip()
-                                    break
-                        
-                        if not related_name:
-                            logger.debug(f"[RelatedArtists·Robust] Skipping invalid entry")
-                            continue
-                        
-                        # Extract ID
-                        related_id = None
-                        for id_field in ['browseId', 'id', 'channelId']:
-                            candidate_id = related.get(id_field)
-                            if candidate_id and isinstance(candidate_id, str):
-                                related_id = candidate_id
-                                break
-                        
-                        if related_name and related_id:
-                            related_artists.append((related_name, related_id))
-                            logger.debug(f"[RelatedArtists·Robust]   ✓ {related_name}")
-                
-                logger.info(f"[RelatedArtists·Robust] Found {len(related_artists)} valid related for {artist_name}")
-                return related_artists
-                
-            except Exception as e:
-                logger.debug(f"[RelatedArtists·Robust] Strategy 1 failed: {str(e)}")
-                return []
-                
-        except Exception as e:
-            logger.warning(f"[RelatedArtists·Robust] Critical error for {artist_name}: {str(e)}")
+            songs = self.collaborative_service.get_cf_recommendations(profile["uid"])
+            normalized = [self._to_song_dto(song) for song in songs[:limit]]
+            self.cache.set(cache_key, normalized, ttl=30 * 60)
+            return normalized
+        except Exception as exc:
+            logger.warning("Daily mix collaborative candidates failed for %s: %s", profile["uid"], exc)
             return []
-    
+
+    def _search_songs(self, query: str, limit: int) -> List[Dict[str, Any]]:
+        try:
+            results = self.jiosaavn_service.search_songs(query, limit=min(limit, 12))
+            return [self._to_song_dto(song) for song in results]
+        except Exception as exc:
+            logger.warning("Daily mix search failed for '%s': %s", query, exc)
+            return []
+
+    def _finalize_mix(
+        self,
+        songs: Sequence[Dict[str, Any]],
+        profile: Dict[str, Any],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        if not songs:
+            return []
+
+        ranked = sorted(
+            [self._to_song_dto(song) for song in songs],
+            key=lambda song: self._preference_score(song, profile),
+            reverse=True,
+        )
+        return self._ensure_diversity_resilient(
+            ranked,
+            artist_listen_count={},
+            all_consumed=profile.get("consumed_ids", set()),
+            exclude_played=True,
+            min_threshold=min(self.MIN_MIX_SIZE, limit),
+            max_per_artist=self.MAX_SONGS_PER_ARTIST,
+            mix_type="daily_mix",
+            limit=min(self.MAX_MIX_SIZE, limit),
+        )
+
+    def _preference_score(self, song: Dict[str, Any], profile: Dict[str, Any]) -> float:
+        score = 0.0
+        top_languages = {str(language).lower() for language in profile.get("top_languages") or []}
+        song_language = str(song.get("language") or "").lower()
+        if song_language and song_language in top_languages:
+            score += 3.0
+
+        top_artist_norms = set(profile.get("top_artist_norms", set()))
+        song_artists = {self._normalize_artist_name(artist) for artist in self._extract_artists(song)}
+        if song_artists & top_artist_norms:
+            score += 2.0
+
+        play_count = self._safe_int(song.get("play_count"), default=0)
+        score += min(play_count, 500000) / 500000.0
+        score += float(song.get("_boost_score") or 0.0)
+        return score
+
+    def _load_cached_response(self, uid: str) -> Optional[Dict[str, Any]]:
+        cached = self.cache.get(self._response_cache_key(uid))
+        if isinstance(cached, dict):
+            mood_mix = ((cached.get("mixes") or {}).get("moodMix") or {}) if isinstance(cached.get("mixes"), dict) else {}
+            if not self._is_mood_mix_expired(mood_mix):
+                return cached
+
+        if not self.db:
+            return None
+
+        try:
+            mixes_ref = self.db.collection("users").document(uid).collection("daily_mixes")
+            docs = [doc.to_dict() for doc in mixes_ref.stream() if doc.exists]
+            docs = [doc for doc in docs if isinstance(doc, dict)]
+            if len(docs) < 4:
+                return None
+
+            mood_doc = next(
+                (
+                    doc
+                    for doc in docs
+                    if str(doc.get("key") or "").strip() == "moodMix"
+                    or str(doc.get("storage_id") or "").strip() == "mood_mix"
+                ),
+                None,
+            )
+            if self._is_mood_mix_expired(mood_doc):
+                return None
+
+            generated_at = max(self._safe_int(doc.get("generatedAt"), 0) for doc in docs)
+            if generated_at <= 0 or (time.time() - generated_at) > self.CACHE_TTL_SECONDS:
+                return None
+
+            mix_map: Dict[str, Dict[str, Any]] = {}
+            for doc in docs:
+                key = str(doc.get("key") or "").strip()
+                if key:
+                    mix_map[key] = doc
+
+            if not mix_map:
+                return None
+
+            response = self._response_from_mix_map(uid, mix_map, cached=True)
+            self.cache.set(self._response_cache_key(uid), response, ttl=self.CACHE_TTL_SECONDS)
+            return response
+        except Exception as exc:
+            logger.warning("Daily mix Firestore cache read failed for %s: %s", uid, exc)
+            return None
+
+    def _store_mixes(self, uid: str, mix_map: Dict[str, Dict[str, Any]]) -> None:
+        if not self.db:
+            return
+
+        generated_at = int(time.time())
+        try:
+            batch = self.db.batch()
+            mixes_ref = self.db.collection("users").document(uid).collection("daily_mixes")
+            for mix in mix_map.values():
+                storage_id = str(mix.get("storage_id") or mix.get("key"))
+                payload = {
+                    "key": mix.get("key"),
+                    "name": mix.get("name"),
+                    "type": mix.get("type"),
+                    "description": mix.get("description"),
+                    "subtitle": mix.get("subtitle") or mix.get("description"),
+                    "timeBlock": mix.get("timeBlock"),
+                    "songs": mix.get("songs") or [],
+                    "tracks": mix.get("songs") or [],
+                    "count": len(mix.get("songs") or []),
+                    "generatedAt": generated_at,
+                    "source": "daily_mix",
+                    "storage_id": storage_id,
+                }
+                batch.set(mixes_ref.document(storage_id), payload)
+            batch.commit()
+        except Exception as exc:
+            logger.warning("Daily mix Firestore cache write failed for %s: %s", uid, exc)
+
+    def _response_from_mix_map(self, uid: str, mix_map: Dict[str, Dict[str, Any]], cached: bool) -> Dict[str, Any]:
+        timestamp = max(self._safe_int(mix.get("generatedAt"), int(time.time())) for mix in mix_map.values())
+        mixes_payload = {
+            "dailyMix1": self._mix_response_entry(mix_map.get("dailyMix1")),
+            "dailyMix2": self._mix_response_entry(mix_map.get("dailyMix2")),
+            "discoverMix": self._mix_response_entry(mix_map.get("dailyMix3")),
+            "moodMix": self._mix_response_entry(mix_map.get("moodMix")),
+        }
+        mix_list = [entry for entry in mixes_payload.values() if entry]
+        return {
+            "userId": uid,
+            "timestamp": timestamp,
+            "cached": cached,
+            "mixes": mixes_payload,
+            "mixList": mix_list,
+        }
+
+    def _mix_response_entry(self, mix: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not mix:
+            return None
+        songs = mix.get("songs") or mix.get("tracks") or []
+        subtitle = mix.get("subtitle") or mix.get("description") or ""
+        time_block = mix.get("timeBlock") or mix.get("time_block")
+        return {
+            "name": mix.get("name"),
+            "type": mix.get("type"),
+            "description": subtitle,
+            "subtitle": subtitle,
+            "time_block": time_block,
+            "count": len(songs),
+            "songs": songs,
+            "tracks": songs,
+            "generatedAt": mix.get("generatedAt"),
+            "source": "daily_mix",
+        }
+
+    def _is_mood_mix_expired(self, mood_doc: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(mood_doc, dict):
+            return True
+
+        generated_at = self._safe_int(mood_doc.get("generatedAt"), 0)
+        if generated_at <= 0:
+            return True
+        if (time.time() - generated_at) > self.MOOD_MIX_TTL_SECONDS:
+            return True
+
+        stored_time_block = str(mood_doc.get("timeBlock") or mood_doc.get("time_block") or "").strip().lower()
+        return stored_time_block != self._current_time_block()
+
+    def _empty_response(self, uid: str) -> Dict[str, Any]:
+        return {
+            "userId": uid,
+            "timestamp": int(time.time()),
+            "cached": False,
+            "mixes": {
+                "dailyMix1": None,
+                "dailyMix2": None,
+                "discoverMix": None,
+                "moodMix": None,
+            },
+            "mixList": [],
+        }
+
+    def _response_cache_key(self, uid: str) -> str:
+        return f"daily_mix_response:{uid}"
+
+    def _entry_timestamp(self, entry: Dict[str, Any]) -> float:
+        value = entry.get("timestamp") or entry.get("playedAt") or entry.get("likedAt") or entry.get("lastPlayedAt")
+        if hasattr(value, "timestamp"):
+            try:
+                return float(value.timestamp())
+            except Exception:
+                return 0.0
+        try:
+            return float(value)
+        except Exception:
+            return 0.0
+
+    def _entry_weight(self, entry: Dict[str, Any], timestamp: float, liked: bool) -> float:
+        days_since = max(0.0, (time.time() - timestamp) / 86400.0) if timestamp else 365.0
+        play_count = self._safe_int(
+            entry.get("play_count") or entry.get("playCount") or entry.get("user_play_count") or 1,
+            default=1,
+        )
+        base_weight = float(play_count) * math.exp(-self.decay_lambda * days_since)
+        if liked:
+            base_weight *= 2.0
+        return base_weight
+
+    def _accumulate_artist_scores(
+        self,
+        entry: Dict[str, Any],
+        weight: float,
+        scores: Counter[str],
+        display_names: Dict[str, str],
+    ) -> None:
+        for artist in self._extract_artists(entry):
+            normalized = self._normalize_artist_name(artist)
+            if normalized:
+                scores[normalized] += weight
+                display_names.setdefault(normalized, artist.strip())
+
+    def _accumulate_language(self, entry: Dict[str, Any], weight: float, scores: Counter[str]) -> None:
+        language = str(entry.get("language") or "").strip().lower()
+        if language:
+            scores[language] += weight
+
+    def _normalize_artist_name(self, name: str) -> str:
+        if hasattr(self.user_profile_service, "_normalize_artist_name"):
+            return self.user_profile_service._normalize_artist_name(name)
+        return str(name or "").strip().lower()
+
+    def _extract_artists(self, song: Dict[str, Any]) -> List[str]:
+        artists = song.get("artists") or song.get("artist") or song.get("primary_artists") or song.get("singers") or []
+        results: List[str] = []
+        if isinstance(artists, list):
+            for item in artists:
+                if isinstance(item, dict):
+                    name = item.get("name") or item.get("artist") or ""
+                else:
+                    name = str(item)
+                if name.strip():
+                    results.append(name.strip())
+        else:
+            for item in str(artists).split(","):
+                cleaned = item.strip()
+                if cleaned:
+                    results.append(cleaned)
+        return results
+
+    def _song_id(self, song: Dict[str, Any]) -> str:
+        return str(song.get("videoId") or song.get("id") or "").strip()
+
+    def _song_ids(self, songs: Sequence[Dict[str, Any]]) -> Set[str]:
+        return {self._song_id(song) for song in songs if self._song_id(song)}
+
+    def _song_identity(self, song: Dict[str, Any]) -> str:
+        title = str(song.get("title") or song.get("song") or song.get("name") or "").strip().lower()
+        primary_artist = ""
+        artists = self._extract_artists(song)
+        if artists:
+            primary_artist = self._normalize_artist_name(artists[0])
+        return f"{title}|{primary_artist}".strip("|")
+
+    def _to_song_dto(self, song: Dict[str, Any]) -> Dict[str, Any]:
+        artists = self._extract_artists(song)
+        image = song.get("thumbnail") or song.get("image") or ""
+        title = str(song.get("title") or song.get("song") or song.get("name") or "").strip()
+        video_id = self._song_id(song)
+        album = song.get("album")
+        if isinstance(album, dict):
+            album_value = album.get("name") or album.get("title") or ""
+        else:
+            album_value = album or ""
+
+        return {
+            "videoId": video_id,
+            "id": video_id,
+            "title": title,
+            "song": title,
+            "artist": ", ".join(artists) if artists else None,
+            "artists": artists or None,
+            "singers": song.get("singers") or (", ".join(artists) if artists else None),
+            "thumbnail": image or None,
+            "image": image or None,
+            "duration": str(song.get("duration") or ""),
+            "url": song.get("url") or song.get("media_url"),
+            "media_url": song.get("media_url") or song.get("url"),
+            "album": album_value or None,
+            "artistId": song.get("artistId"),
+            "play_count": self._safe_int(song.get("play_count"), default=0),
+            "language": song.get("language"),
+            "year": str(song.get("year") or "") or None,
+            "starring": song.get("starring"),
+        }
+
+    def _safe_int(self, value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return default
+
     def _ensure_diversity_resilient(
         self,
-        songs: List[Dict],
+        songs: Sequence[Dict[str, Any]],
         artist_listen_count: Dict[str, int],
         all_consumed: Set[str],
-        exclude_played: bool = False,
-        min_threshold: int = 20,
-        max_per_artist: int = 3,
-        mix_type: str = "standard"
-    ) -> List[Dict]:
-        """
-        RESILIENT diversity enforcement with proper artist extraction:
-        
-        1. Extract PRIMARY artist correctly (first from artists list)
-        2. Normalize artist names (remove Topic, Official, VEVO)
-        3. Log artist distribution BEFORE diversity
-        4. First pass: Normal diversity limits
-        5. If below min_threshold: Relax max_per_artist
-        6. If <3 unique artists with >20 candidates: Re-evaluate normalization
-        7. If still empty: Return unfiltered unique songs
-        8. Never returns empty if input has songs
-        """
-        try:
-            logger.info(f"[Diversity] Starting with {len(songs)} candidate songs")
-            
-            # ═══════════════════════════════════════════════════════════════════════════
-            # TASK 1-2: Extract & normalize primary artist
-            # ═══════════════════════════════════════════════════════════════════════════
-            
-            from services.music_filter import _process_artist_name
-            
-            # Pre-process: Normalize all artist names in songs
-            normalized_songs = []
-            artist_distribution = defaultdict(int)
-            all_artists_in_candidates = set()
-            
-            for song in songs:
-                # Extract primary artist - use artists list if available
-                primary_artist = "Unknown"
-                all_song_artists = []
-                
-                # Try artists list first (Task 1: use track-level artists list)
-                artists_list = song.get('artists', [])
-                if artists_list:
-                    # Process each artist in the list
-                    for artist_data in artists_list:
-                        if isinstance(artist_data, dict):
-                            artist_name = artist_data.get('name', '')
-                        else:
-                            artist_name = str(artist_data)
-                        
-                        if artist_name:
-                            # Task 2: Normalize the artist name
-                            normalized = _process_artist_name(artist_name)
-                            if normalized:
-                                all_song_artists.append(normalized)
-                
-                # Fallback: Use artist field if no artists list
-                if not all_song_artists:
-                    artist_field = song.get('artist', '')
-                    if artist_field:
-                        if isinstance(artist_field, str):
-                            # Could be multi-artist format like "Artist1, Artist2"
-                            for part in artist_field.split(','):
-                                normalized = _process_artist_name(part.strip())
-                                if normalized:
-                                    all_song_artists.append(normalized)
-                        elif isinstance(artist_field, dict):
-                            normalized = _process_artist_name(artist_field.get('name', ''))
-                            if normalized:
-                                all_song_artists.append(normalized)
-                
-                # Set primary artist (first in list)
-                if all_song_artists:
-                    primary_artist = all_song_artists[0]
-                    all_artists_in_candidates.update(all_song_artists)
-                else:
-                    primary_artist = "Unknown"
-                    all_artists_in_candidates.add("Unknown")
-                
-                # Store normalized song
-                normalized_song = dict(song)
-                normalized_song['_primary_artist'] = primary_artist
-                normalized_song['_all_artists'] = all_song_artists
-                normalized_songs.append(normalized_song)
-                
-                # Track distribution
-                artist_distribution[primary_artist] += 1
-            
-            # ═══════════════════════════════════════════════════════════════════════════
-            # TASK 5: Log artist distribution before diversity
-            # ═══════════════════════════════════════════════════════════════════════════
-            
-            logger.info(f"[Diversity] Candidates: {len(songs)} songs from {len(all_artists_in_candidates)} unique artists")
-            
-            # Log top artists distribution
-            if artist_distribution:
-                sorted_artists = sorted(artist_distribution.items(), key=lambda x: x[1], reverse=True)
-                dist_str = ", ".join([f"{artist}→{count}" for artist, count in sorted_artists[:10]])
-                logger.info(f"[Diversity] Artist distribution: {dist_str}")
-            
-            # ═══════════════════════════════════════════════════════════════════════════
-            # TASK 6: Prevent false collapse
-            # ═══════════════════════════════════════════════════════════════════════════
-            
-            if len(normalized_songs) > 20 and len(all_artists_in_candidates) < 3:
-                logger.warning(f"[Diversity] ⚠️ False collapse detected: {len(normalized_songs)} songs but only {len(all_artists_in_candidates)} artists")
-                logger.warning(f"[Diversity] Re-evaluating normalization...")
-                # Use raw artist data without normalization
-                for song in normalized_songs:
-                    # Override to use raw artist names
-                    raw_artists = song.get('artists', [])
-                    if raw_artists:
-                        song['_primary_artist'] = raw_artists[0].get('name') if isinstance(raw_artists[0], dict) else str(raw_artists[0])
-            
-            # ═══════════════════════════════════════════════════════════════════════════
-            # TASK 3-4: Apply diversity tracking with primary + secondary artists
-            # ═══════════════════════════════════════════════════════════════════════════
-            
-            result = []
-            artist_count = defaultdict(int)
-            seen_ids = set()
-            
-            current_max = max_per_artist
-            
-            for pass_num in range(4):  # Multiple passes with relaxing constraints
-                if pass_num == 1:
-                    current_max = max_per_artist + 1
-                    logger.debug(f"[Diversity] Pass 2: Relaxing to {current_max} per artist")
-                elif pass_num == 2:
-                    current_max = max_per_artist + 2
-                    exclude_played = False
-                    logger.debug(f"[Diversity] Pass 3: Further relaxing to {current_max} per artist, include played")
-                elif pass_num == 3:
-                    # Last pass: Fallback to any artist if still insufficient
-                    current_max = max_per_artist + 5
-                    logger.debug(f"[Diversity] Pass 4: Aggressive relaxation to {current_max} per artist")
-                
-                result = []
-                artist_count = defaultdict(int)
-                secondary_artist_count = defaultdict(int)
-                seen_ids = set()
-                
-                for song in normalized_songs:
-                    video_id = song.get('videoId')
-                    primary_artist = song.get('_primary_artist', 'Unknown')
-                    all_song_artists = song.get('_all_artists', [primary_artist])
-                    
-                    # Skip if already seen
-                    if video_id in seen_ids:
-                        continue
-                    
-                    # Skip if consumed (only if exclude_played enforced)
-                    if exclude_played and video_id in all_consumed:
-                        continue
-                    
-                    # TASK 3: Count by primary artist, but allow secondary artists for uniqueness
-                    # If primary artist hit limit, check if we can use secondary artists
-                    if artist_count[primary_artist] >= current_max:
-                        # Check if can add via secondary artist
-                        used_secondary = False
-                        for secondary_artist in all_song_artists[1:]:  # Secondary artists
-                            if secondary_artist_count[secondary_artist] < 1:
-                                secondary_artist_count[secondary_artist] += 1
-                                used_secondary = True
-                                break
-                        
-                        if not used_secondary:
-                            # Both primary and secondaries exhausted
-                            continue
-                    
-                    result.append(song)
-                    seen_ids.add(video_id)
-                    artist_count[primary_artist] += 1
-                
-                if len(result) >= min_threshold:
-                    logger.info(f"[Diversity] Pass {pass_num + 1}: Achieved {len(result)} songs (threshold={min_threshold})")
-                    break
-            
-            if not result and normalized_songs:
-                # Last resort: return unique songs without diversity limits
-                logger.warning(f"[Diversity] ⚠️ Forced to bypass diversity to prevent empty. Returning unique songs...")
-                seen_ids = set()
-                for song in normalized_songs:
-                    video_id = song.get('videoId')
-                    if video_id and video_id not in seen_ids:
-                        result.append(song)
-                        seen_ids.add(video_id)
-                        if len(result) >= min_threshold:
-                            break
-            
-            # ═══════════════════════════════════════════════════════════════════════════
-            # TASK 7: Ensure minimum mix size with artist count
-            # ═══════════════════════════════════════════════════════════════════════════
-            
-            result_artists = {song.get('_primary_artist', 'Unknown') for song in result if song.get('_primary_artist')}
-            
-            logger.info(f"[Diversity] Final result: {len(result)} unique songs, {len(result_artists)} artists")
-            if result_artists and len(result_artists) > 0:
-                logger.debug(f"[Diversity] Artists: {', '.join(sorted(result_artists)[:10])}")
-            
-            # Clean up temporary fields before returning
-            for song in result:
-                song.pop('_primary_artist', None)
-                song.pop('_all_artists', None)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"[Diversity] Error in diversity enforcement: {str(e)}", exc_info=True)
-            # Last resort: return input as-is
-            return songs[:min_threshold] if songs else []
-    
-    def _similar_mix_fallback_hierarchy(self, profile: Dict, step: str = "unknown") -> List[Dict]:
-        """
-        CRITICAL FALLBACK HIERARCHY for Similar Mix:
-        
-        If primary method fails at any step, execute fallback hierarchy:
-        1. Related artists (primary - already attempted)
-        2. Similar genre artists
-        3. Collaborators & featured artists
-        4. Lesser-known tracks from top artists
-        5. Taste-based recommendations
-        6. Trending songs matching taste
-        7. Pure trending as last resort
-        """
-        try:
-            logger.info(f"[SimilarMix·Fallback] Activating fallback hierarchy (failed at: {step})")
-            all_consumed = profile.get('all_consumed', set())
-            songs_dict = {}
-            
-            # ─────────────────────────────────────────────────────────────────────────────
-            # FALLBACK 2: Similar genre artists
-            # ─────────────────────────────────────────────────────────────────────────────
-            
-            logger.info("[SimilarMix·Fallback] Strategy 2: Genre-based artists")
-            try:
-                top_artists = profile.get('top_artists', [])[:2]
-                for genre_query in ['indie artists', 'alternative artists', 'progressive artists']:
-                    try:
-                        results = self.rec_service._search_songs(f"{genre_query}", limit=15)
-                        for song in results.values():
-                            video_id = song.get('videoId')
-                            if video_id and video_id not in all_consumed:
-                                songs_dict[video_id] = song
-                        logger.info(f"[SimilarMix·Fallback]   Added {len(results)} from genre search")
-                    except:
-                        continue
-            except Exception as e:
-                logger.debug(f"[SimilarMix·Fallback] Genre search failed: {str(e)}")
-            
-            # ─────────────────────────────────────────────────────────────────────────────
-            # FALLBACK 3: Collaborators & featured from top artists
-            # ─────────────────────────────────────────────────────────────────────────────
-            
-            if len(songs_dict) < 20:
-                logger.info("[SimilarMix·Fallback] Strategy 3: Collaborators from top artists")
-                try:
-                    for top_artist in profile.get('top_artists', [])[:3]:
-                        try:
-                            # Get songs from top artist, extract collaborators
-                            results = self.rec_service._search_songs(f"{top_artist} feat", limit=10)
-                            for song in results.values():
-                                video_id = song.get('videoId')
-                                if video_id and video_id not in all_consumed:
-                                    songs_dict[video_id] = song
-                        except:
-                            continue
-                    logger.info(f"[SimilarMix·Fallback]   Total songs now: {len(songs_dict)}")
-                except Exception as e:
-                    logger.debug(f"[SimilarMix·Fallback] Collaborator search failed: {str(e)}")
-            
-            # ─────────────────────────────────────────────────────────────────────────────
-            # FALLBACK 4: Lesser-known tracks from top artists
-            # ─────────────────────────────────────────────────────────────────────────────
-            
-            if len(songs_dict) < 20:
-                logger.info("[SimilarMix·Fallback] Strategy 4: Deep cuts from top artists")
-                try:
-                    for top_artist in profile.get('top_artists', [])[:3]:
-                        try:
-                            results = self.rec_service._search_songs(f"{top_artist} deep cuts", limit=8)
-                            for song in results.values():
-                                video_id = song.get('videoId')
-                                if video_id and video_id not in all_consumed:
-                                    songs_dict[video_id] = song
-                        except:
-                            continue
-                    logger.info(f"[SimilarMix·Fallback]   Total songs now: {len(songs_dict)}")
-                except Exception as e:
-                    logger.debug(f"[SimilarMix·Fallback] Deep cuts search failed: {str(e)}")
-            
-            # ─────────────────────────────────────────────────────────────────────────────
-            # FALLBACK 5: Taste-based recommendations
-            # ─────────────────────────────────────────────────────────────────────────────
-            
-            if len(songs_dict) < 20:
-                logger.info("[SimilarMix·Fallback] Strategy 5: Taste-based recommendations")
-                try:
-                    taste_profile = self._build_taste_profile(profile)
-                    for keyword in taste_profile.get('top_artists', [])[:3]:
-                        try:
-                            results = self.rec_service._search_songs(f"{keyword} similar", limit=8)
-                            for song in results.values():
-                                video_id = song.get('videoId')
-                                if video_id and video_id not in all_consumed:
-                                    songs_dict[video_id] = song
-                        except:
-                            continue
-                    logger.info(f"[SimilarMix·Fallback]   Total songs now: {len(songs_dict)}")
-                except Exception as e:
-                    logger.debug(f"[SimilarMix·Fallback] Taste search failed: {str(e)}")
-            
-            # ─────────────────────────────────────────────────────────────────────────────
-            # FALLBACK 6: Trending songs (country-specific)
-            # ─────────────────────────────────────────────────────────────────────────────
-            
-            if len(songs_dict) < 20:
-                logger.info("[SimilarMix·Fallback] Strategy 6: Trending songs")
-                try:
-                    trending = self._get_trending_songs(limit=30)
-                    for song in trending:
-                        video_id = song.get('videoId')
-                        if video_id and video_id not in all_consumed:
-                            songs_dict[video_id] = song
-                    logger.info(f"[SimilarMix·Fallback]   Total songs now: {len(songs_dict)}")
-                except Exception as e:
-                    logger.debug(f"[SimilarMix·Fallback] Trending failed: {str(e)}")
-            
-            # Apply diversity and return
-            if songs_dict:
-                logger.info(f"[SimilarMix·Fallback] Fallback gathered {len(songs_dict)} songs")
-                songs = self._ensure_diversity_resilient(
-                    list(songs_dict.values()),
-                    profile.get('artist_listen_count', {}),
-                    all_consumed,
-                    exclude_played=False,
-                    min_threshold=15,
-                    max_per_artist=4,
-                    mix_type="fallback"
-                )
-                logger.info(f"[SimilarMix·Fallback] ✅ Fallback success: {len(songs)} songs")
-                return songs[:self.MIX_SIZE]
-            else:
-                logger.warning("[SimilarMix·Fallback] All fallback strategies exhausted")
-                return self._fallback_trending(limit=self.MIX_SIZE)
-            
-        except Exception as e:
-            logger.error(f"[SimilarMix·Fallback] Critical error: {str(e)}", exc_info=True)
-            return self._fallback_trending(limit=self.MIX_SIZE)
-    
-    def _fallback_trending(self, limit: int = 30) -> List[Dict]:
-        """
-        LAST RESORT: Return trending songs
-        """
-        try:
-            logger.info(f"[Fallback·Trending] Getting {limit} trending songs as ultimate fallback")
-            trending = self._get_trending_songs(limit=limit)
-            return trending if trending else []
-        except Exception as e:
-            logger.error(f"[Fallback·Trending] Failed: {str(e)}")
+        exclude_played: bool = True,
+        min_threshold: int = 15,
+        max_per_artist: int = 2,
+        mix_type: str = "daily_mix",
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        del artist_listen_count
+        del mix_type
+
+        target_limit = limit or self.MIX_SIZE
+        normalized = [self._to_song_dto(song) for song in songs]
+        canonical = resolve_canonical_tracks(normalized)
+
+        unique_candidates: List[Dict[str, Any]] = []
+        seen_ids: Set[str] = set()
+        seen_identity: Set[str] = set()
+        for song in canonical:
+            song_id = self._song_id(song)
+            if exclude_played and song_id and song_id in all_consumed:
+                continue
+            identity = self._song_identity(song)
+            if song_id and song_id in seen_ids:
+                continue
+            if identity and identity in seen_identity:
+                continue
+            if song_id:
+                seen_ids.add(song_id)
+            if identity:
+                seen_identity.add(identity)
+            unique_candidates.append(song)
+
+        if not unique_candidates:
             return []
-    
-    def _extract_related_artists(self, artist_name: str) -> List[tuple]:
-        """
-        Extract related artists from YTMusic artist data
-        
-        Returns: List of (artist_name, channel_id) tuples
-        """
-        try:
-            # Search for the artist directly using artist filter
-            search_results = self.rec_service.ytmusic.search(artist_name, filter='artists', limit=1)
-            
-            if not search_results:
-                logger.warning(f"[RelatedArtists] Could not find artist: {artist_name}")
-                return []
-            
-            # Extract the artist's browse ID (channel ID)
-            artist_result = search_results[0]
-            channel_id = artist_result.get('browseId')
-            
-            if not channel_id:
-                logger.warning(f"[RelatedArtists] No browseId found for {artist_name}")
-                return []
-            
-            # Fetch artist data (which includes related artists)
-            artist_data = self.rec_service.ytmusic.get_artist(channel_id)
-            
-            related_artists = []
-            if artist_data.get('related', {}).get('results'):
-                for related in artist_data['related']['results'][:10]:  # Top 10 related
-                    # Ensure related is a dictionary, not a string
-                    if not isinstance(related, dict):
-                        continue
-                    
-                    related_name = related.get('name') or related.get('title')
-                    related_id = related.get('id') or related.get('browseId') or related.get('channelId')
-                    
-                    if related_name and related_id:
-                        related_artists.append((related_name, related_id))
-            
-            logger.info(f"[RelatedArtists] Found {len(related_artists)} related to {artist_name}")
-            return related_artists
-            
-        except Exception as e:
-            logger.warning(f"[RelatedArtists] Error extracting for {artist_name}: {str(e)}")
-            return []
-    
-    def _build_taste_profile(self, profile: Dict) -> Dict:
-        """
-        Build a taste profile from user's listening history
-        
-        Returns:
-        {
-            'top_artists': List of top 5 artist names,
-            'taste_albums': Set of album names,
-            'top_artist_names': Set of original top artist names for matching,
-            'artist_listen_count': Dict of artist -> play count
+
+        unique_artists_available = {
+            self._normalize_artist_name(self._extract_artists(song)[0])
+            for song in unique_candidates
+            if self._extract_artists(song)
         }
-        """
-        try:
-            taste_profile = {
-                'top_artists': profile.get('top_artists', [])[:5],
-                'taste_albums': set(),
-                'top_artist_names': set(profile.get('top_artists', [])[:5]),
-                'artist_listen_count': profile.get('artist_listen_count', {})
-            }
-            
-            # Extract albums from plays
-            for play in profile.get('plays', [])[:20]:
-                album = play.get('album')
-                if album:
-                    taste_profile['taste_albums'].add(album.lower())
-            
-            logger.info(f"[TasteProfile] Built: {len(taste_profile['top_artists'])} artists, "
-                       f"{len(taste_profile['taste_albums'])} albums")
-            return taste_profile
-            
-        except Exception as e:
-            logger.warning(f"[TasteProfile] Error building profile: {str(e)}")
-            return {
-                'top_artists': profile.get('top_artists', [])[:5],
-                'taste_albums': set(),
-                'top_artist_names': set(),
-                'artist_listen_count': {}
-            }
-    
-    def _fetch_and_score_mood_songs(self, mood_keywords: List[str], taste_profile: Dict, all_consumed: Set[str]) -> List[Dict]:
-        """
-        Fetch songs for mood and score them using hybrid scoring:
-        final_score = mood_relevance * 0.5 + taste_similarity * 0.4 + discovery_bonus * 0.1
-        """
-        try:
-            scored_songs = []
-            seen_ids = set()
-            
-            # Fetch songs for each mood keyword
-            for keyword in mood_keywords:
-                try:
-                    results = self.rec_service._search_songs(f"{keyword} music", limit=20)
-                    
-                    for song in results.values():
-                        video_id = song.get('videoId')
-                        if not video_id or video_id in seen_ids:
-                            continue
-                        
-                        seen_ids.add(video_id)
-                        
-                        # Score the song
-                        mood_score = 0.8  # Base mood match
-                        taste_score = self._calculate_taste_similarity(song, taste_profile)
-                        discovery_bonus = 0.1 if video_id not in all_consumed else 0.0
-                        
-                        # Hybrid scoring
-                        final_score = (mood_score * 0.5) + (taste_score * 0.4) + (discovery_bonus * 0.1)
-                        
-                        song['_score'] = final_score
-                        song['_mood_score'] = mood_score
-                        song['_taste_score'] = taste_score
-                        
-                        scored_songs.append(song)
-                    
-                    logger.debug(f"[MoodScore] Added {len(results)} songs for keyword '{keyword}'")
-                    
-                except Exception as e:
-                    logger.warning(f"[MoodScore] Error fetching for '{keyword}': {str(e)}")
-                    continue
-            
-            logger.info(f"[MoodScore] Fetched and scored {len(scored_songs)} total songs")
-            return scored_songs
-            
-        except Exception as e:
-            logger.error(f"[MoodScore] Error in scoring: {str(e)}")
-            return []
-    
-    def _calculate_taste_similarity(self, song: Dict, taste_profile: Dict) -> float:
-        """
-        Calculate taste similarity for a song (0.0 - 1.0)
-        
-        Factors:
-        - Artist match with user's top artists (0.7)
-        - Album match with user's taste albums (0.5)
-        - Default (new artist in mood zone) (0.3)
-        """
-        try:
-            song_artist = song.get('artist', '').lower()
-            song_artists = [a.get('name', '').lower() for a in song.get('artists', [])]
-            song_album = song.get('album', '').lower()
-            
-            # Check for exact artist match
-            for top_artist in taste_profile.get('top_artists', []):
-                if top_artist.lower() in song_artists or song_artist == top_artist.lower():
-                    return 0.9  # Very high match
-            
-            # Check for album match
-            if song_album and song_album in taste_profile.get('taste_albums', set()):
-                return 0.7  # Album match
-            
-            # Partial artist name match (similar composer/artist)
-            for top_artist in taste_profile.get('top_artists', []):
-                if top_artist.lower()[:4] in song_artist[:4]:  # Check first 4 chars
-                    return 0.5
-            
-            # Default: new artist in this mood zone
-            return 0.3
-            
-        except Exception as e:
-            logger.debug(f"[TasteSim] Error calculating: {str(e)}")
-            return 0.2
+        unique_target = min(self.MIN_UNIQUE_ARTISTS, len(unique_artists_available), target_limit)
 
-    def _fallback_mood_mix(self, profile: Dict, taste_profile: Dict) -> List[Dict]:
-        """
-        Fallback strategy for Mood Mix:
-        1. Include similar artists' mellow tracks
-        2. Include top artist mellow tracks
-        3. Include mood-trending songs
-        """
-        try:
-            logger.info("[MoodMix] Engaging fallback strategy")
-            all_consumed = profile.get('all_consumed', set())
-            songs_dict = {}
-            
-            # Strategy 1: Similar artists within mood zone
-            try:
-                top_artists = profile.get('top_artists', [])[:2]
-                for artist_name in top_artists:
-                    related = self._extract_related_artists(artist_name)
-                    for related_name, channel_id in related[:3]:
-                        try:
-                            artist_songs = self.rec_service._fetch_artist_songs_cached(channel_id)
-                            for song in artist_songs[:5]:
-                                if song.get('videoId') and song.get('videoId') not in all_consumed:
-                                    songs_dict[song['videoId']] = song
-                        except Exception as e:
-                            logger.debug(f"[MoodFallback] Error from similar artist: {str(e)}")
-                            continue
-            except Exception as e:
-                logger.warning(f"[MoodFallback] Error in similar artists strategy: {str(e)}")
-            
-            # Strategy 2: Top artist mellow tracks
-            try:
-                for artist_name in profile.get('top_artists', [])[:3]:
-                    mellow_results = self.rec_service._search_songs(f"{artist_name} acoustic", limit=10)
-                    songs_dict.update(mellow_results)
-            except Exception as e:
-                logger.debug(f"[MoodFallback] Error in top artist strategy: {str(e)}")
-            
-            # Strategy 3: Mood trending
-            try:
-                trending = self._get_trending_songs(limit=20)
-                for song in trending:
-                    if song.get('videoId'):
-                        songs_dict[song['videoId']] = song
-            except Exception as e:
-                logger.debug(f"[MoodFallback] Error in trending strategy: {str(e)}")
-            
-            if not songs_dict:
-                logger.warning("[MoodFallback] All strategies failed, using pure trending")
-                return self._get_trending_songs()
-            
-            # Ensure diversity
-            songs = self._ensure_diversity(
-                list(songs_dict.values()),
-                profile.get('artist_listen_count', {}),
-                all_consumed,
-                exclude_played=False
-            )
-            
-            logger.info(f"[MoodFallback] Generated {len(songs)} songs via fallback strategies")
-            return songs[:self.MIX_SIZE]
-            
-        except Exception as e:
-            logger.error(f"[MoodFallback] Critical error: {str(e)}")
-            return self._get_trending_songs()
+        result: List[Dict[str, Any]] = []
+        selected_ids: Set[str] = set()
+        artist_counts: Counter[str] = Counter()
+        album_counts: Counter[str] = Counter()
 
-    def _ensure_diversity(
-        self,
-        songs: List[Dict],
-        artist_listen_count: Dict[str, int],
-        all_consumed: Set[str],
-        exclude_played: bool = False,
-        favor_new: bool = False
-    ) -> List[Dict]:
-        """
-        Ensure diversity by:
-        1. Removing duplicates
-        2. Limiting artists to ARTIST_LIMIT_PER_MIX songs each
-        3. Optionally excluding previously played songs
-        4. Removing low-listen artists if favor_new is True
-        
-        IMPORTANT: Prevents over-filtering by guaranteeing minimum results
-        """
-        result = []
-        artist_count = defaultdict(int)
-        seen_ids = set()
-        
-        # Sort by various criteria for diversity
-        if favor_new:
-            # Favor songs from artists with fewer listens
-            songs = sorted(
-                songs,
-                key=lambda s: artist_listen_count.get(s.get('artist', 'Unknown'), 0)
-            )
-        
-        for song in songs:
-            video_id = song.get('videoId')
-            artist = song.get('artist', 'Unknown')
-            
-            # Skip if already seen
-            if video_id in seen_ids:
+        for song in unique_candidates:
+            if len(result) >= unique_target:
+                break
+            artists = self._extract_artists(song)
+            primary_artist = self._normalize_artist_name(artists[0]) if artists else "unknown"
+            album = str(song.get("album") or "unknown").strip().lower()
+            song_id = self._song_id(song)
+            if not primary_artist or artist_counts[primary_artist] >= 1:
                 continue
-            
-            # Skip if consumed
-            if exclude_played and video_id in all_consumed:
+            if album_counts[album] >= self.MAX_SONGS_PER_ALBUM:
                 continue
-            
-            # Limit artists per mix
-            if artist_count[artist] >= self.ARTIST_LIMIT_PER_MIX:
-                continue
-            
             result.append(song)
-            seen_ids.add(video_id)
-            artist_count[artist] += 1
-        
-        # Prevent over-filtering: if diversity reduces results too much, return more songs
-        minimum_results = 20
-        if len(result) < minimum_results and len(songs) >= minimum_results:
-            logger.warning(f"Diversity reduced results to {len(result)}, returning first {minimum_results} unique songs")
-            result = []
-            seen_ids = set()
-            for song in songs:
-                video_id = song.get('videoId')
-                if video_id and video_id not in seen_ids:
-                    result.append(song)
-                    seen_ids.add(video_id)
-                    if len(result) >= minimum_results:
-                        break
-        
-        logger.info(f"Diversity ensured: {len(result)} unique songs, "
-                   f"{len(artist_count)} artists represented")
-        return result
+            selected_ids.add(song_id)
+            artist_counts[primary_artist] += 1
+            album_counts[album] += 1
 
-    def _deduplicate_all_mixes(self, mixes: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
-        """
-        Deduplicate tracks in all mixes safely
-        """
-        deduplicated_mixes = {}
-        for mix_name, songs in mixes.items():
-            unique = self._dedupe_tracks(songs)
-            deduplicated_mixes[mix_name] = unique
-            logger.info(f"{mix_name} deduplication: {len(songs)} -> {len(unique)} songs")
-        return deduplicated_mixes
-    
-    def _dedupe_tracks(self, tracks: List[Dict]) -> List[Dict]:
-        """
-        Remove duplicate tracks by videoId while preserving order
-        """
-        seen = set()
-        unique = []
-        for t in tracks:
-            vid = t.get('videoId')
-            if vid and vid not in seen:
-                unique.append(t)
-                seen.add(vid)
-        return unique
-    
-    def _filter_all_mixes(self, mixes: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
-        """
-        Apply music_filter to all mixes with relaxed rules for trusted mix source
-        """
-        try:
-            filtered_mixes = {}
-            for mix_name, songs in mixes.items():
-                logger.info(f"{mix_name} before filter: {len(songs)} songs")
-                # Use source="mix" for relaxed filtering rules
-                filtered = filter_music_tracks(songs, source="mix")
-                filtered_mixes[mix_name] = filtered
-                logger.info(f"{mix_name} after filter: {len(filtered)}/{len(songs)} songs")
-            return filtered_mixes
-        except Exception as e:
-            logger.error(f"Error filtering mixes: {str(e)}")
-            return mixes
+        for song in unique_candidates:
+            if len(result) >= min(target_limit, self.MAX_MIX_SIZE):
+                break
+            song_id = self._song_id(song)
+            if song_id in selected_ids:
+                continue
+            artists = self._extract_artists(song)
+            primary_artist = self._normalize_artist_name(artists[0]) if artists else "unknown"
+            album = str(song.get("album") or "unknown").strip().lower()
+            if artist_counts[primary_artist] >= max_per_artist:
+                continue
+            if album_counts[album] >= self.MAX_SONGS_PER_ALBUM:
+                continue
+            result.append(song)
+            selected_ids.add(song_id)
+            artist_counts[primary_artist] += 1
+            album_counts[album] += 1
 
-    def _get_trending_songs(self, limit: int = 30) -> List[Dict]:
-        """
-        Get trending songs as fallback
-        """
-        try:
-            trending = self.rec_service._get_trending_fallback(country='IN')
-            return list(trending.values())[:limit]
-        except Exception as e:
-            logger.error(f"Error getting trending fallback: {str(e)}")
-            return []
+        if len(result) < min_threshold:
+            for song in unique_candidates:
+                if len(result) >= min(target_limit, self.MAX_MIX_SIZE):
+                    break
+                song_id = self._song_id(song)
+                if song_id in selected_ids:
+                    continue
+                result.append(song)
+                selected_ids.add(song_id)
 
-    def _ensure_minimum_sizes(self, mixes: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
-        """
-        Guarantee minimum mix size by adding fallback trending tracks if needed
-        """
-        fallback_trending = None
-        
-        for mix_name, songs in mixes.items():
-            if len(songs) < self.MINIMUM_MIX_SIZE:
-                logger.warning(f"{mix_name} has only {len(songs)} songs, adding fallback trending")
-                if fallback_trending is None:
-                    fallback_trending = self._get_trending_songs(limit=50)
-                
-                # Add trending songs until we reach minimum
-                existing_ids = {s.get('videoId') for s in songs if s.get('videoId')}
-                for trending_song in fallback_trending:
-                    if trending_song.get('videoId') not in existing_ids:
-                        songs.append(trending_song)
-                        existing_ids.add(trending_song['videoId'])
-                        if len(songs) >= self.MINIMUM_MIX_SIZE:
-                            break
-                
-                mixes[mix_name] = songs
-                logger.info(f"{mix_name} after fallback: {len(songs)} songs")
-        
-        return mixes
-    
-    def _mixes_valid(self, mixes: Dict[str, List[Dict]]) -> bool:
-        """
-        Check if mixes are valid (not empty)
-        """
-        for mix_name, songs in mixes.items():
-            if len(songs) == 0:
-                logger.warning(f"{mix_name} is empty")
-                return False
-        return True
-    
-    def _get_fallback_mixes(self) -> Dict[str, List[Dict]]:
-        """
-        Return fallback mixes (all trending) if generation fails
-        """
-        trending = self._get_trending_songs(limit=100)
-        return {
-            "dailyMix1": trending[:30],
-            "dailyMix2": trending[30:60] if len(trending) > 30 else trending[:30],
-            "discoverMix": trending[60:90] if len(trending) > 60 else trending[:30],
-            "moodMix": trending[:30]
-        }
-
-    def _get_from_cache(self, key: str) -> Optional[Dict]:
-        """Get data from cache if not expired"""
-        if key in self.cache:
-            data, timestamp = self.cache[key]
-            if time.time() - timestamp < CACHE_TTL_DAILY_MIXES:
-                return data
-            else:
-                del self.cache[key]
-        return None
-
-    def _set_in_cache(self, key: str, data: Dict, ttl: int) -> None:
-        """Store data in cache with TTL"""
-        self.cache[key] = (data, time.time())
-        logger.info(f"Cached {key} for {ttl} seconds")
-
-    def clear_cache(self, uid: Optional[str] = None) -> None:
-        """
-        Clear cache for specific user or all
-        """
-        if uid:
-            cache_key = f"daily_mixes_{uid}"
-            if cache_key in self.cache:
-                del self.cache[cache_key]
-                logger.info(f"Cleared cache for user: {uid}")
-        else:
-            self.cache.clear()
-            logger.info("Cleared all cache")
+        return result[: min(target_limit, self.MAX_MIX_SIZE)]

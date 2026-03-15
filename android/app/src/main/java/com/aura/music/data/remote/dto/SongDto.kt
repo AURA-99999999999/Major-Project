@@ -10,6 +10,8 @@ data class SongDto(
     val title: String,
     @SerializedName("artist")
     val artist: String?,
+    @SerializedName("singers")
+    val singers: String?,
     @SerializedName("artists")
     val artists: List<String>?,
     @SerializedName("thumbnail")
@@ -21,6 +23,14 @@ data class SongDto(
     @SerializedName("album")
     val album: JsonElement?,
     @SerializedName("artistId")
-    val artistId: String?
+    val artistId: String?,
+    @SerializedName("play_count")
+    val playCount: Int?,
+    @SerializedName("language")
+    val language: String?,
+    @SerializedName("year")
+    val year: String?,
+    @SerializedName("starring")
+    val starring: String?
 )
 

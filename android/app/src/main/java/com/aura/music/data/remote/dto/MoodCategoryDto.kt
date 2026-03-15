@@ -5,12 +5,12 @@ import com.google.gson.annotations.SerializedName
 
 data class MoodCategoryDto(
     @SerializedName("title") val title: String,
-    @SerializedName("params") val params: String,
+    @SerializedName("mood") val mood: String,
     @SerializedName("color") val color: String? = "#FF5722"
 ) {
     fun toMoodCategory() = MoodCategory(
         title = title,
-        params = params,
+        mood = mood,
         color = color ?: "#FF5722"
     )
 }

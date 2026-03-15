@@ -50,6 +50,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.Brush
 
+private fun normalizeMixName(mixKey: String, rawName: String?): String {
+    val trimmed = rawName?.trim().orEmpty()
+    return when (mixKey) {
+        "dailyMix1" -> if (trimmed.equals("Daily Mix 1", ignoreCase = true) || trimmed.isBlank()) "Favorites Mix" else trimmed
+        "dailyMix2" -> if (trimmed.equals("Daily Mix 2", ignoreCase = true) || trimmed.isBlank()) "Similar Artists Mix" else trimmed
+        "discoverMix" -> if (trimmed.equals("Daily Mix 3", ignoreCase = true) || trimmed.isBlank()) "Discover Mix" else trimmed
+        "moodMix" -> if (trimmed.isBlank()) "Mood Mix" else trimmed
+        else -> trimmed
+    }
+}
+
 /**
  * Daily Mixes component - Displays personalized playlists for "Made for You" section
  * 
@@ -98,9 +109,10 @@ fun DailyMixesSection(
                 
                 // Mix 1: Favorites
                 dailyMixResponse.mixes?.dailyMix1?.let { mix ->
-                    Log.d("DailyMixes", "Mix 1: ${mix.name}, songs=${mix.songs?.size ?: 0}")
+                    val displayName = normalizeMixName("dailyMix1", mix.name)
+                    Log.d("DailyMixes", "Mix 1: $displayName, songs=${mix.songs?.size ?: 0}")
                     parsedMixes["dailyMix1"] = MixCardData(
-                        name = mix.name,
+                        name = displayName,
                         description = mix.description,
                         icon = "🎧",
                         songs = mix.songs?.toSongs() ?: emptyList(),
@@ -110,9 +122,10 @@ fun DailyMixesSection(
                 
                 // Mix 2: Similar Artists
                 dailyMixResponse.mixes?.dailyMix2?.let { mix ->
-                    Log.d("DailyMixes", "Mix 2: ${mix.name}, songs=${mix.songs?.size ?: 0}")
+                    val displayName = normalizeMixName("dailyMix2", mix.name)
+                    Log.d("DailyMixes", "Mix 2: $displayName, songs=${mix.songs?.size ?: 0}")
                     parsedMixes["dailyMix2"] = MixCardData(
-                        name = mix.name,
+                        name = displayName,
                         description = mix.description,
                         icon = "🎶",
                         songs = mix.songs?.toSongs() ?: emptyList(),
@@ -122,9 +135,10 @@ fun DailyMixesSection(
                 
                 // Mix 3: Discover
                 dailyMixResponse.mixes?.discoverMix?.let { mix ->
-                    Log.d("DailyMixes", "Mix 3: ${mix.name}, songs=${mix.songs?.size ?: 0}")
+                    val displayName = normalizeMixName("discoverMix", mix.name)
+                    Log.d("DailyMixes", "Mix 3: $displayName, songs=${mix.songs?.size ?: 0}")
                     parsedMixes["discoverMix"] = MixCardData(
-                        name = mix.name,
+                        name = displayName,
                         description = mix.description,
                         icon = "✨",
                         songs = mix.songs?.toSongs() ?: emptyList(),
@@ -134,9 +148,10 @@ fun DailyMixesSection(
                 
                 // Mix 4: Mood
                 dailyMixResponse.mixes?.moodMix?.let { mix ->
-                    Log.d("DailyMixes", "Mix 4: ${mix.name}, songs=${mix.songs?.size ?: 0}")
+                    val displayName = normalizeMixName("moodMix", mix.name)
+                    Log.d("DailyMixes", "Mix 4: $displayName, songs=${mix.songs?.size ?: 0}")
                     parsedMixes["moodMix"] = MixCardData(
-                        name = mix.name,
+                        name = displayName,
                         description = mix.description,
                         icon = "🌙",
                         songs = mix.songs?.toSongs() ?: emptyList(),
@@ -172,7 +187,7 @@ fun DailyMixesSection(
     ) {
         // Section Header
         Text(
-            text = "🎧 Made for You",
+            text = "Daily Mixes",
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,

@@ -3,42 +3,118 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Validate language preferences on the root user document.
+    function validLanguagePreferences() {
+      return request.resource.data.languagePreferences is list
+        && request.resource.data.languagePreferences.size() >= 1
+        && request.resource.data.languagePreferences.size() <= 5;
+    }
+
+    // Supports both:
+    // 1) New schema (song/primary_artists/language/year/image)
+    // 2) Current Android schema (videoId/title/artists/album/thumbnail)
+    function validSongMetadata() {
+      return (
+        request.resource.data.song is string
+        && request.resource.data.primary_artists is string
+        && request.resource.data.language is string
+        && request.resource.data.year is int
+        && request.resource.data.image is string
+      ) || (
+        request.resource.data.videoId is string
+        && request.resource.data.title is string
+        && request.resource.data.artists is list
+        && request.resource.data.album is string
+        && request.resource.data.thumbnail is string
+      );
+    }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null
-                          && request.auth.uid == userId;
+
+      // Root user document (stores profile metadata + language preferences).
+      allow read: if isSignedIn() && isOwner(userId);
+
+      allow create, update: if isSignedIn()
+                            && isOwner(userId)
+                            && (
+                              !("languagePreferences" in request.resource.data)
+                              || validLanguagePreferences()
+                            );
+
+      allow delete: if false;
 
       match /profile/{docId} {
-        allow read, write: if request.auth != null
-                            && request.auth.uid == userId;
+        allow read, write: if isSignedIn() && isOwner(userId);
       }
 
-      match /likedSongs/{songId} {
-        allow read, write: if request.auth != null
-                            && request.auth.uid == userId;
-      }
-
+      // Track song plays (one doc per songId in current Android app).
       match /plays/{songId} {
-        allow read, write: if request.auth != null
-                            && request.auth.uid == userId;
+        allow read: if isSignedIn() && isOwner(userId);
+
+        allow create, update: if isSignedIn()
+                              && isOwner(userId)
+                              && validSongMetadata()
+                              && (
+                                request.resource.data.playCount is int
+                                || (
+                                  request.resource.data.user_play_count is int
+                                  && request.resource.data.global_play_count is int
+                                )
+                              );
+
+        allow delete: if false;
+      }
+
+      // Liked songs.
+      match /likedSongs/{songId} {
+        allow read: if isSignedIn() && isOwner(userId);
+
+        allow create, update: if isSignedIn()
+                              && isOwner(userId)
+                              && validSongMetadata();
+
+        allow delete: if isSignedIn() && isOwner(userId);
+      }
+
+      // Last played song used by mini-player restore.
+      match /lastPlayed/{docId} {
+        allow read: if isSignedIn() && isOwner(userId);
+
+        allow create, update: if isSignedIn()
+                              && isOwner(userId)
+                              && validSongMetadata();
+
+        allow delete: if false;
       }
 
       match /searches/{searchId} {
-        allow read, write: if request.auth != null
-                            && request.auth.uid == userId;
+        allow read, write: if isSignedIn() && isOwner(userId);
       }
 
       match /recommendations/{songId} {
-        allow read, write: if request.auth != null
-                            && request.auth.uid == userId;
+        allow read, write: if isSignedIn() && isOwner(userId);
       }
 
       match /playlists/{playlistId} {
-        allow read, write: if request.auth != null
-                            && request.auth.uid == userId;
+        allow read: if isSignedIn() && isOwner(userId);
+        allow create, update, delete: if isSignedIn() && isOwner(userId);
 
         match /songs/{songId} {
-          allow read, write: if request.auth != null
-                              && request.auth.uid == userId;
+          allow read: if isSignedIn() && isOwner(userId);
+
+          allow create, update: if isSignedIn()
+                                && isOwner(userId)
+                                && validSongMetadata();
+
+          allow delete: if isSignedIn() && isOwner(userId);
         }
       }
     }

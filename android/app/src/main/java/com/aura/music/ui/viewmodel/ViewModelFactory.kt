@@ -7,8 +7,11 @@ import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
 import com.aura.music.data.repository.RecentlyPlayedRepository
+import com.aura.music.data.repository.LanguagePreferencesRepository
 import com.aura.music.di.ServiceLocator
 import com.aura.music.ui.theme.ThemeManager
+import com.aura.music.ui.screens.language.LanguageSelectionViewModel
+import com.aura.music.ui.viewmodel.LanguagePreferencesViewModel
 
 /**
  * Factory for creating ViewModels with manual dependency injection
@@ -18,7 +21,8 @@ class ViewModelFactory(
     private val musicRepository: MusicRepository,
     private val playlistRepository: PlaylistRepository,
     private val firestoreRepository: FirestoreRepository,
-    private val recentlyPlayedRepository: RecentlyPlayedRepository
+    private val recentlyPlayedRepository: RecentlyPlayedRepository,
+    private val languagePreferencesRepository: LanguagePreferencesRepository
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
@@ -60,6 +64,12 @@ class ViewModelFactory(
             modelClass.isAssignableFrom(ListeningInsightsViewModel::class.java) -> {
                 ListeningInsightsViewModel(application) as T
             }
+            modelClass.isAssignableFrom(LanguageSelectionViewModel::class.java) -> {
+                LanguageSelectionViewModel(languagePreferencesRepository) as T
+            }
+            modelClass.isAssignableFrom(LanguagePreferencesViewModel::class.java) -> {
+                LanguagePreferencesViewModel(languagePreferencesRepository) as T
+            }
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
@@ -71,7 +81,8 @@ class ViewModelFactory(
                 ServiceLocator.getMusicRepository(),
                 ServiceLocator.getPlaylistRepository(),
                 ServiceLocator.getFirestoreRepository(),
-                ServiceLocator.getRecentlyPlayedRepository()
+                ServiceLocator.getRecentlyPlayedRepository(),
+                ServiceLocator.getLanguagePreferencesRepository()
             )
         }
 

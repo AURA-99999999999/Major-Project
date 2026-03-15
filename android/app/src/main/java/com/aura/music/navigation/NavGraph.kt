@@ -1,5 +1,6 @@
 package com.aura.music.navigation
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
@@ -162,7 +163,8 @@ fun NavGraphBuilder.musicAppGraph(
         route = Screen.ArtistDetail.route,
         arguments = listOf(navArgument("browseId") { type = androidx.navigation.NavType.StringType })
     ) { backStackEntry ->
-        val browseId = backStackEntry.arguments?.getString("browseId") ?: return@composable
+        val browseId = Uri.decode(backStackEntry.arguments?.getString("browseId") ?: "")
+        if (browseId.isBlank()) return@composable
         com.aura.music.ui.screens.detail.ArtistDetailScreen(
             browseId = browseId,
             musicService = musicService,

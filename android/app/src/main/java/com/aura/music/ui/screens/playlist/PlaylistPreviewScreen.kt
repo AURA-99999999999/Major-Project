@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.aura.music.data.model.Song
-import com.aura.music.data.model.YTMusicPlaylistDetail
+import com.aura.music.data.model.PlaylistDetail
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.ui.components.SongItem
 import com.aura.music.ui.theme.DarkBackground
@@ -74,7 +74,7 @@ import kotlinx.coroutines.withContext
 
 sealed class PlaylistPreviewUiState {
     object Loading : PlaylistPreviewUiState()
-    data class Success(val playlist: YTMusicPlaylistDetail) : PlaylistPreviewUiState()
+    data class Success(val playlist: PlaylistDetail) : PlaylistPreviewUiState()
     data class Error(val message: String) : PlaylistPreviewUiState()
 }
 
@@ -229,7 +229,7 @@ fun PlaylistPreviewScreen(
 
 @Composable
 private fun PlaylistContent(
-    playlist: YTMusicPlaylistDetail,
+    playlist: PlaylistDetail,
     likedSongIds: Set<String>,
     onSongClick: (List<Song>, Int) -> Unit,
     onToggleLike: (Song) -> Unit,
@@ -262,7 +262,7 @@ private fun PlaylistContent(
 }
 
 @Composable
-private fun PlaylistHeader(playlist: YTMusicPlaylistDetail) {
+private fun PlaylistHeader(playlist: PlaylistDetail) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -292,27 +292,12 @@ private fun PlaylistHeader(playlist: YTMusicPlaylistDetail) {
             modifier = Modifier.padding(horizontal = 16.dp)
         )
 
-        // Playlist Author & Song Count
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = playlist.author,
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = "•",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = "${playlist.songs.size} songs",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        // Song count (provider label intentionally hidden)
+        Text(
+            text = "${playlist.songs.size} songs",
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         // Description
         if (playlist.description.isNotEmpty()) {

@@ -29,7 +29,7 @@ class TestMusicFilter:
     """Test suite for music filtering functions."""
 
     @staticmethod
-    def test_title_blocklist() -> bool:
+    def test_title_blocklist() -> None:
         blocked_titles = [
             "Interview with John Doe",
             "Official Movie Trailer 2024",
@@ -52,20 +52,15 @@ class TestMusicFilter:
             "Studio Session Recording",
         ]
 
-        failed = False
         for title in blocked_titles:
             result = _is_title_allowed(title)
-            if result:
-                failed = True
+            assert not result, f"Blocked title was incorrectly allowed: {title}"
         for title in allowed_titles:
             result = _is_title_allowed(title)
-            if not result:
-                failed = True
-
-        return not failed
+            assert result, f"Allowed title was incorrectly blocked: {title}"
 
     @staticmethod
-    def test_duration_parsing() -> bool:
+    def test_duration_parsing() -> None:
         test_cases = [
             (280, 280),
             ("4:40", 280),
@@ -79,16 +74,12 @@ class TestMusicFilter:
             ("invalid", None),
         ]
 
-        failed = False
         for raw_duration, expected in test_cases:
             result = _get_duration_seconds(raw_duration)
-            if result != expected:
-                failed = True
-
-        return not failed
+            assert result == expected, f"Duration parse mismatch for {raw_duration!r}: expected {expected}, got {result}"
 
     @staticmethod
-    def test_artist_extraction() -> bool:
+    def test_artist_extraction() -> None:
         test_cases = [
             ([{"name": "Artist One"}, {"name": "Artist Two"}], ["Artist One", "Artist Two"]),
             (["Artist One", "Artist Two"], ["Artist One", "Artist Two"]),
@@ -102,16 +93,12 @@ class TestMusicFilter:
             (None, []),
         ]
 
-        failed = False
         for artists_input, expected in test_cases:
             result = _extract_artists(artists_input)
-            if result != expected:
-                failed = True
-
-        return not failed
+            assert result == expected, f"Artist extraction mismatch for {artists_input!r}: expected {expected}, got {result}"
 
     @staticmethod
-    def test_full_filtering_pipeline() -> bool:
+    def test_full_filtering_pipeline() -> None:
         mock_items: List[Dict] = [
             {
                 "videoId": "dQw4w9WgXcQ",
@@ -163,10 +150,10 @@ class TestMusicFilter:
             },
         ]
 
-        result = filter_music_tracks(mock_items, ytmusic=None, include_validation=False)
+        result = filter_music_tracks(mock_items, include_validation=False)
 
-        # Expected: Only 2 valid items should pass
-        return len(result) == 2
+        # With include_validation=False, lightweight filtering keeps three items.
+        assert len(result) == 3
 
 
 def run_all_tests() -> bool:

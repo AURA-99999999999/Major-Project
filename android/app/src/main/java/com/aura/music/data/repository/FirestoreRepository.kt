@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.Timestamp
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -82,7 +83,8 @@ class FirestoreRepository(
         private const val FIELD_SOURCE = "source"
         private const val FIELD_FIRST_PLAYED_AT = "firstPlayedAt"
         private const val FIELD_LAST_PLAYED_AT = "lastPlayedAt"
-        private const val FIELD_PLAY_COUNT = "playCount"
+        private const val FIELD_USER_PLAY_COUNT = "user_play_count"
+        private const val FIELD_GLOBAL_PLAY_COUNT = "global_play_count"
 
         // Field names - liked songs
         private const val FIELD_THUMBNAIL = "thumbnail"
@@ -217,15 +219,9 @@ class FirestoreRepository(
         }
     }
 
-    /**
-     * Constructs YouTube thumbnail URL from videoId.
-     *
-     * Primary format: https://img.youtube.com/vi/{videoId}/maxresdefault.jpg (1280x720)
-     * Falls back to hqdefault.jpg (480x360) if maxres unavailable
-     */
-    private fun buildThumbnailUrl(videoId: String): String {
-        return "https://img.youtube.com/vi/${videoId}/maxresdefault.jpg"
-    }
+    // Note: JioSaavn song IDs are not YouTube video IDs, so we do not construct
+    // YouTube thumbnail URLs here. A null thumbnail makes Coil skip loading.
+    private fun buildThumbnailUrl(videoId: String): String? = null
 
     /**
      * Creates or updates the user document in Firestore.
@@ -392,13 +388,8 @@ class FirestoreRepository(
                     transaction.update(
                         playDocRef,
                         mapOf(
-                            FIELD_SONG_NAME to normalizedSongName,
-                            FIELD_ARTISTS to normalizedArtists,
-                            FIELD_ALBUM to normalizedAlbumName,
-                            FIELD_SOURCE to normalizedSource,
-                            FIELD_THUMBNAIL to normalizedThumbnail,
                             FIELD_LAST_PLAYED_AT to FieldValue.serverTimestamp(),
-                            FIELD_PLAY_COUNT to FieldValue.increment(1)
+                            FIELD_USER_PLAY_COUNT to FieldValue.increment(1)
                         )
                     )
                 } else {
@@ -413,7 +404,8 @@ class FirestoreRepository(
                             FIELD_THUMBNAIL to normalizedThumbnail,
                             FIELD_FIRST_PLAYED_AT to FieldValue.serverTimestamp(),
                             FIELD_LAST_PLAYED_AT to FieldValue.serverTimestamp(),
-                            FIELD_PLAY_COUNT to 1
+                            FIELD_USER_PLAY_COUNT to 1,
+                            FIELD_GLOBAL_PLAY_COUNT to 0
                         ),
                         SetOptions.merge()
                     )
@@ -586,13 +578,18 @@ class FirestoreRepository(
 
 private fun com.google.firebase.firestore.DocumentSnapshot.toLikedSong(): Song? {
     val videoId = getString("videoId") ?: id
-    val title = getString("title") ?: return null
+    val title = getString("title") ?: getString("song") ?: return null
     val album = getString("album")
-    val thumbnail = getString("thumbnail")
+    val thumbnail = getString("thumbnail") ?: getString("image")
     val duration = getString("duration")
     val artists = (get("artists") as? List<*>)
         ?.mapNotNull { it as? String }
-        ?: emptyList()
+        ?.takeIf { it.isNotEmpty() }
+        ?: (getString("primary_artists")
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?: emptyList())
 
     return Song(
         videoId = videoId,
@@ -601,18 +598,24 @@ private fun com.google.firebase.firestore.DocumentSnapshot.toLikedSong(): Song? 
         artists = if (artists.isNotEmpty()) artists else null,
         thumbnail = thumbnail,
         duration = duration,
-        album = album
+        album = album,
+        starring = getString("starring")
     )
 }
 
 private fun com.google.firebase.firestore.DocumentSnapshot.toPlaySong(): Song? {
     val videoId = getString("videoId") ?: id
-    val title = getString("title") ?: return null
+    val title = getString("title") ?: getString("song") ?: return null
     val album = getString("album")
-    val thumbnail = getString("thumbnail")
+    val thumbnail = getString("thumbnail") ?: getString("image")
     val artists = (get("artists") as? List<*>)
         ?.mapNotNull { it as? String }
-        ?: emptyList()
+        ?.takeIf { it.isNotEmpty() }
+        ?: (getString("primary_artists")
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?: emptyList())
 
     return Song(
         videoId = videoId,
@@ -620,6 +623,17 @@ private fun com.google.firebase.firestore.DocumentSnapshot.toPlaySong(): Song? {
         artist = artists.firstOrNull(),
         artists = if (artists.isNotEmpty()) artists else null,
         thumbnail = thumbnail,
-        album = album
+        album = album,
+        starring = getString("starring"),
+        lastPlayedAt = getEpochMillis("lastPlayedAt") ?: getEpochMillis("timestamp")
     )
+}
+
+private fun com.google.firebase.firestore.DocumentSnapshot.getEpochMillis(fieldName: String): Long? {
+    val raw = get(fieldName) ?: return null
+    return when (raw) {
+        is Timestamp -> raw.toDate().time
+        is Number -> raw.toLong()
+        else -> null
+    }
 }

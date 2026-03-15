@@ -8,11 +8,11 @@ data class UserPlaylist(
 )
 
 data class PlaylistSong(
-    val videoId: String,
-    val title: String,
-    val album: String? = null,
+    val videoId: String = "",
+    val title: String = "",
+    val album: String = "",
     val artists: List<String> = emptyList(),
-    val thumbnail: String? = null,
+    val thumbnail: String = "",
     val addedAt: Long? = null
 ) {
     fun toSong(): Song {
@@ -22,8 +22,8 @@ data class PlaylistSong(
             title = title,
             artist = primaryArtist,
             artists = if (artists.isNotEmpty()) artists else null,
-            thumbnail = thumbnail,
-            album = album
+            thumbnail = thumbnail.ifBlank { null },
+            album = album.ifBlank { null }
         )
     }
 }

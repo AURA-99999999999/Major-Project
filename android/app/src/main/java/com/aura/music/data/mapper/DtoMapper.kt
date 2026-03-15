@@ -11,6 +11,8 @@ import com.aura.music.data.remote.dto.AlbumDto
 import com.aura.music.data.remote.dto.ArtistDto
 import com.aura.music.data.remote.dto.PlaylistDto
 import com.aura.music.data.remote.dto.PlaylistSearchDto
+import com.aura.music.data.remote.dto.SaavnArtistImage
+import com.aura.music.data.remote.dto.SaavnArtistItem
 import com.aura.music.data.remote.dto.SearchResponseDto
 import com.aura.music.data.remote.dto.SongDto
 import com.aura.music.data.remote.dto.UserDto
@@ -20,13 +22,17 @@ fun SongDto.toSong(): Song {
     return Song(
         videoId = videoId,
         title = title,
-        artist = artist,
+        artist = artist ?: singers,
         artists = artists,
         thumbnail = thumbnail,
         duration = duration,
         url = url,
         album = album.toAlbumName(),
-        artistId = artistId
+        artistId = artistId,
+        playCount = playCount ?: 0,
+        language = language ?: "unknown",
+        year = year ?: "unknown",
+        starring = starring
     )
 }
 
@@ -85,6 +91,7 @@ fun Song.toSongDtoMap(): Map<String, Any> {
         "title" to title,
         "artist" to (artist ?: ""),
         "artists" to (artists ?: emptyList<String>()),
+        "starring" to (starring ?: ""),
         "thumbnail" to (thumbnail ?: ""),
         "duration" to (duration ?: ""),
         "url" to (url ?: ""),
@@ -129,7 +136,7 @@ fun PlaylistSearchDto.toPlaylistSearchResult(): PlaylistSearchResult {
         browseId = browseId ?: playlistId,
         playlistId = playlistId,
         title = title,
-        author = author ?: "YouTube Music",
+        author = author.orEmpty(),
         thumbnail = thumbnail,
         itemCount = itemCount
     )
@@ -149,5 +156,38 @@ fun SearchResponseDto.toSearchResults(): SearchResults {
         count = count ?: 0,
         query = query ?: ""
     )
+}
+
+// JioSaavn Artist Mappers
+
+/**
+ * Get the best quality image from JioSaavn artist images
+ * Priority: 500x500 > 150x150 > 50x50
+ */
+fun getBestArtistImage(images: List<SaavnArtistImage>): String {
+    return images
+        .sortedByDescending { 
+            it.quality.substringBefore("x").toIntOrNull() ?: 0 
+        }
+        .firstOrNull()?.url ?: ""
+}
+
+/**
+ * Map JioSaavn artist item to app Artist model
+ */
+fun SaavnArtistItem.toArtist(): Artist {
+    return Artist(
+        browseId = id,
+        name = name,
+        thumbnail = getBestArtistImage(image),
+        subscribers = role // Using role as subscriber info for JioSaavn artists
+    )
+}
+
+/**
+ * Map list of JioSaavn artist items to app Artist models
+ */
+fun List<SaavnArtistItem>.toSaavnArtists(): List<Artist> {
+    return map { it.toArtist() }
 }
 

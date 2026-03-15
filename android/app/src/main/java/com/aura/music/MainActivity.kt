@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
             setContent {
                 // Create ThemeManager for theme state management with proper factory
                 val themeManager: ThemeManager = viewModel(
-                    factory = ViewModelFactory.create(applicationContext as android.app.Application)
+                    factory = ViewModelFactory.create(application)
                 )
                 val themeState by themeManager.themeState.collectAsState()
 

@@ -50,6 +50,33 @@ data class ArtistAlbumDto(
     @SerializedName("type") val type: String? = null
 )
 
+// Artist Detail Response (name-based endpoint)
+data class ArtistNameDetailResponse(
+    @SerializedName("artist") val artist: String,
+    @SerializedName("songs") val songs: List<ArtistNameSongDto> = emptyList(),
+    @SerializedName("albums") val albums: List<ArtistNameAlbumDto> = emptyList()
+)
+
+data class ArtistNameSongDto(
+    @SerializedName("id") val id: String,
+    @SerializedName("name") val name: String,
+    @SerializedName("album") val album: String? = null,
+    @SerializedName("primary_artists") val primaryArtists: String? = null,
+    @SerializedName("singers") val singers: String? = null,
+    @SerializedName("starring") val starring: String? = null,
+    @SerializedName("language") val language: String? = null,
+    @SerializedName("play_count") val playCount: Int? = 0,
+    @SerializedName("image") val image: String? = null,
+    @SerializedName("media_url") val mediaUrl: String? = null
+)
+
+data class ArtistNameAlbumDto(
+    @SerializedName("title") val title: String,
+    @SerializedName("artist") val artist: String? = null,
+    @SerializedName("image") val image: String? = null,
+    @SerializedName("query") val query: String? = null
+)
+
 // Top Artists Response (for home screen)
 data class TopArtistsResponse(
     @SerializedName("success") val success: Boolean,
@@ -59,10 +86,8 @@ data class TopArtistsResponse(
 )
 
 data class TopArtistDto(
-    @SerializedName("browseId") val browseId: String,
     @SerializedName("name") val name: String,
-    @SerializedName("thumbnail") val thumbnail: String,
-    @SerializedName("subscribers") val subscribers: String? = null
+    @SerializedName("image") val image: String
 )
 
 // Playlist Detail Response

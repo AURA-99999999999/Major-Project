@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,7 +64,10 @@ import kotlinx.coroutines.tasks.await
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditProfileScreen(
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToLanguageSelection: () -> Unit = {},
+    hasLanguagePreferences: Boolean = true,
+    selectedLanguages: List<String> = emptyList()
 ) {
     val currentUser = FirebaseAuth.getInstance().currentUser
     val context = LocalContext.current
@@ -247,6 +251,65 @@ fun EditProfileScreen(
                             fontSize = 12.sp,
                             lineHeight = 16.sp
                         )
+                    }
+                }
+            }
+
+            // Language Preferences Section
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Language,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Language Preferences",
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                        }
+
+                        if (hasLanguagePreferences && selectedLanguages.isNotEmpty()) {
+                            Text(
+                                text = selectedLanguages
+                                    .map { it.replaceFirstChar { ch -> ch.uppercase() } }
+                                    .joinToString(" • "),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                        } else {
+                            Text(
+                                text = "No language preferences set yet.",
+                                color = MaterialTheme.colorScheme.error,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+
+                        Button(
+                            onClick = onNavigateToLanguageSelection,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text(text = "Edit Language Preferences")
+                        }
                     }
                 }
             }

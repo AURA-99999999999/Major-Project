@@ -1,6 +1,7 @@
 package com.aura.music.ui.screens.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,7 +40,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -242,43 +242,63 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        playlistViewModel.observePlaylists()
+        try {
+            playlistViewModel.observePlaylists()
+        } catch (e: Exception) {
+            android.util.Log.e("HOME_DEBUG", "Error observing playlists", e)
+        }
     }
 
     LaunchedEffect(Unit) {
-        likedSongsViewModel.observeLikedSongs()
+        try {
+            likedSongsViewModel.observeLikedSongs()
+        } catch (e: Exception) {
+            android.util.Log.e("HOME_DEBUG", "Error observing liked songs", e)
+        }
     }
 
     LaunchedEffect(playlistViewModel) {
-        playlistViewModel.events.collectLatest { event ->
-            when (event) {
-                is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is PlaylistEvent.PlayQueue -> Unit
+        try {
+            playlistViewModel.events.collectLatest { event ->
+                when (event) {
+                    is PlaylistEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                    is PlaylistEvent.PlayQueue -> Unit
+                }
             }
+        } catch (e: Exception) {
+            android.util.Log.e("HOME_DEBUG", "Error collecting playlist events", e)
         }
     }
 
     LaunchedEffect(actualViewModel) {
-        actualViewModel.mixEvents.collectLatest { event ->
-            when (event) {
-                is com.aura.music.ui.viewmodel.MixEvent.ShowMessage -> {
-                    snackbarHostState.showSnackbar(event.message)
+        try {
+            actualViewModel.mixEvents.collectLatest { event ->
+                when (event) {
+                    is com.aura.music.ui.viewmodel.MixEvent.ShowMessage -> {
+                        snackbarHostState.showSnackbar(event.message)
+                    }
+                    is com.aura.music.ui.viewmodel.MixEvent.MixSaved -> {
+                        // Mix saved successfully
+                        actualViewModel.clearMixEvent()
+                    }
+                    null -> { }
                 }
-                is com.aura.music.ui.viewmodel.MixEvent.MixSaved -> {
-                    // Mix saved successfully
-                    actualViewModel.clearMixEvent()
-                }
-                null -> { }
             }
+        } catch (e: Exception) {
+            android.util.Log.e("HOME_DEBUG", "Error collecting mix events", e)
         }
     }
 
     LaunchedEffect(likedSongsViewModel) {
-        likedSongsViewModel.events.collectLatest { event ->
-            when (event) {
-                is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
-                is LikedSongsEvent.PlayQueue -> Unit
+        try {
+            likedSongsViewModel.events.collectLatest { event ->
+                when (event) {
+                    is LikedSongsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                    is LikedSongsEvent.PlayQueue -> Unit
+                }
             }
+        } catch (e: Exception) {
+            android.util.Log.e("HOME_DEBUG", "Error collecting liked songs events", e)
         }
     }
 
@@ -366,7 +386,7 @@ fun HomeScreen(
                             android.util.Log.d("HomeScreen", "[HOME_UI] Rendering sections from uiState:")
                             android.util.Log.d("HomeScreen", "[HOME_UI]   • recommendations: ${recommendedSongs.size}")
                             android.util.Log.d("HomeScreen", "[HOME_UI]   • collaborative: ${state.collaborative.size}")
-                            android.util.Log.d("HomeScreen", "[HOME_UI]   • trending: ${state.trending.size}")
+                            android.util.Log.d("HomeScreen", "[HOME_UI]   • fresh_hits: ${state.trending.size}")
                             android.util.Log.d("HomeScreen", "════════════════════════════════════════")
                             
                             // Recommended For You Section (TOP)
@@ -428,10 +448,104 @@ fun HomeScreen(
                                 }
                             }
 
-                            // Daily Mixes Section - "Made for You" personalized playlists (SECOND)
-                            if (authState is AuthState.Authenticated) {
+                            // Fresh Picks
+                            if (sectionLoadingState.isTrendingLoading) {
                                 item {
                                     SectionEntry(sectionIndex = 3, revealedSections = revealedSections) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        SectionHeader(title = "Fresh Picks")
+                                    }
+                                }
+
+                                item {
+                                    SectionEntry(sectionIndex = 3, revealedSections = revealedSections) {
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            items(4) {
+                                                ShimmerSongItem()
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                item {
+                                    SectionEntry(sectionIndex = 3, revealedSections = revealedSections) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        SectionHeader(title = "Fresh Picks")
+                                    }
+                                }
+
+                                item {
+                                    SectionEntry(sectionIndex = 3, revealedSections = revealedSections) {
+                                        TrendingRow(
+                                            songs = state.trending,
+                                            likedSongIds = likedSongsState.likedSongIds,
+                                            onSongClick = { song, index ->
+                                                actualViewModel.playSongFromList(state.trending, index, "fresh_hits")
+                                                onNavigateToPlayer()
+                                            },
+                                            onToggleLike = { song ->
+                                                likedSongsViewModel.toggleLike(song)
+                                            },
+                                            onAddToPlaylist = { song ->
+                                                pendingSongForPlaylist = song
+                                            },
+                                            onPlayNext = { song ->
+                                                musicService?.insertNext(song)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Collaborative Filtering Section (lazy-loaded)
+                            if (sectionLoadingState.isCollaborativeLoading) {
+                                item {
+                                    SectionEntry(sectionIndex = 4, revealedSections = revealedSections) {
+                                        SectionHeader(title = "Users Like You Also Listen To")
+                                    }
+                                }
+
+                                item {
+                                    SectionEntry(sectionIndex = 4, revealedSections = revealedSections) {
+                                        ShimmerRecommendedSection()
+                                    }
+                                }
+                            } else if (state.collaborative.isNotEmpty()) {
+                                android.util.Log.d("HomeScreen", "[HOME_UI] ✓ Rendering CF section with ${state.collaborative.size} tracks")
+                                
+                                item {
+                                    SectionEntry(sectionIndex = 4, revealedSections = revealedSections) {
+                                        SectionHeader(title = state.collaborativeTitle)
+                                    }
+                                }
+
+                                item {
+                                    SectionEntry(sectionIndex = 4, revealedSections = revealedSections) {
+                                        RecommendationsWithFadeIn(
+                                            songs = state.collaborative,
+                                            likedSongIds = likedSongsState.likedSongIds,
+                                            onSongClick = { song, index ->
+                                                actualViewModel.playSongFromList(state.collaborative, index, "collaborative")
+                                                onNavigateToPlayer()
+                                            },
+                                            onToggleLike = { song ->
+                                                likedSongsViewModel.toggleLike(song)
+                                            },
+                                            onAddToPlaylist = { song ->
+                                                pendingSongForPlaylist = song
+                                            },
+                                            onPlayNext = { song ->
+                                                musicService?.insertNext(song)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Daily Mixes section
+                            if (authState is AuthState.Authenticated) {
+                                item {
+                                    SectionEntry(sectionIndex = 5, revealedSections = revealedSections) {
                                         DailyMixesSection(
                                             userId = authState.userId,
                                             onPlayMix = { mixKey, songs ->
@@ -455,70 +569,6 @@ fun HomeScreen(
                                 }
                             }
 
-                            // Trending Now Section (THIRD)
-                            item { 
-                                SectionEntry(sectionIndex = 4, revealedSections = revealedSections) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    SectionHeader(title = "Trending Now")
-                                }
-                            }
-
-                            item {
-                                SectionEntry(sectionIndex = 4, revealedSections = revealedSections) {
-                                    TrendingRow(
-                                        songs = state.trending,
-                                        likedSongIds = likedSongsState.likedSongIds,
-                                        onSongClick = { song, index ->
-                                            actualViewModel.playSongFromList(state.trending, index, "trending")
-                                            onNavigateToPlayer()
-                                        },
-                                        onToggleLike = { song ->
-                                            likedSongsViewModel.toggleLike(song)
-                                        },
-                                        onAddToPlaylist = { song ->
-                                            pendingSongForPlaylist = song
-                                        },
-                                        onPlayNext = { song ->
-                                            musicService?.insertNext(song)
-                                        }
-                                    )
-                                }
-                            }
-
-                            // Collaborative Filtering Section - "From Similar Listeners"
-                            // Uses data.collaborative from /api/home endpoint
-                            if (state.collaborative.isNotEmpty()) {
-                                android.util.Log.d("HomeScreen", "[HOME_UI] ✓ Rendering CF section with ${state.collaborative.size} tracks")
-                                
-                                item {
-                                    SectionEntry(sectionIndex = 5, revealedSections = revealedSections) {
-                                        SectionHeader(title = "From listeners like you")
-                                    }
-                                }
-
-                                item {
-                                    SectionEntry(sectionIndex = 5, revealedSections = revealedSections) {
-                                        RecommendationsWithFadeIn(
-                                            songs = state.collaborative,
-                                            likedSongIds = likedSongsState.likedSongIds,
-                                            onSongClick = { song, index ->
-                                                actualViewModel.playSongFromList(state.collaborative, index, "collaborative")
-                                                onNavigateToPlayer()
-                                            },
-                                            onToggleLike = { song ->
-                                                likedSongsViewModel.toggleLike(song)
-                                            },
-                                            onAddToPlaylist = { song ->
-                                                pendingSongForPlaylist = song
-                                            },
-                                            onPlayNext = { song ->
-                                                musicService?.insertNext(song)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
                             // Trending Playlists Section
                             if (state.trendingPlaylists.isNotEmpty()) {
                                 item { 
@@ -533,7 +583,7 @@ fun HomeScreen(
                                         TrendingPlaylistsRow(
                                             playlists = state.trendingPlaylists,
                                             onPlaylistClick = { playlist ->
-                                                onNavigateToPlaylistPreview(playlist.playlistId)
+                                                onNavigateToPlaylistPreview(playlist.url)
                                             }
                                         )
                                     }
@@ -554,7 +604,7 @@ fun HomeScreen(
                                         TopArtistsRow(
                                             artists = topArtists,
                                             onArtistClick = { artist ->
-                                                onNavigateToArtist(artist.browseId)
+                                                onNavigateToArtist(artist.name)
                                             }
                                         )
                                     }
@@ -601,7 +651,7 @@ fun HomeScreen(
                 moods = state.moodCategories,
                 onDismiss = { showMoodSelector = false },
                 onMoodSelected = { mood ->
-                    onNavigateToMood(mood.title, mood.params)
+                    onNavigateToMood(mood.title, mood.mood)
                 }
             )
         }
@@ -802,7 +852,7 @@ private fun TrendingRow(
     modifier: Modifier = Modifier
 ) {
     if (songs.isEmpty()) {
-        EmptyStateCard(message = "No trending songs right now. Pull to refresh or try again later.")
+        EmptyStateCard(message = "No fresh hits available for your selected languages right now.")
         return
     }
 
@@ -810,7 +860,7 @@ private fun TrendingRow(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        itemsIndexed(songs) { index, song ->
+        itemsIndexed(songs, key = { _, song -> song.videoId }) { index, song ->
             TrendingSongCard(
                 song = song,
                 isLiked = likedSongIds.contains(song.videoId),
@@ -823,6 +873,7 @@ private fun TrendingRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TrendingSongCard(
     song: Song,
@@ -891,7 +942,8 @@ private fun TrendingSongCard(
                     .build(),
                 contentDescription = song.title,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                onError = { /* show surface background on load failure */ }
             )
         }
 
@@ -907,6 +959,7 @@ private fun TrendingSongCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .weight(1f)
+                    .basicMarquee(iterations = Int.MAX_VALUE)
                     .clickable(onClick = onSongClick)
             )
             IconButton(onClick = { showMenu = true }) {
@@ -1071,14 +1124,14 @@ private fun ErrorStateCard(message: String) {
 
 @Composable
 private fun TrendingPlaylistsRow(
-    playlists: List<com.aura.music.data.model.YTMusicPlaylist>,
-    onPlaylistClick: (com.aura.music.data.model.YTMusicPlaylist) -> Unit
+    playlists: List<com.aura.music.data.model.JioSaavnPlaylist>,
+    onPlaylistClick: (com.aura.music.data.model.JioSaavnPlaylist) -> Unit
 ) {
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(playlists) { playlist ->
-            YTMusicPlaylistCard(
+            JioSaavnPlaylistCard(
                 playlist = playlist,
                 onClick = { onPlaylistClick(playlist) }
             )
@@ -1087,10 +1140,13 @@ private fun TrendingPlaylistsRow(
 }
 
 @Composable
-private fun YTMusicPlaylistCard(
-    playlist: com.aura.music.data.model.YTMusicPlaylist,
+private fun JioSaavnPlaylistCard(
+    playlist: com.aura.music.data.model.JioSaavnPlaylist,
     onClick: () -> Unit
 ) {
+    val safeName = playlist.name.ifBlank { "Untitled Playlist" }
+    val safeImage = playlist.image.ifBlank { null }
+
     var hasAnimated by remember { mutableStateOf(false) }
     val scale = remember { Animatable(0.96f) }
     val alpha = remember { Animatable(0f) }
@@ -1133,17 +1189,17 @@ private fun YTMusicPlaylistCard(
         ) {
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(LocalContext.current)
-                    .data(playlist.thumbnail)
+                    .data(safeImage)
                     .crossfade(250)
                     .build(),
-                contentDescription = playlist.title,
+                contentDescription = safeName,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
         }
 
         Text(
-            text = playlist.title,
+            text = safeName,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 2,
@@ -1152,7 +1208,7 @@ private fun YTMusicPlaylistCard(
         )
         
         Text(
-            text = playlist.author,
+            text = if (playlist.song_count > 0) "${playlist.song_count} songs" else "Playlist",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
             maxLines = 1,
@@ -1221,7 +1277,7 @@ private fun TopArtistCard(
         // Circular artist image
         AsyncImage(
             model = coil.request.ImageRequest.Builder(LocalContext.current)
-                .data(artist.thumbnail)
+                .data(artist.image)
                 .crossfade(250)
                 .build(),
             contentDescription = artist.name,
@@ -1242,16 +1298,5 @@ private fun TopArtistCard(
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
         )
-        
-        // Subscribers (optional)
-        if (!artist.subscribers.isNullOrEmpty()) {
-            Text(
-                text = artist.subscribers,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
     }
 }

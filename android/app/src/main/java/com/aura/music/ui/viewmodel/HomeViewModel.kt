@@ -5,7 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aura.music.data.model.MoodCategory
 import com.aura.music.data.model.Song
-import com.aura.music.data.model.YTMusicPlaylist
+import com.aura.music.data.model.TrendingData
+import com.aura.music.data.model.JioSaavnPlaylist
 import com.aura.music.data.remote.dto.TopArtistDto
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
@@ -19,22 +20,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.async
 
 sealed class HomeUiState {
     object Loading : HomeUiState()
 
     data class Success(
-        val trending: List<Song>,
-        val trendingPlaylists: List<YTMusicPlaylist> = emptyList(),
+        val trendingData: TrendingData = TrendingData(),
+        val trending: List<Song> = emptyList(), // Deprecated - kept for backward compatibility
+        val trendingPlaylists: List<JioSaavnPlaylist> = emptyList(),
         val moodCategories: List<MoodCategory> = emptyList(),
-        val moodPlaylists: List<YTMusicPlaylist> = emptyList(),
+        val moodPlaylists: List<JioSaavnPlaylist> = emptyList(),
         val selectedMoodTitle: String = "",
         val recommendations: List<Song> = emptyList(),
         val collaborativeRecommendations: List<Song> = emptyList(),
-            val collaborativeTitle: String = "From Similar Listeners",
-            val collaborative: List<Song> = emptyList()
+        val collaborativeTitle: String = "Users Like You Also Listen To",
+        val collaborative: List<Song> = emptyList()
     ) : HomeUiState()
 
     data class Error(val message: String) : HomeUiState()
@@ -44,7 +44,8 @@ sealed class HomeUiState {
 data class SectionLoadingState(
     val isTrendingLoading: Boolean = true,
     val isRecommendationsLoading: Boolean = true,
-    val isTopArtistsLoading: Boolean = true
+    val isTopArtistsLoading: Boolean = true,
+    val isCollaborativeLoading: Boolean = true
 )
 
 // UI event for mix operations
@@ -84,8 +85,10 @@ class HomeViewModel(
 
     private var hasLoaded = false
     private var hasLoadedRecommendations = false
+    private var hasLoadedCollaborative = false
     private var lastHomeLoadTimestampMs = 0L
     private var lastRecommendationsLoadTimestampMs = 0L
+    private var lastCollaborativeLoadTimestampMs = 0L
     private var musicService: MusicService? = null
     private var currentUserId: String? = null
     private val auth by lazy { FirebaseAuth.getInstance() }
@@ -93,8 +96,48 @@ class HomeViewModel(
 
     companion object {
         private const val TAG = "HomeViewModel"
-        private const val MIN_CF_ITEMS = 4
         private const val HOME_CACHE_TTL_MS = 5 * 60 * 1000L
+        private const val CF_SECTION_TITLE = "Users Like You Also Listen To"
+    }
+
+    private suspend fun loadCollaborativeRecommendations(forceRefresh: Boolean = false) {
+        if (!forceRefresh && hasLoadedCollaborative && isTtlValid(lastCollaborativeLoadTimestampMs)) {
+            _sectionLoadingState.value = _sectionLoadingState.value.copy(isCollaborativeLoading = false)
+            return
+        }
+
+        hasLoadedCollaborative = true
+        _sectionLoadingState.value = _sectionLoadingState.value.copy(isCollaborativeLoading = true)
+        Log.d(TAG, "[CF_UI] Starting lazy collaborative recommendations fetch")
+
+        val result = repository.fetchCollaborativeRecommendations(limit = 12)
+        result.fold(
+            onSuccess = { section ->
+                val currentState = _uiState.value
+                if (currentState is HomeUiState.Success) {
+                    _uiState.value = currentState.copy(
+                        collaborativeRecommendations = section.tracks,
+                        collaborativeTitle = CF_SECTION_TITLE,
+                        collaborative = section.tracks
+                    )
+                    Log.d(TAG, "[CF_UI] Loaded ${section.tracks.size} collaborative songs")
+                }
+                lastCollaborativeLoadTimestampMs = System.currentTimeMillis()
+            },
+            onFailure = { error ->
+                Log.w(TAG, "[CF_UI] Failed to load collaborative recommendations: ${error.message}")
+                val currentState = _uiState.value
+                if (currentState is HomeUiState.Success) {
+                    _uiState.value = currentState.copy(
+                        collaborativeRecommendations = emptyList(),
+                        collaborativeTitle = CF_SECTION_TITLE,
+                        collaborative = emptyList()
+                    )
+                }
+            }
+        )
+
+        _sectionLoadingState.value = _sectionLoadingState.value.copy(isCollaborativeLoading = false)
     }
 
     private fun isTtlValid(lastUpdatedMs: Long): Boolean {
@@ -170,78 +213,58 @@ class HomeViewModel(
             _uiState.value = HomeUiState.Loading
             
             try {
-                // Load all home data in PARALLEL using coroutineScope
-                coroutineScope {
-                    // Launch all API calls concurrently
-                    val trendingDeferred = async { repository.getHomeData() }
-                    val playlistsDeferred = async { repository.getTrendingPlaylists() }
-                    val moodsDeferred = async { repository.getMoodCategories() }
-                    
-                    // Await all results
-                    val homeResult = trendingDeferred.await()
-                    val trendingPlaylistsResult = playlistsDeferred.await()
-                    val moodCategoriesResult = moodsDeferred.await()
-                    
-                    // Update UI with trending data immediately (fastest to load)
-                    homeResult.fold(
-                        onSuccess = { data ->
-                            // STEP 6: Process CF recommendations in ViewModel
-                            Log.d(TAG, "════════════════════════════════════════")
-                            Log.d(TAG, "[HOME_VM] Processing HomeData from repository:")
-                            Log.d(TAG, "[HOME_VM]   ✓ Trending: ${data.trending.size}")
-                            Log.d(TAG, "[HOME_VM]   ✓ Recommendations: ${data.recommendations.size}")
-                            Log.d(TAG, "[HOME_VM]   ✓ Collaborative (flat): ${data.collaborative.size}")
-                            Log.d(TAG, "[HOME_VM]   ✓ CF Section (nested): ${data.collaborativeRecommendations?.tracks?.size ?: 0}")
-                            Log.d(TAG, "════════════════════════════════════════")
-                            
-                            val cfTracks = data.collaborativeRecommendations?.tracks ?: emptyList()
-                            Log.d(TAG, "[HOME_VM] CF tracks before threshold: ${cfTracks.size}")
-                            
-                            // Apply minimum threshold filter
-                            val cfTracksFiltered = if (cfTracks.size >= MIN_CF_ITEMS) {
-                                Log.d(TAG, "[HOME_VM] ✓ CF section VISIBLE with ${cfTracks.size} items")
-                                cfTracks
-                            } else {
-                                Log.w(TAG, "[HOME_VM] ✗ CF section HIDDEN (only ${cfTracks.size} items, minimum $MIN_CF_ITEMS required)")
-                                emptyList()
-                            }
-                            
-                            Log.d(TAG, "[HOME_VM] Assignments to UI State:")
-                            Log.d(TAG, "[HOME_VM]   • recommendations = ${data.recommendations.size}")
-                            Log.d(TAG, "[HOME_VM]   • collaborative = ${data.collaborative.size}")
-                            Log.d(TAG, "[HOME_VM]   • collaborativeRecommendations = ${cfTracksFiltered.size}")
-                            
-                            _uiState.value = HomeUiState.Success(
-                                trending = data.trending,
-                                trendingPlaylists = trendingPlaylistsResult.getOrDefault(emptyList()),
-                                moodCategories = moodCategoriesResult.getOrDefault(emptyList()),
-                                moodPlaylists = emptyList(),
-                                selectedMoodTitle = "",
-                                recommendations = data.recommendations,
-                                collaborativeRecommendations = cfTracksFiltered,
-                                collaborativeTitle = data.collaborativeRecommendations?.title ?: "From Similar Listeners",
-                                collaborative = data.collaborative
-                            )
-                            lastHomeLoadTimestampMs = System.currentTimeMillis()
-                            // Mark trending as loaded
-                            _sectionLoadingState.value = _sectionLoadingState.value.copy(
-                                isTrendingLoading = false
-                            )
-                        },
-                        onFailure = { error ->
-                            _uiState.value = HomeUiState.Error(error.message ?: "Failed to load home data")
-                            _sectionLoadingState.value = _sectionLoadingState.value.copy(
-                                isTrendingLoading = false
-                            )
+                val homeResult = repository.getHomeData()
+                val moodCategoriesResult = repository.getMoodCategories()
+
+                homeResult.fold(
+                    onSuccess = { data ->
+                        val effectiveTrending = if (data.trendingData.getAllSongs().isNotEmpty()) {
+                            data.trendingData.getAllSongs()
+                        } else {
+                            data.trending
                         }
-                    )
-                }
+
+                        _uiState.value = HomeUiState.Success(
+                            trendingData = data.trendingData,
+                            trending = effectiveTrending,
+                            trendingPlaylists = emptyList(),
+                            moodCategories = moodCategoriesResult.getOrDefault(emptyList()),
+                            moodPlaylists = emptyList(),
+                            selectedMoodTitle = "",
+                            recommendations = emptyList(),
+                            collaborativeRecommendations = emptyList(),
+                            collaborativeTitle = CF_SECTION_TITLE,
+                            collaborative = emptyList()
+                        )
+                        _topArtists.value = repository.getTopArtists(limit = 10).getOrDefault(emptyList())
+                        lastHomeLoadTimestampMs = System.currentTimeMillis()
+                        // Keep isRecommendationsLoading = true so the shimmer stays
+                        // until loadRecommendationsIfNeeded() delivers personalized results.
+                        _sectionLoadingState.value = _sectionLoadingState.value.copy(
+                            isTrendingLoading = false,
+                            isCollaborativeLoading = true
+                        )
+
+                        // Fetch collaborative recommendations after main home content is rendered.
+                        loadCollaborativeRecommendations(forceRefresh = false)
+                    },
+                    onFailure = { error ->
+                        _uiState.value = HomeUiState.Error(error.message ?: "Failed to load home data")
+                        _sectionLoadingState.value = SectionLoadingState(
+                            isTrendingLoading = false,
+                            isRecommendationsLoading = false,
+                            isTopArtistsLoading = false,
+                            isCollaborativeLoading = false
+                        )
+                    }
+                )
             } catch (e: Exception) {
                 _uiState.value = HomeUiState.Error(e.message ?: "Failed to load home data")
                 _sectionLoadingState.value = SectionLoadingState(
                     isTrendingLoading = false,
-                    isRecommendationsLoading = _sectionLoadingState.value.isRecommendationsLoading,
-                    isTopArtistsLoading = _sectionLoadingState.value.isTopArtistsLoading
+                    isRecommendationsLoading = false,
+                    isTopArtistsLoading = false,
+                    isCollaborativeLoading = false
                 )
             }
         }
@@ -252,41 +275,17 @@ class HomeViewModel(
         hasLoadedRecommendations = true
 
         viewModelScope.launch {
-            try {
-                // Load recommendations and top artists in PARALLEL
-                coroutineScope {
-                    val recommendationsDeferred = async { repository.fetchUserRecommendations() }
-                    val topArtistsDeferred = async { repository.getTopArtists(limit = 10) }
-                    
-                    // Await recommendations
-                    val songs = recommendationsDeferred.await()
-                    _recommendedSongs.value = songs
-                    lastRecommendationsLoadTimestampMs = System.currentTimeMillis()
-                    _sectionLoadingState.value = _sectionLoadingState.value.copy(
-                        isRecommendationsLoading = false
-                    )
-                    
-                    // Await top artists
-                    val artistsResult = topArtistsDeferred.await()
-                    artistsResult.fold(
-                        onSuccess = { artists ->
-                            _topArtists.value = artists
-                        },
-                        onFailure = { _ ->
-                            _topArtists.value = emptyList()
-                        }
-                    )
-                    _sectionLoadingState.value = _sectionLoadingState.value.copy(
-                        isTopArtistsLoading = false
-                    )
-                }
-            } catch (e: Exception) {
-                // Graceful failure - mark as loaded even on error
-                _sectionLoadingState.value = _sectionLoadingState.value.copy(
-                    isRecommendationsLoading = false,
-                    isTopArtistsLoading = false
-                )
+            // Always fetch personalized recommendations — do not skip if non-empty.
+            // This ensures Firestore-based content replaces any initial placeholder.
+            _recommendedSongs.value = repository.fetchUserRecommendations()
+            if (_topArtists.value.isEmpty()) {
+                _topArtists.value = repository.getTopArtists(limit = 10).getOrDefault(emptyList())
             }
+            lastRecommendationsLoadTimestampMs = System.currentTimeMillis()
+            _sectionLoadingState.value = _sectionLoadingState.value.copy(
+                isRecommendationsLoading = false,
+                isTopArtistsLoading = false
+            )
         }
     }
 
@@ -294,6 +293,7 @@ class HomeViewModel(
         _recommendedSongs.value = emptyList()
         _topArtists.value = emptyList()
         hasLoadedRecommendations = false
+        hasLoadedCollaborative = false
     }
 
     fun refreshHome(forceRefresh: Boolean = true) {
@@ -301,6 +301,10 @@ class HomeViewModel(
 
         viewModelScope.launch {
             refreshHomeData(forceRefresh = forceRefresh)
+            // Also refresh personalized recommendations after home data refreshes.
+            hasLoadedRecommendations = false
+            lastRecommendationsLoadTimestampMs = 0L
+            loadRecommendationsIfNeeded()
         }
     }
 
@@ -319,54 +323,55 @@ class HomeViewModel(
 
         return try {
             _isRefreshing.value = true
-            
-            // Refresh all sections in parallel
-            var refreshSuccess = false
-            coroutineScope {
-                // Sync Recently Played from Firestore (background sync)
-                val recentlyPlayedDeferred = async {
-                    recentlyPlayedRepository.syncRecentlyPlayedFromFirestore(limit = 6, forceRefresh = forceRefresh)
-                }
-                
-                val trendingDeferred = async { repository.getHomeData(forceRefresh = forceRefresh) }
-                val playlistsDeferred = async { repository.getTrendingPlaylists(forceRefresh = forceRefresh) }
-                val moodsDeferred = async { repository.getMoodCategories() }
-                val topArtistsDeferred = async { repository.getTopArtists(forceRefresh = forceRefresh) }
-                
-                val homeResult = trendingDeferred.await()
-                val trendingPlaylistsResult = playlistsDeferred.await()
-                val moodCategoriesResult = moodsDeferred.await()
-                val topArtistsResult = topArtistsDeferred.await()
-                recentlyPlayedDeferred.await() // Ensure Recently Played sync completes
-                
-                homeResult.fold(
-                    onSuccess = { data ->
-                        val cfTracks = data.collaborativeRecommendations?.tracks ?: emptyList()
-                        val cfTracksFiltered = if (cfTracks.size >= MIN_CF_ITEMS) cfTracks else emptyList()
-                        
-                        _uiState.value = HomeUiState.Success(
-                            trending = data.trending,
-                            trendingPlaylists = trendingPlaylistsResult.getOrElse { emptyList() },
-                            moodCategories = moodCategoriesResult.getOrElse { emptyList() },
-                            collaborative = cfTracksFiltered
-                        )
-                        
-                        _recommendedSongs.value = data.recommendations
-                        _topArtists.value = topArtistsResult.getOrElse { emptyList() }
-                        
-                        refreshSuccess = true
-                        Log.d(TAG, "✓ Home data refreshed successfully")
-                    },
-                    onFailure = { e ->
-                        Log.e(TAG, "✗ Refresh failed: ${e.message}", e)
-                        refreshSuccess = false
-                    }
-                )
+
+            // Sync recently played songs from Firestore first
+            try {
+                recentlyPlayedRepository.syncRecentlyPlayedFromFirestore(limit = 6, forceRefresh = forceRefresh)
+                Log.d(TAG, "Recently played synced successfully during refresh")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to sync recently played during refresh: ${e.message}", e)
             }
             
+            val homeResult = repository.getHomeData(forceRefresh = forceRefresh)
+            val moodCategoriesResult = repository.getMoodCategories()
+
+            var refreshSuccess = false
+            homeResult.fold(
+                onSuccess = { data ->
+                    val effectiveTrending = if (data.trendingData.getAllSongs().isNotEmpty()) {
+                        data.trendingData.getAllSongs()
+                    } else {
+                        data.trending
+                    }
+
+                    _uiState.value = HomeUiState.Success(
+                        trendingData = data.trendingData,
+                        trending = effectiveTrending,
+                        trendingPlaylists = emptyList(),
+                        moodCategories = moodCategoriesResult.getOrElse { emptyList() },
+                        moodPlaylists = emptyList(),
+                        selectedMoodTitle = "",
+                        recommendations = emptyList(),
+                        collaborativeRecommendations = emptyList(),
+                        collaborativeTitle = CF_SECTION_TITLE,
+                        collaborative = emptyList()
+                    )
+                    _topArtists.value = repository.getTopArtists(limit = 10).getOrDefault(emptyList())
+                    hasLoadedCollaborative = false
+                    lastCollaborativeLoadTimestampMs = 0L
+                    loadCollaborativeRecommendations(forceRefresh = forceRefresh)
+                    refreshSuccess = true
+                    Log.d(TAG, "Home data refreshed successfully")
+                },
+                onFailure = { e ->
+                    Log.e(TAG, "Refresh failed: ${e.message}", e)
+                    refreshSuccess = false
+                }
+            )
+
             refreshSuccess
         } catch (e: Exception) {
-            Log.e(TAG, "✗ Refresh error: ${e.message}", e)
+            Log.e(TAG, "Refresh error: ${e.message}", e)
             false
         } finally {
             _isRefreshing.value = false
@@ -379,7 +384,7 @@ class HomeViewModel(
             if (currentState !is HomeUiState.Success) return@launch
             
             // Load mood playlists for selected category
-            val result = repository.getMoodPlaylists(category.params)
+            val result = repository.getMoodPlaylists(category.mood)
             result.fold(
                 onSuccess = { playlists ->
                     _uiState.value = currentState.copy(

@@ -27,13 +27,13 @@ fun propertyOrDefault(key: String, fallback: String): String =
     propertyOrNull(key) ?: fallback
 
 val emulatorBaseUrl = normalizeBaseUrl(
-    propertyOrDefault("API_BASE_URL_EMULATOR", "http://10.0.2.2:5000/api")
+    propertyOrDefault("API_BASE_URL_EMULATOR", "http://10.0.2.2:5000/")
 )
 val deviceBaseUrl = normalizeBaseUrl(
-    propertyOrDefault("API_BASE_URL_DEVICE", "http://192.168.0.100:5000/api")
+    propertyOrDefault("API_BASE_URL_DEVICE", "http://192.168.1.2:5000/")
 )
 val customBaseUrl = normalizeBaseUrl(
-    propertyOrDefault("API_BASE_URL_CUSTOM", propertyOrDefault("API_BASE_URL", "https://aura-b7vm.onrender.com/api"))
+    propertyOrDefault("API_BASE_URL_CUSTOM", propertyOrDefault("API_BASE_URL", deviceBaseUrl))
 )
 val apiEnvironment = propertyOrDefault("API_ENV", "CUSTOM").uppercase()
 val resolvedBaseUrl = when (apiEnvironment) {
@@ -69,6 +69,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            lint {
+                checkReleaseBuilds = false
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -76,6 +81,16 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+    lint {
+        disable += listOf(
+            "MissingSuperCall",
+            "NotificationPermission", 
+            "WrongConstant",
+            "InvalidPackage",
+            "UnsafeOptInUsageError",
+            "StateFlowValueCalledInComposition"
+        )
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

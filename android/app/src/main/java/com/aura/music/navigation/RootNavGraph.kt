@@ -14,6 +14,9 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -30,6 +33,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,10 +52,12 @@ import com.aura.music.auth.screens.SignupScreen
 import com.aura.music.auth.state.AuthState
 import com.aura.music.auth.state.PasswordResetState
 import com.aura.music.auth.viewmodel.AuthViewModel
+import com.aura.music.di.ServiceLocator
 import com.aura.music.player.MusicService
 import com.aura.music.ui.components.MiniPlayerBar
 import com.aura.music.ui.theme.DarkSurface
 import com.aura.music.ui.theme.ThemeManager
+import com.aura.music.ui.viewmodel.LanguagePreferencesViewModel
 import com.aura.music.ui.viewmodel.PlayerViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 
@@ -82,6 +90,7 @@ import com.aura.music.ui.viewmodel.ViewModelFactory
  * @param authState Current authentication state
  * @param themeManager ThemeManager for theme customization
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RootNavGraph(
     navController: NavHostController,
@@ -90,10 +99,19 @@ fun RootNavGraph(
     authState: AuthState,
     themeManager: ThemeManager
 ) {
+    val context = LocalContext.current.applicationContext as android.app.Application
+    
     // Create shared PlayerViewModel for mini player state
     val playerViewModel: PlayerViewModel = viewModel(
-        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+        factory = ViewModelFactory.create(context)
     )
+
+    val languagePreferencesViewModel: LanguagePreferencesViewModel = viewModel(
+        factory = ViewModelFactory.create(context)
+    )
+    val hasLanguagePreferences by languagePreferencesViewModel.hasLanguagePreferences.collectAsState()
+    val selectedLanguages by languagePreferencesViewModel.languages.collectAsState()
+    val languagePrefsLoaded by languagePreferencesViewModel.isLoaded.collectAsState()
 
     // Determine the root of the navigation graph based on auth state
     val startDestination = when (authState) {
@@ -107,7 +125,6 @@ fun RootNavGraph(
     // Observe player state for mini player display
     val currentSong by playerViewModel.currentSong.collectAsState()
     val isPlaying by playerViewModel.isPlaying.collectAsState()
-    val lastPlayedSong by playerViewModel.lastPlayedSong.collectAsState()
     val isBuffering by playerViewModel.isBuffering.collectAsState()
     val isPreparing by playerViewModel.isPreparing.collectAsState()
     
@@ -115,13 +132,48 @@ fun RootNavGraph(
     val currentPosition = musicService?.playerState?.collectAsState()?.value?.currentPosition ?: 0L
     val duration = musicService?.playerState?.collectAsState()?.value?.duration ?: 0L
     
-    // Load lastPlayed song when user logs in
+    // Keep player state clean across auth transitions.
     LaunchedEffect(authState) {
-        if (authState is AuthState.Authenticated) {
-            playerViewModel.loadLastPlayedSong()
-        } else if (authState is AuthState.Unauthenticated) {
+        if (authState is AuthState.Unauthenticated) {
             // Clear player state on logout
             playerViewModel.clearState()
+        }
+    }
+    
+    // Check for first-time user (no language preferences) after login.
+    val hasCheckedLanguagePreferences = remember { mutableStateOf(false) }
+
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Authenticated) {
+            languagePreferencesViewModel.fetchOnLogin(authState.userId)
+        }
+
+        if (authState is AuthState.Unauthenticated) {
+            languagePreferencesViewModel.clearSession()
+        }
+    }
+
+    LaunchedEffect(authState, hasLanguagePreferences, languagePrefsLoaded) {
+        if (
+            authState is AuthState.Authenticated &&
+            languagePrefsLoaded &&
+            !hasCheckedLanguagePreferences.value
+        ) {
+            if (!hasLanguagePreferences) {
+                // Navigate to language selection with isFirstTime=true
+                navController.navigate("main/language-selection?isFirstTime=true") {
+                    popUpTo("main") {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                }
+            }
+            hasCheckedLanguagePreferences.value = true
+        }
+        
+        // Reset check flag when user logs out
+        if (authState is AuthState.Unauthenticated) {
+            hasCheckedLanguagePreferences.value = false
         }
     }
     
@@ -242,11 +294,21 @@ fun RootNavGraph(
                     )
                     NavigationBarItem(
                         icon = {
-                            Icon(
-                                imageVector = if (isProfileSelected) Icons.Filled.Person else Icons.Outlined.Person,
-                                contentDescription = "Profile",
-                                modifier = Modifier.size(24.dp)
-                            )
+                            BadgedBox(
+                                badge = {
+                                    if (!hasLanguagePreferences && authState is AuthState.Authenticated) {
+                                        Badge(
+                                            containerColor = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = if (isProfileSelected) Icons.Filled.Person else Icons.Outlined.Person,
+                                    contentDescription = "Profile",
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         },
                         label = { Text("Profile", style = MaterialTheme.typography.labelSmall) },
                         selected = isProfileSelected,
@@ -307,18 +369,17 @@ fun RootNavGraph(
                     musicService = musicService,
                     authViewModel = authViewModel,
                     authState = authState,
+                    hasLanguagePreferences = hasLanguagePreferences,
+                    selectedLanguages = selectedLanguages,
                     playerViewModel = playerViewModel,
                     themeManager = themeManager
                 )
             }
 
-            // Mini player bar overlay - positioned above bottom nav
-            // visible only during authenticated state when song exists and NOT on player screen
-            // IMPORTANT: Mini player stays visible even when paused - only hide when song is cleared
+            // Mini player bar overlay - positioned above bottom nav.
+            // Show only when there is an active song in player state.
             if (authState is AuthState.Authenticated) {
-                val displaySong = currentSong ?: lastPlayedSong
-
-                if (!isOnPlayerScreen && displaySong != null) {
+                if (!isOnPlayerScreen && currentSong != null) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -326,7 +387,7 @@ fun RootNavGraph(
                             .padding(bottom = 12.dp)
                     ) {
                         MiniPlayerBar(
-                            song = displaySong,
+                            song = currentSong,
                             isPlaying = isPlaying,
                             isBuffering = isBuffering,
                             isPreparing = isPreparing,
@@ -347,6 +408,9 @@ fun RootNavGraph(
                             },
                             onSkipNext = {
                                 musicService?.playNext()
+                            },
+                            onDismiss = {
+                                playerViewModel.dismissMiniPlayer()
                             },
                             onSeek = { position ->
                                 musicService?.seekTo(position)

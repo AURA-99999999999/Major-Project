@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv/
 venv/
 env/
 ENV/
@@ -15,12 +16,19 @@ build/
 instance/
 .webassets-cache
 
-# Data files (contains user data)
+# Data files (contains user/local app data)
+backend/data/*.json
+data/*.json
+test_response.json
 
 # Environment variables
 .env
 .env.local
 .env.*.local
+
+# Firebase credentials (DO NOT COMMIT)
+aura-music-65802-*.json
+*-firebase-adminsdk-*.json
 
 # IDEs
 .vscode/
@@ -28,6 +36,7 @@ instance/
 *.swp
 *.swo
 *~
+*.iml
 
 # OS
 .DS_Store
@@ -43,6 +52,16 @@ frontend/dist/
 frontend/.vite/
 frontend/.env.local
 frontend/.env.*.local
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+android/app/google-services.json
+*.jks
+*.keystore
 
 # Testing
 .pytest_cache/
@@ -62,3 +81,4 @@ firebase-credentials.json
 oauth.json
 headers_auth.json
 backend/services/cookies.txt
+aura-music-65802-f1d41fed789f.json

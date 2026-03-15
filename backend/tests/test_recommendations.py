@@ -16,8 +16,24 @@ def _make_song(video_id: str, artists: list[str]) -> dict:
     }
 
 
+def _primary_artist(song: dict) -> str:
+    artists = song.get("artists")
+    if isinstance(artists, list) and artists:
+        first = artists[0]
+        if isinstance(first, dict):
+            return str(first.get("name") or "Unknown")
+        return str(first or "Unknown")
+    if isinstance(artists, str) and artists.strip():
+        return artists.split(",")[0].strip()
+
+    primary_artists = str(song.get("primary_artists") or song.get("artist") or "").strip()
+    if primary_artists:
+        return primary_artists.split(",")[0].strip()
+    return "Unknown"
+
+
 def test_diversity_minimum_artists() -> None:
-    service = DailyMixService(ytmusic=None, recommendation_service=None, user_service=None)
+    service = DailyMixService(recommendation_service=None, user_service=None)
 
     songs = []
     # Build 30 songs across 8 artists, with some collaborations
@@ -50,16 +66,13 @@ def test_diversity_minimum_artists() -> None:
 
     assert len(result) >= 15
 
-    primary_artists = [
-        (song.get("artists", [{}])[0].get("name") if song.get("artists") else "Unknown")
-        for song in result
-    ]
+    primary_artists = [_primary_artist(song) for song in result]
     unique_artists = {a for a in primary_artists if a}
     assert len(unique_artists) >= 5
 
 
 def test_artist_distribution_not_collapsed() -> None:
-    service = DailyMixService(ytmusic=None, recommendation_service=None, user_service=None)
+    service = DailyMixService(recommendation_service=None, user_service=None)
 
     songs = [
         _make_song("a1", ["Harris Jayaraj - Topic", "Anirudh Ravichander Official"]),
@@ -84,9 +97,6 @@ def test_artist_distribution_not_collapsed() -> None:
         mix_type="similar",
     )
 
-    primary_artists = [
-        (song.get("artists", [{}])[0].get("name") if song.get("artists") else "Unknown")
-        for song in result
-    ]
+    primary_artists = [_primary_artist(song) for song in result]
     artist_counts = Counter(primary_artists)
     assert len(artist_counts) >= 5

@@ -59,8 +59,15 @@ class RecentlyPlayedRepository(
             val firestoreResult = firestoreRepository.getRecentlyPlayedSongs(limit)
             firestoreResult.fold(
                 onSuccess = { songs ->
+                    val existingLocal = recentlyPlayedDao.getRecentTracks(currentUserId, limit).first()
+                    if (songs.isEmpty() && existingLocal.isNotEmpty() && !forceRefresh) {
+                        Log.d(TAG, "Sync returned empty list; keeping existing local cache (forceRefresh=false)")
+                        return@fold
+                    }
+
+                    val fallbackBase = System.currentTimeMillis()
                     // Convert Firestore Songs to local entities and batch insert
-                    val entities = songs.map { song ->
+                    val entities = songs.mapIndexed { index, song ->
                         RecentlyPlayedEntity(
                             userId = currentUserId,
                             id = song.videoId,
@@ -68,7 +75,8 @@ class RecentlyPlayedRepository(
                             artist = song.getArtistString(),
                             artworkUrl = song.thumbnail,
                             audioUrl = song.url,
-                            playedAt = System.currentTimeMillis()
+                            // Preserve backend ordering/time accuracy; deterministic fallback keeps query order stable.
+                            playedAt = song.lastPlayedAt ?: (fallbackBase - index)
                         )
                     }
 
@@ -155,15 +163,9 @@ class RecentlyPlayedRepository(
         return auth.currentUser?.uid ?: ""
     }
 
-    /**
-     * Constructs YouTube thumbnail URL from videoId if not provided.
-     * 
-     * Primary: https://img.youtube.com/vi/{videoId}/maxresdefault.jpg (1280x720)
-     * Falls back to hqdefault at maxres unavailable (480x360)
-     */
-    private fun buildThumbnailUrl(videoId: String): String {
-        return "https://img.youtube.com/vi/${videoId}/maxresdefault.jpg"
-    }
+    // Note: JioSaavn song IDs are not YouTube video IDs, so we do not construct
+    // YouTube thumbnail URLs here. A null thumbnail makes Coil skip loading.
+    private fun buildThumbnailUrl(videoId: String): String? = null
 
     private fun RecentlyPlayedEntity.toSong(): Song {
         // Ensure fallback thumbnail for legacy records without artwork URL

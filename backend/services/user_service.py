@@ -5,9 +5,10 @@ Supports both local storage and Firebase Firestore backend
 from typing import Dict, Optional, List
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import logging
+from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -40,42 +41,81 @@ except ImportError:
 
 
 def initialize_firebase_admin() -> bool:
-    """Initialize Firebase Admin SDK using environment variable (Render-safe)."""
+    """
+    Initialize Firebase Admin SDK.
+    
+    Tries in order:
+    1. FIREBASE_CREDENTIALS environment variable (JSON string) - for production
+    2. Service account JSON file in known locations - for local development
+    """
     if not FIRESTORE_AVAILABLE:
         logger.warning("Firebase Admin SDK unavailable")
         return False
 
     try:
         if firebase_admin._apps:
-            logger.info("Firebase already initialized")
+            logger.info("✅ Firebase already initialized")
             return True
 
-        # 🔍 DEBUG: Check if env variable exists
-        logger.info(f"ENV KEYS: {list(os.environ.keys())}")
-
+        # METHOD 1: Try environment variable first (production/Render deployment)
         firebase_json_str = os.environ.get("FIREBASE_CREDENTIALS")
+        if firebase_json_str:
+            logger.info("🔍 Loading Firebase credentials from FIREBASE_CREDENTIALS environment variable")
+            try:
+                firebase_json = json.loads(firebase_json_str)
+                cred = credentials.Certificate(firebase_json)
+                firebase_admin.initialize_app(cred)
+                logger.info("✅ Firebase initialized successfully using environment variable")
+                return True
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Invalid FIREBASE_CREDENTIALS JSON: {str(e)}")
+                # Continue to try file-based method
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize with FIREBASE_CREDENTIALS: {str(e)}")
+                # Continue to try file-based method
 
-        if not firebase_json_str:
-            logger.error("FIREBASE_CREDENTIALS environment variable NOT FOUND")
-            return False
-
-        logger.info(f"FIREBASE_CREDENTIALS length: {len(firebase_json_str)}")
-
-        # 🔍 DEBUG: Catch JSON formatting errors
-        try:
-            firebase_json = json.loads(firebase_json_str)
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid FIREBASE_CREDENTIALS JSON: {str(e)}")
-            return False
-
-        cred = credentials.Certificate(firebase_json)
-        firebase_admin.initialize_app(cred)
-
-        logger.info("Firebase initialized successfully using environment variable")
-        return True
+        # METHOD 2: Try loading from service account JSON file (local development)
+        logger.info("🔍 Looking for Firebase service account JSON file...")
+        
+        # Search in known locations
+        # __file__ is backend/services/user_service.py
+        # Go up 2 levels to get to project root
+        backend_dir = os.path.dirname(os.path.abspath(__file__))  # backend/services
+        backend_parent = os.path.dirname(backend_dir)  # backend
+        project_root = os.path.dirname(backend_parent)  # project root
+        
+        candidate_paths = [
+            # Project root (where the file is typically placed)
+            os.path.join(project_root, 'aura-music-65802-f1d41fed789f.json'),
+            # Also check with the older filename pattern
+            os.path.join(project_root, 'aura-music-65802-firebase-adminsdk-fbsvc-86f9c08a71.json'),
+            # Backend directory
+            os.path.join(backend_parent, 'aura-music-65802-f1d41fed789f.json'),
+            # Current working directory
+            os.path.join(os.getcwd(), 'aura-music-65802-f1d41fed789f.json'),
+        ]
+        
+        for file_path in candidate_paths:
+            if os.path.exists(file_path):
+                logger.info(f"✅ Found service account file: {file_path}")
+                try:
+                    cred = credentials.Certificate(file_path)
+                    firebase_admin.initialize_app(cred)
+                    logger.info("✅ Firebase initialized successfully using service account file")
+                    return True
+                except Exception as e:
+                    logger.error(f"❌ Failed to initialize with file {file_path}: {str(e)}")
+        
+        # No credentials found
+        logger.error("❌ Firebase credentials NOT FOUND")
+        logger.error("   Neither FIREBASE_CREDENTIALS environment variable nor service account JSON file found")
+        logger.error("   Searched locations:")
+        for path in candidate_paths:
+            logger.error(f"     - {path}")
+        return False
 
     except Exception as e:
-        logger.error(f"Firebase initialization failed: {str(e)}", exc_info=True)
+        logger.error(f"❌ Firebase initialization failed: {str(e)}", exc_info=True)
         return False
 
 def get_firestore_client():
@@ -97,6 +137,15 @@ def get_firestore_client():
 class UserService:
     """Service for managing users"""
     
+    # Supported languages for the application
+    SUPPORTED_LANGUAGES = [
+        'hindi', 'telugu', 'tamil', 'english', 'punjabi',
+        'malayalam', 'kannada', 'marathi', 'gujarati', 'bengali'
+    ]
+    
+    # Language cache configuration (5 minutes)
+    LANGUAGE_CACHE_TTL = timedelta(minutes=5)
+    
     def __init__(self, storage_path: str = 'data/users.json'):
         self.storage_path = storage_path
         self._ensure_storage_dir()
@@ -105,6 +154,10 @@ class UserService:
         
         # Initialize Firestore if available
         self.db = get_firestore_client()
+        
+        # Language preference cache
+        self._language_cache = {}
+        self._cache_lock = Lock()
     
     def _ensure_storage_dir(self):
         """Ensure the data directory exists"""
@@ -286,7 +339,166 @@ class UserService:
                     logger.debug(f"Fetched {len(liked_songs)} liked songs from Firestore for user {uid}")
                     return liked_songs
                 except Exception as e:
-                    logger.warning(f"Error fetching liked songs from Firestore: {str(e)}")
+                    logger.error(f"Error fetching liked songs from Firestore: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error in get_user_liked_songs: {e}")
+        
+        return []
+    
+    def _validate_languages(self, languages: List[str]) -> tuple[bool, Optional[str]]:
+        """
+        Validate language preferences.
+        
+        Returns:
+            (is_valid, error_message)
+        """
+        if not languages:
+            return False, "At least one language must be selected"
+        
+        if len(languages) > 5:
+            return False, "Maximum 5 languages allowed"
+        
+        # Check for duplicates
+        if len(languages) != len(set(languages)):
+            return False, "Duplicate languages not allowed"
+        
+        # Normalize and validate against supported languages
+        normalized = [lang.lower().strip() for lang in languages]
+        for lang in normalized:
+            if lang not in self.SUPPORTED_LANGUAGES:
+                return False, f"Unsupported language: {lang}"
+        
+        return True, None
+    
+    def _invalidate_language_cache(self, uid: str):
+        """Invalidate language cache for a user."""
+        with self._cache_lock:
+            if uid in self._language_cache:
+                del self._language_cache[uid]
+                logger.debug(f"Invalidated language cache for user {uid}")
+    
+    def get_user_languages(self, uid: str) -> List[str]:
+        """
+        Get user's language preferences with caching.
+        
+        Args:
+            uid: User ID
+            
+        Returns:
+            List of language preferences (lowercase strings)
+        """
+        # Check cache first
+        with self._cache_lock:
+            if uid in self._language_cache:
+                cached_data, cached_time = self._language_cache[uid]
+                if datetime.now() - cached_time < self.LANGUAGE_CACHE_TTL:
+                    logger.debug(f"Language cache hit for user {uid}")
+                    return cached_data
+                else:
+                    # Cache expired
+                    del self._language_cache[uid]
+        
+        try:
+            # Try Firestore first
+            if self.db:
+                try:
+                    user_ref = self.db.collection('users').document(uid)
+                    user_doc = user_ref.get()
+                    
+                    if user_doc.exists:
+                        data = user_doc.to_dict()
+                        languages = data.get('languagePreferences', [])
+                        
+                        # Cache the result
+                        with self._cache_lock:
+                            self._language_cache[uid] = (languages, datetime.now())
+                        
+                        logger.debug(f"Fetched {len(languages)} languages from Firestore for user {uid}")
+                        return languages
+                except Exception as e:
+                    logger.warning(f"Error fetching languages from Firestore: {str(e)}")
+            
+            # Fallback to local storage
+            user = self.users.get(uid)
+            if user:
+                languages = user.get('languagePreferences', [])
+                
+                # Cache the result
+                with self._cache_lock:
+                    self._language_cache[uid] = (languages, datetime.now())
+                
+                logger.debug(f"Fetched {len(languages)} languages from local storage for user {uid}")
+                return languages
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error getting user languages for {uid}: {str(e)}")
+            return []
+    
+    def update_user_languages(self, uid: str, languages: List[str]) -> tuple[bool, Optional[str]]:
+        """
+        Update user's language preferences.
+        
+        Args:
+            uid: User ID
+            languages: List of language preferences
+            
+        Returns:
+            (success, error_message)
+        """
+        # Validate languages
+        is_valid, error = self._validate_languages(languages)
+        if not is_valid:
+            return False, error
+        
+        # Normalize languages (lowercase, strip whitespace)
+        normalized_languages = [lang.lower().strip() for lang in languages]
+        
+        try:
+            # Check if languages are unchanged to avoid unnecessary writes
+            current_languages = self.get_user_languages(uid)
+            if set(current_languages) == set(normalized_languages):
+                logger.info(f"Languages unchanged for user {uid}, skipping update")
+                return True, None
+            
+            # Update Firestore if available
+            if self.db:
+                try:
+                    user_ref = self.db.collection('users').document(uid)
+                    user_ref.set({
+                        'languagePreferences': normalized_languages,
+                        'languagePreferencesUpdatedAt': firestore.SERVER_TIMESTAMP
+                    }, merge=True)
+                    
+                    logger.info(f"Updated languages in Firestore for user {uid}: {normalized_languages}")
+                    
+                    # Invalidate cache
+                    self._invalidate_language_cache(uid)
+                    
+                    return True, None
+                except Exception as e:
+                    logger.error(f"Error updating languages in Firestore: {str(e)}")
+                    # Continue to update local storage as fallback
+            
+            # Update local storage
+            if uid not in self.users:
+                self.users[uid] = {}
+            
+            self.users[uid]['languagePreferences'] = normalized_languages
+            self.users[uid]['languagePreferencesUpdatedAt'] = datetime.now().isoformat()
+            self._save_users()
+            
+            logger.info(f"Updated languages in local storage for user {uid}: {normalized_languages}")
+            
+            # Invalidate cache
+            self._invalidate_language_cache(uid)
+            
+            return True, None
+            
+        except Exception as e:
+            logger.error(f"Error updating user languages for {uid}: {str(e)}")
+            return False, "Failed to update language preferences"
             
             # Fallback to local storage
             user = self.users.get(uid)

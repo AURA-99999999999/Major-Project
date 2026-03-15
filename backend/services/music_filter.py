@@ -9,13 +9,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Validation constants
-ALLOWED_MUSIC_VIDEO_TYPES = {
-    'MUSIC_VIDEO_TYPE_ATV',          # Official music video (Audio Track Video)
-    'MUSIC_VIDEO_TYPE_OMV',          # Official Music Video
-    'MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK',  # Privately owned track
-}
-
 # Title blocklist for filtering out non-music content (case-insensitive)
 TITLE_BLOCKLIST = [
     'interview',
@@ -252,7 +245,7 @@ def _get_duration_seconds(duration_raw) -> Optional[int]:
     return None
 
 
-def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: bool = True, source: str = "search") -> List[Dict]:
+def filter_music_tracks(items: List[Dict], include_validation: bool = True, source: str = "search") -> List[Dict]:
     """
     Filter and normalize a list of items to ensure only real music tracks are returned.
     
@@ -269,12 +262,9 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
     3. artists list exists and not empty
     4. thumbnail exists and not empty (or can be generated)
     5. duration > 60 seconds (relaxed for trusted sources)
-    6. (Optional) musicVideoType in ALLOWED_MUSIC_VIDEO_TYPES
-    
     Args:
-        items: List of raw items from YTMusic API
-        ytmusic: YTMusic instance for validation calls (optional)
-        include_validation: Whether to validate musicVideoType if ytmusic available (default True)
+        items: List of raw track items from provider APIs
+        include_validation: Whether to validate duration/title/artist constraints (default True)
         source: Source of tracks for context-aware filtering (default "search")
                 Options: "search", "artist", "album", "recommendation", "mix", "similar_mix", "trending"
                 Trusted sources (artist, album, recommendation, mix, similar_mix, trending): Relaxed validation
@@ -341,10 +331,9 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
         
         # 4. Validate/extract thumbnail
         thumbnail = _extract_best_thumbnail(item.get('thumbnails') or item.get('thumbnail'))
-        # Fallback: generate thumbnail URL if missing
+        # Provider-agnostic fallback for sparse payloads.
         if not thumbnail:
-            thumbnail = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-            logger.debug(f"Item {video_id}: Using fallback thumbnail URL")
+            thumbnail = str(item.get('image') or '')
         
         # 5. Validate duration (only if data is available)
         # For shallow validation (trending/explore data), duration may not be available
@@ -362,15 +351,7 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
                     logger.debug(f"Item {video_id}: Short duration {duration_seconds}s")
                     rejected_count += 1
                     continue
-        # Shallow validation mode (trending): skip duration check if not available
-        # These items are pre-curated by YTMusic so duration validation is less critical
-        
-        # 6. (Optional) Deep validation: Check musicVideoType if ytmusic available
-        if include_validation and ytmusic:
-            if not _validate_music_video_type(video_id, title, ytmusic):
-                logger.info(f"Item rejected (music video type validation): videoId={video_id} title={title}")
-                rejected_count += 1
-                continue
+        # Shallow validation mode (trending): skip duration check if not available.
         
         # All validations passed - add to results
         cleaned_item = {
@@ -389,40 +370,6 @@ def filter_music_tracks(items: List[Dict], ytmusic=None, include_validation: boo
     )
     
     return filtered_results
-
-
-def _validate_music_video_type(video_id: str, title: str, ytmusic) -> bool:
-    """
-    Deep validation: Call YTMusic.get_song() to verify musicVideoType.
-    This is expensive (1 API call per item) so use sparingly and only when needed.
-    
-    Args:
-        video_id: The YouTube video ID
-        title: The track title (for logging)
-        ytmusic: YTMusic instance
-        
-    Returns:
-        True if music video type is allowed, False otherwise
-    """
-    try:
-        song_details = ytmusic.get_song(video_id)
-        video_details = song_details.get('videoDetails', {}) if isinstance(song_details, dict) else {}
-        music_video_type = video_details.get('musicVideoType')
-        
-        if music_video_type in ALLOWED_MUSIC_VIDEO_TYPES:
-            logger.debug(f"Video type validation passed: videoId={video_id} type={music_video_type}")
-            return True
-        
-        logger.info(
-            f"Video type validation failed: videoId={video_id} title={title} type={music_video_type}"
-        )
-        return False
-    except Exception as e:
-        logger.warning(
-            f"Video type validation error: videoId={video_id} title={title} error={str(e)}"
-        )
-        # On validation error, reject to be safe (prefer false negatives over false positives)
-        return False
 
 
 def normalize_item_to_track(item: Dict) -> Optional[Dict]:

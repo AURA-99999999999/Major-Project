@@ -212,6 +212,7 @@ fun PlaylistDetailScreen(
                     }
                     else -> {
                         LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             items(uiState.songs) { song ->

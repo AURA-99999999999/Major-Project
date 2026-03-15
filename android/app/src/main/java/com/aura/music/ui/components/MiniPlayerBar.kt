@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
@@ -75,6 +76,7 @@ import com.aura.music.ui.theme.TextSecondary
  * @param onPlayPause Callback for play/pause button
  * @param onSkipPrevious Callback for skip previous button
  * @param onSkipNext Callback for skip next button
+ * @param onDismiss Callback for close button to hide mini player
  * @param onSeek Callback for seeking to a specific position
  * @param modifier Optional modifier for positioning
  */
@@ -91,6 +93,7 @@ fun MiniPlayerBar(
     onPlayPause: () -> Unit,
     onSkipPrevious: () -> Unit = {},
     onSkipNext: () -> Unit = {},
+    onDismiss: () -> Unit = {},
     onSeek: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -235,6 +238,19 @@ fun MiniPlayerBar(
                                 contentDescription = "Skip Next",
                                 tint = Primary,
                                 modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Dismiss button
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Dismiss mini player",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }

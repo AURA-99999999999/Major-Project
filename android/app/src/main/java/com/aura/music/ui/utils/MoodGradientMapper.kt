@@ -77,8 +77,12 @@ object MoodGradientMapper {
                 Pair(Color(0xFFB92B27), Color(0xFF1565C0))
             
             // Commute / Travel moods - Sky Blue to Cyan
-            "commute", "travel", "road trip", "drive", "journey" -> 
+            "commute", "travel", "road trip", "drive", "driving", "journey" -> 
                 Pair(Color(0xFF56CCF2), Color(0xFF2F80ED))
+            
+            // Meditation / Mindfulness moods - Teal to Purple
+            "meditation", "meditate", "mindfulness", "zen", "tranquil" ->
+                Pair(Color(0xFF06FFA5), Color(0xFF009073))
             
             // Feel good / Positive uplifting moods - Orange to Pink
             "feel good", "feel-good", "uplifting", "uplifted" -> 
