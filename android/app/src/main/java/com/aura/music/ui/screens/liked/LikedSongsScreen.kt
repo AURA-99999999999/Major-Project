@@ -51,6 +51,7 @@ import com.aura.music.ui.viewmodel.LikedSongsEvent
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
 import com.aura.music.ui.viewmodel.PlaylistViewModel
+import com.aura.music.ui.viewmodel.DownloadsViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import kotlinx.coroutines.flow.collectLatest
 
@@ -69,6 +70,11 @@ fun LikedSongsScreen(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
     val playlistState by playlistViewModel.uiState.collectAsState()
+    val downloadsViewModel: DownloadsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val downloads by downloadsViewModel.downloads.collectAsState()
+    val downloadedIds = remember(downloads) { downloads.map { it.videoId }.toSet() }
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
 
@@ -163,10 +169,13 @@ fun LikedSongsScreen(
                                     isPlaying = musicService?.playerState?.value?.currentSong?.videoId == song.videoId &&
                                             musicService?.playerState?.value?.isPlaying == true,
                                     isLiked = true,
+                                    isDownloaded = downloadedIds.contains(song.videoId),
                                     onClick = { viewModel.prepareSongForPlayback(song) },
                                     onToggleLike = { viewModel.removeFromLikedSongs(song.videoId) },
                                     onAddToPlaylist = { pendingSongForPlaylist = song },
-                                    onPlayNext = { musicService?.insertNext(song) }
+                                    onPlayNext = { musicService?.insertNext(song) },
+                                    onDownload = { downloadsViewModel.downloadSong(song) },
+                                    onRemoveFromDownloads = { downloadsViewModel.deleteSong(song.videoId) }
                                 )
                             }
                         }

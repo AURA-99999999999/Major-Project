@@ -7,6 +7,7 @@ import com.aura.music.data.local.AppDatabase
 import com.aura.music.data.local.LanguagePreferencesManager
 import com.aura.music.data.remote.MusicApi
 import com.aura.music.data.remote.NetworkConfig
+import com.aura.music.data.repository.DownloadsRepository
 import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
@@ -37,13 +38,16 @@ object ServiceLocator {
     private var playlistRepository: PlaylistRepository? = null
     private var appDatabase: AppDatabase? = null
     private var recentlyPlayedRepository: RecentlyPlayedRepository? = null
+    private var downloadsRepository: DownloadsRepository? = null
     private var languagePreferencesManager: LanguagePreferencesManager? = null
     private var languagePreferencesRepository: LanguagePreferencesRepository? = null
+    private var appContext: Context? = null
 
     @Volatile
     private var initialized = false
 
     fun initialize(context: Context) {
+        appContext = context.applicationContext
         if (initialized) return
 
         synchronized(this) {
@@ -107,6 +111,7 @@ object ServiceLocator {
             musicRepository = MusicRepository(musicApi!!, firestoreRepository!!)
             appDatabase = AppDatabase.getInstance(context)
             recentlyPlayedRepository = RecentlyPlayedRepository(appDatabase!!.recentlyPlayedDao())
+            downloadsRepository = DownloadsRepository(appDatabase!!.downloadedSongDao(), context)
             
             // Initialize Language Preferences
             languagePreferencesManager = LanguagePreferencesManager(context)
@@ -170,7 +175,18 @@ object ServiceLocator {
         return recentlyPlayedRepository!!
     }
 
+    fun getDownloadsRepository(): DownloadsRepository {
+        checkInitialized()
+        return downloadsRepository!!
+    }
+
     private fun checkInitialized() {
+        if (!initialized) {
+            appContext?.let { cachedContext ->
+                initialize(cachedContext)
+            }
+        }
+
         if (!initialized) {
             throw IllegalStateException(
                 "ServiceLocator not initialized. Call ServiceLocator.initialize(context) first."
@@ -189,6 +205,9 @@ object ServiceLocator {
             playlistRepository = null
             appDatabase = null
             recentlyPlayedRepository = null
+            downloadsRepository = null
+            languagePreferencesManager = null
+            languagePreferencesRepository = null
             initialized = false
         }
     }

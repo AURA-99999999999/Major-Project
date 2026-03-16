@@ -3,6 +3,7 @@ package com.aura.music.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.aura.music.data.repository.DownloadsRepository
 import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.repository.MusicRepository
 import com.aura.music.data.repository.PlaylistRepository
@@ -22,7 +23,8 @@ class ViewModelFactory(
     private val playlistRepository: PlaylistRepository,
     private val firestoreRepository: FirestoreRepository,
     private val recentlyPlayedRepository: RecentlyPlayedRepository,
-    private val languagePreferencesRepository: LanguagePreferencesRepository
+    private val languagePreferencesRepository: LanguagePreferencesRepository,
+    private val downloadsRepository: DownloadsRepository
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
@@ -70,6 +72,12 @@ class ViewModelFactory(
             modelClass.isAssignableFrom(LanguagePreferencesViewModel::class.java) -> {
                 LanguagePreferencesViewModel(languagePreferencesRepository) as T
             }
+            modelClass.isAssignableFrom(DownloadsViewModel::class.java) -> {
+                DownloadsViewModel(downloadsRepository, application) as T
+            }
+            modelClass.isAssignableFrom(QueueViewModel::class.java) -> {
+                QueueViewModel() as T
+            }
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
@@ -82,7 +90,8 @@ class ViewModelFactory(
                 ServiceLocator.getPlaylistRepository(),
                 ServiceLocator.getFirestoreRepository(),
                 ServiceLocator.getRecentlyPlayedRepository(),
-                ServiceLocator.getLanguagePreferencesRepository()
+                ServiceLocator.getLanguagePreferencesRepository(),
+                ServiceLocator.getDownloadsRepository()
             )
         }
 

@@ -11,10 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.animateFloatAsState
@@ -38,8 +35,6 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.aura.music.data.model.Song
 import com.aura.music.ui.theme.Primary
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
 
 @Composable
 fun SongItem(
@@ -47,11 +42,13 @@ fun SongItem(
     isPlaying: Boolean = false,
     onClick: () -> Unit,
     isLiked: Boolean = false,
+    isDownloaded: Boolean = false,
     onToggleLike: (() -> Unit)? = null,
     onAddToPlaylist: (() -> Unit)? = null,
-    onPlayNext: (() -> Unit)? = null
+    onPlayNext: (() -> Unit)? = null,
+    onDownload: (() -> Unit)? = null,
+    onRemoveFromDownloads: (() -> Unit)? = null
 ) {
-    var showMenu by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
@@ -122,52 +119,16 @@ fun SongItem(
             )
         }
 
-        if (onToggleLike != null || onAddToPlaylist != null || onPlayNext != null) {
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        imageVector = Icons.Filled.MoreVert,
-                        contentDescription = "More options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    if (onPlayNext != null) {
-                        DropdownMenuItem(
-                            text = { Text("Play Next") },
-                            onClick = {
-                                showMenu = false
-                                onPlayNext()
-                            }
-                        )
-                    }
-                    if (onToggleLike != null) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (isLiked) "Remove from Liked Songs" else "Add to Liked Songs"
-                                )
-                            },
-                            onClick = {
-                                showMenu = false
-                                onToggleLike()
-                            }
-                        )
-                    }
-                    if (onAddToPlaylist != null) {
-                        DropdownMenuItem(
-                            text = { Text("Add to playlist") },
-                            onClick = {
-                                showMenu = false
-                                onAddToPlaylist()
-                            }
-                        )
-                    }
-                }
-            }
+        if (onToggleLike != null || onAddToPlaylist != null || onPlayNext != null || onDownload != null || onRemoveFromDownloads != null) {
+            SongOptionsMenuButton(
+                isLiked = isLiked,
+                isDownloaded = isDownloaded,
+                onPlayNext = onPlayNext,
+                onToggleLike = onToggleLike,
+                onAddToPlaylist = onAddToPlaylist,
+                onDownload = onDownload,
+                onRemoveFromDownloads = onRemoveFromDownloads
+            )
         }
     }
 }

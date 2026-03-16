@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import com.aura.music.data.model.PlaylistSong
 import com.aura.music.player.MusicService
+import com.aura.music.ui.components.SongOptionsMenuButton
 import com.aura.music.ui.theme.DarkBackground
 import com.aura.music.ui.theme.DarkSurface
 import com.aura.music.ui.theme.DarkSurfaceVariant
@@ -66,6 +67,7 @@ import com.aura.music.ui.viewmodel.LikedSongsEvent
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
 import com.aura.music.ui.viewmodel.PlaylistViewModel
+import com.aura.music.ui.viewmodel.DownloadsViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import kotlinx.coroutines.flow.collectLatest
 
@@ -84,6 +86,11 @@ fun PlaylistDetailScreen(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
     val likedSongsState by likedSongsViewModel.uiState.collectAsState()
+    val downloadsViewModel: DownloadsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val downloads by downloadsViewModel.downloads.collectAsState()
+    val downloadedIds = remember(downloads) { downloads.map { it.videoId }.toSet() }
     var editableName by remember { mutableStateOf("") }
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -220,9 +227,12 @@ fun PlaylistDetailScreen(
                                     song = song,
                                     onClick = { viewModel.prepareSongForPlayback(song) },
                                     isLiked = likedSongsState.likedSongIds.contains(song.videoId),
+                                    isDownloaded = downloadedIds.contains(song.videoId),
                                     onToggleLike = { likedSongsViewModel.toggleLike(song.toSong()) },
                                     onRemove = { viewModel.removeSongFromPlaylist(playlistId, song.videoId) },
-                                    onPlayNext = { musicService?.insertNext(song.toSong()) }
+                                    onPlayNext = { musicService?.insertNext(song.toSong()) },
+                                    onDownload = { downloadsViewModel.downloadSong(song.toSong()) },
+                                    onRemoveFromDownloads = { downloadsViewModel.deleteSong(song.videoId) }
                                 )
                             }
                         }
@@ -262,12 +272,13 @@ private fun PlaylistSongRow(
     song: PlaylistSong,
     onClick: () -> Unit,
     isLiked: Boolean,
+    isDownloaded: Boolean,
     onToggleLike: () -> Unit,
     onRemove: () -> Unit,
-    onPlayNext: () -> Unit
+    onPlayNext: () -> Unit,
+    onDownload: () -> Unit = {},
+    onRemoveFromDownloads: () -> Unit = {}
 ) {
-    var showMenu by remember { mutableStateOf(false) }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -312,45 +323,17 @@ private fun PlaylistSongRow(
             )
         }
 
-        Box {
-            IconButton(onClick = { showMenu = true }) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = "Song options",
-                    tint = TextSecondary
-                )
-            }
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Play Next") },
-                    onClick = {
-                        showMenu = false
-                        onPlayNext()
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (isLiked) "Remove from Liked Songs" else "Add to Liked Songs"
-                        )
-                    },
-                    onClick = {
-                        showMenu = false
-                        onToggleLike()
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Remove") },
-                    onClick = {
-                        showMenu = false
-                        onRemove()
-                    }
-                )
-            }
-        }
+        SongOptionsMenuButton(
+            isLiked = isLiked,
+            isDownloaded = isDownloaded,
+            onPlayNext = onPlayNext,
+            onToggleLike = onToggleLike,
+            onDownload = onDownload,
+            onRemoveFromDownloads = onRemoveFromDownloads,
+            onRemove = onRemove,
+            removeLabel = "Remove",
+            iconTint = TextSecondary
+        )
     }
 }
 

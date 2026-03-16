@@ -37,6 +37,10 @@ class RecentlyPlayedRepository(
         }
     }
 
+    suspend fun getRecentTracksSnapshot(limit: Int = 20): List<Song> {
+        return getRecentTracks(limit).first()
+    }
+
     /**
      * Sync recently played from Firestore to local cache.
      * 

@@ -2,6 +2,7 @@ package com.aura.music.ui.theme
 
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 
 /**
  * Production-grade gradient definitions for global theming
@@ -15,6 +16,8 @@ import androidx.compose.ui.graphics.Color
  * Cards and surfaces maintain solid colors for readability
  */
 object GradientProvider {
+    private const val GRADIENT_END_X = 1600f
+    private const val GRADIENT_END_Y = 2800f
     
     /**
      * Aurora Glow - Purple to deep blue gradient
@@ -307,18 +310,15 @@ object GradientProvider {
      */
     fun getGradient(gradientTheme: GradientTheme, isDark: Boolean = true): Brush? {
         return when (gradientTheme) {
-            GradientTheme.AURORA_GLOW -> getAuroraGlow(isDark)
-            GradientTheme.SUNSET_VIBES -> getSunsetVibes(isDark)
-            GradientTheme.OCEAN_BREEZE -> getOceanBreeze(isDark)
-            GradientTheme.MIDNIGHT_DREAM -> getMidnightDream(isDark)
-            GradientTheme.CHERRY_BLOSSOM -> getCherryBlossom(isDark)
-            GradientTheme.FOREST_MIST -> getForestMist(isDark)
-            GradientTheme.COSMIC_PURPLE -> getCosmicPurple(isDark)
-            GradientTheme.NORTHERN_LIGHTS -> getNorthernLights(isDark)
-            GradientTheme.VELVET_ROSE -> getVelvetRose(isDark)
-            GradientTheme.TROPICAL_PARADISE -> getTropicalParadise(isDark)
-            GradientTheme.SAKURA_DREAM -> getSakuraDream(isDark)
             GradientTheme.NONE -> null
+            else -> {
+                val colors = getGradientColors(gradientTheme, isDark) ?: return null
+                Brush.linearGradient(
+                    colors = colors,
+                    start = Offset(0f, 0f),
+                    end = Offset(GRADIENT_END_X, GRADIENT_END_Y)
+                )
+            }
         }
     }
     

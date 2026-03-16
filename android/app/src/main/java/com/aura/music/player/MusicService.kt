@@ -16,6 +16,7 @@ import com.aura.music.data.model.withFallbackMetadata
 import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.di.ServiceLocator
 import com.google.firebase.auth.FirebaseAuth
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +37,8 @@ class MusicService : MediaSessionService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val queueManager = PlaybackQueueManager
     private val smartAutoplayManager by lazy { SmartAutoplayManager(repository) }
+    private val smartQueueManager by lazy { QueueManager(repository, recentlyPlayedRepository) }
+    private var currentQueueContext: QueueContext = QueueContext.SINGLE_SONG
     
     // Audio effects manager for equalizer, bass boost, virtualizer
     private val audioEffectsManager = AudioEffectsManager()
@@ -52,6 +55,7 @@ class MusicService : MediaSessionService() {
 
     private val repository by lazy { ServiceLocator.getMusicRepository() }
     private val recentlyPlayedRepository by lazy { ServiceLocator.getRecentlyPlayedRepository() }
+    private val downloadsRepository by lazy { ServiceLocator.getDownloadsRepository() }
     private val firestoreRepository by lazy { FirestoreRepository() }
     private val auth by lazy { FirebaseAuth.getInstance() }
 
@@ -59,6 +63,8 @@ class MusicService : MediaSessionService() {
     private var lastLoggedAtMs: Long = 0L
     private var currentPlaybackSource: String = "unknown"
     private val playStartThresholdMs = 2_000L
+    private val minQueueBuffer = 5
+    private var extensionInProgress = false
     
     // Track liked songs for notification
     private val _likedSongs = MutableStateFlow<Set<String>>(emptySet())
@@ -224,10 +230,50 @@ class MusicService : MediaSessionService() {
             return
         }
 
+        val safeStartIndex = startIndex.coerceIn(0, songs.lastIndex)
+        val selectedSong = songs[safeStartIndex]
+
         smartAutoplayManager.resetForUserAction()
-        queueManager.setQueue(songs, startIndex)
-        Log.d(TAG, "Queue set size=${songs.size} startIndex=$startIndex source=$source")
-        playCurrentFromQueue(source)
+        serviceScope.launch {
+            currentQueueContext = smartQueueManager.resolveContext(source, songs)
+
+            val generatedQueue = runCatching {
+                smartQueueManager.generateQueue(
+                    selectedSong = selectedSong,
+                    context = currentQueueContext,
+                    sourceList = songs,
+                    startIndex = safeStartIndex,
+                    desiredSize = QueueManager.DEFAULT_QUEUE_LENGTH
+                )
+            }.getOrElse {
+                Log.w(TAG, "Smart queue generation failed. Falling back to legacy ordering.", it)
+                songs.drop(safeStartIndex) + songs.take(safeStartIndex)
+            }
+
+            val playbackQueue = generatedQueue.ifEmpty {
+                songs.drop(safeStartIndex) + songs.take(safeStartIndex)
+            }
+
+            val startAt = playbackQueue.indexOfFirst { it.videoId == selectedSong.videoId }
+                .takeIf { it >= 0 }
+                ?: 0
+
+            queueManager.setQueue(playbackQueue, startAt)
+            Log.d(
+                TAG,
+                "Queue set size=${playbackQueue.size} startIndex=$startAt source=$source context=$currentQueueContext"
+            )
+            playCurrentFromQueue(source)
+            ensureQueueBuffer()
+        }
+    }
+
+    fun startRadio(seedSong: Song) {
+        setQueueAndPlay(
+            songs = listOf(seedSong),
+            startIndex = 0,
+            source = "radio"
+        )
     }
 
     fun playCurrentFromQueue(source: String = "unknown") {
@@ -276,6 +322,7 @@ class MusicService : MediaSessionService() {
             return
         }
         playCurrentFromQueue(currentPlaybackSource)
+        ensureQueueBuffer()
     }
 
     fun playPrevious() {
@@ -323,6 +370,7 @@ class MusicService : MediaSessionService() {
 
     fun clearQueue() {
         queueManager.clearQueue()
+        currentQueueContext = QueueContext.SINGLE_SONG
     }
     
     fun getQueue(): List<Song> {
@@ -331,6 +379,14 @@ class MusicService : MediaSessionService() {
     
     fun getCurrentQueueIndex(): Int {
         return queueManager.getCurrentIndex()
+    }
+
+    fun getQueueState(): QueueState {
+        return queueManager.queueState.value
+    }
+
+    fun reorderQueue(fromIndex: Int, toIndex: Int): Boolean {
+        return queueManager.reorderQueue(fromIndex, toIndex)
     }
     
     /**
@@ -385,10 +441,94 @@ class MusicService : MediaSessionService() {
                 val next = queueManager.moveToNext()
                 if (next != null) {
                     playCurrentFromQueue(currentPlaybackSource)
+                    ensureQueueBuffer()
                 } else {
-                    attemptSmartAutoplay()
+                    attemptContextAwareExtensionOrAutoplay()
                 }
             }
+        }
+    }
+
+    private fun ensureQueueBuffer() {
+        serviceScope.launch {
+            if (!shouldExtendCurrentContext()) return@launch
+
+            val remaining = queueManager.getRemainingCountAfterCurrent()
+            if (remaining >= minQueueBuffer) return@launch
+            if (extensionInProgress) return@launch
+
+            extensionInProgress = true
+            try {
+                val current = queueManager.getCurrentSong() ?: return@launch
+                val extension = smartQueueManager.extendQueue(
+                    currentQueue = queueManager.getQueue(),
+                    currentSong = current,
+                    context = currentQueueContext,
+                    targetSize = minQueueBuffer * 2
+                )
+                if (extension.isNotEmpty()) {
+                    queueManager.appendToQueue(extension)
+                    Log.d(
+                        TAG,
+                        "Queue proactively extended by ${extension.size} songs; remaining=$remaining"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to proactively extend queue", e)
+            } finally {
+                extensionInProgress = false
+            }
+        }
+    }
+
+    private fun shouldExtendCurrentContext(): Boolean {
+        return when (currentQueueContext) {
+            QueueContext.DAILY_MIX,
+            QueueContext.MOOD_MIX,
+            QueueContext.SEARCH,
+            QueueContext.ARTIST,
+            QueueContext.RADIO,
+            QueueContext.RECENTLY_PLAYED,
+            QueueContext.RECOMMENDATIONS,
+            QueueContext.SINGLE_SONG -> true
+
+            QueueContext.PLAYLIST,
+            QueueContext.ALBUM,
+            QueueContext.LIKED_SONGS -> false
+        }
+    }
+
+    private fun attemptContextAwareExtensionOrAutoplay() {
+        serviceScope.launch {
+            val current = queueManager.getCurrentSong() ?: _playerState.value.currentSong
+            if (current == null) {
+                attemptSmartAutoplay()
+                return@launch
+            }
+
+            if (!shouldExtendCurrentContext()) {
+                attemptSmartAutoplay()
+                return@launch
+            }
+
+            val extension = smartQueueManager.extendQueue(
+                currentQueue = queueManager.getQueue(),
+                currentSong = current,
+                context = currentQueueContext,
+                targetSize = 15
+            )
+
+            if (extension.isNotEmpty()) {
+                queueManager.appendToQueue(extension)
+                val next = queueManager.moveToNext()
+                if (next != null) {
+                    Log.d(TAG, "Queue auto-extended with ${extension.size} songs (context=$currentQueueContext)")
+                    playCurrentFromQueue(currentPlaybackSource)
+                    return@launch
+                }
+            }
+
+            attemptSmartAutoplay()
         }
     }
 
@@ -470,10 +610,18 @@ class MusicService : MediaSessionService() {
             }
     }
 
-    private fun playResolvedSongInternal(resolvedSong: Song, source: String) {
+    private suspend fun playResolvedSongInternal(resolvedSong: Song, source: String) {
         currentPlaybackSource = source.ifBlank { "unknown" }
 
-        val mediaItem = MediaItem.fromUri(resolvedSong.url!!)
+        // Prefer local downloaded file if available and present on disk
+        val localPath = downloadsRepository.getLocalFilePath(resolvedSong.videoId)
+        val mediaUri = if (localPath != null && File(localPath).exists()) {
+            android.net.Uri.fromFile(File(localPath))
+        } else {
+            android.net.Uri.parse(resolvedSong.url!!)
+        }
+
+        val mediaItem = MediaItem.fromUri(mediaUri)
         exoPlayer?.let { player ->
             player.setMediaItem(mediaItem)
             player.prepare()

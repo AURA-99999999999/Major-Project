@@ -8,12 +8,13 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [RecentlyPlayedEntity::class],
-    version = 2,
+    entities = [RecentlyPlayedEntity::class, DownloadedSong::class],
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recentlyPlayedDao(): RecentlyPlayedDao
+    abstract fun downloadedSongDao(): DownloadedSongDao
 
     companion object {
         @Volatile
@@ -46,6 +47,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Older builds created downloaded_songs with an incompatible schema.
+                // Recreate it to exactly match the DownloadedSong entity expected by Room.
+                database.execSQL("DROP TABLE IF EXISTS downloaded_songs")
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS downloaded_songs (
+                    videoId TEXT NOT NULL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    artist TEXT NOT NULL,
+                    album TEXT,
+                    thumbnail TEXT,
+                    duration TEXT,
+                    filePath TEXT NOT NULL,
+                    downloadedAt INTEGER NOT NULL,
+                    fileSize INTEGER NOT NULL DEFAULT 0
+                    )"""
+                )
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE downloaded_songs ADD COLUMN fileSize INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -53,7 +83,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "aura_app.db"
                 )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .fallbackToDestructiveMigration()
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build().also { INSTANCE = it }
             }

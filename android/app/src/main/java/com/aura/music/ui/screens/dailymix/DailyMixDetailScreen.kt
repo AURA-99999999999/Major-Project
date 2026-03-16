@@ -19,14 +19,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +61,8 @@ import com.aura.music.di.ServiceLocator
 import com.aura.music.player.MusicService
 import com.aura.music.ui.screens.playlist.PlaylistPickerBottomSheet
 import com.aura.music.ui.theme.ColorBlendingUtils
+import com.aura.music.ui.components.SongOptionsMenuButton
+import com.aura.music.ui.viewmodel.DownloadsViewModel
 import com.aura.music.ui.viewmodel.HomeViewModel
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistViewModel
@@ -100,6 +99,9 @@ fun DailyMixDetailScreen(
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val likedSongsState by likedSongsViewModel.uiState.collectAsState()
+    val downloadsViewModel: DownloadsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
     
     var isLoading by remember { mutableStateOf(true) }
     var mixName by remember { mutableStateOf("Daily Mix") }
@@ -278,6 +280,9 @@ fun DailyMixDetailScreen(
                                 },
                                 onAddToPlaylist = {
                                     pendingSongForPlaylist = song
+                                },
+                                onDownload = {
+                                    downloadsViewModel.downloadSong(song)
                                 }
                             )
                         }
@@ -482,10 +487,9 @@ fun DailyMixSongItem(
     onSongClick: () -> Unit,
     onToggleLike: () -> Unit,
     onPlayNext: () -> Unit,
-    onAddToPlaylist: () -> Unit
+    onAddToPlaylist: () -> Unit,
+    onDownload: () -> Unit = {}
 ) {
-    var showMenu by remember { mutableStateOf(false) }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -536,47 +540,13 @@ fun DailyMixSongItem(
             )
         }
         
-        // More options
-        Box {
-            IconButton(onClick = { showMenu = true }) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = "More options",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Play Next") },
-                    onClick = {
-                        showMenu = false
-                        onPlayNext()
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (isLiked) "Remove from Liked Songs" else "Add to Liked Songs"
-                        )
-                    },
-                    onClick = {
-                        showMenu = false
-                        onToggleLike()
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Add to playlist") },
-                    onClick = {
-                        showMenu = false
-                        onAddToPlaylist()
-                    }
-                )
-            }
-        }
+        SongOptionsMenuButton(
+            isLiked = isLiked,
+            onPlayNext = onPlayNext,
+            onToggleLike = onToggleLike,
+            onAddToPlaylist = onAddToPlaylist,
+            onDownload = onDownload,
+            iconTint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

@@ -64,12 +64,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.compose.material.icons.filled.Download
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistsScreen(
     musicService: MusicService?,
     onNavigateToPlaylistDetail: (String) -> Unit,
     onNavigateToLikedSongs: () -> Unit,
+    onNavigateToDownloads: () -> Unit = {},
     onNavigateBack: () -> Unit,
     viewModel: PlaylistViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
@@ -165,6 +168,10 @@ fun PlaylistsScreen(
                                 songCount = likedSongsState.songs.size,
                                 onClick = onNavigateToLikedSongs
                             )
+                        }
+
+                        item {
+                            DownloadsCard(onClick = onNavigateToDownloads)
                         }
 
                         if (uiState.playlists.isEmpty()) {
@@ -321,3 +328,51 @@ private fun formatPlaylistDate(timestamp: Long?): String {
     return formatter.format(Date(timestamp))
 }
 
+@Composable
+private fun DownloadsCard(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(54.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Downloads",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Saved for offline listening",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}

@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -41,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aura.music.ui.theme.AccentColor
 import com.aura.music.ui.theme.AccentPaletteProvider
+import com.aura.music.ui.theme.GradientProvider
 import com.aura.music.ui.theme.GradientTheme
 import com.aura.music.ui.theme.ThemeManager
 import com.aura.music.ui.theme.ThemeMode
@@ -110,6 +113,7 @@ fun ThemeSettingsScreen(
             item {
                 GradientThemeSection(
                     currentGradient = themeState.gradientTheme,
+                    isDarkTheme = themeState.themeMode != ThemeMode.LIGHT,
                     onGradientSelected = { themeManager.setGradientTheme(it) }
                 )
             }
@@ -304,6 +308,7 @@ private fun AccentColorItem(
 @Composable
 private fun GradientThemeSection(
     currentGradient: GradientTheme,
+    isDarkTheme: Boolean,
     onGradientSelected: (GradientTheme) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -320,6 +325,7 @@ private fun GradientThemeSection(
             GradientTheme.entries.forEach { gradient ->
                 GradientThemeItem(
                     gradient = gradient,
+                    isDarkTheme = isDarkTheme,
                     isSelected = currentGradient == gradient,
                     onClick = { onGradientSelected(gradient) }
                 )
@@ -334,6 +340,7 @@ private fun GradientThemeSection(
 @Composable
 private fun GradientThemeItem(
     gradient: GradientTheme,
+    isDarkTheme: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
@@ -361,11 +368,37 @@ private fun GradientThemeItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = gradient.displayName,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(56.dp)
+                        .height(28.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            brush = GradientProvider.getGradient(gradient, isDarkTheme)
+                                ?: androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.surfaceVariant,
+                                        MaterialTheme.colorScheme.surface
+                                    )
+                                )
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                )
+
+                Text(
+                    text = gradient.displayName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
 
             if (isSelected) {
                 Icon(

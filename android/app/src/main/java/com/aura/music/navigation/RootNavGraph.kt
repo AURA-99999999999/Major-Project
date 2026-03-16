@@ -1,5 +1,8 @@
 package com.aura.music.navigation
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -100,6 +103,7 @@ fun RootNavGraph(
     themeManager: ThemeManager
 ) {
     val context = LocalContext.current.applicationContext as android.app.Application
+    val isOfflineMode = remember { !isNetworkAvailable(context) }
     
     // Create shared PlayerViewModel for mini player state
     val playerViewModel: PlayerViewModel = viewModel(
@@ -114,8 +118,9 @@ fun RootNavGraph(
     val languagePrefsLoaded by languagePreferencesViewModel.isLoaded.collectAsState()
 
     // Determine the root of the navigation graph based on auth state
-    val startDestination = when (authState) {
-        is AuthState.Authenticated -> "main"
+    val startDestination = when {
+        isOfflineMode -> "main"
+        authState is AuthState.Authenticated -> "main"
         else -> "auth"
     }
 
@@ -369,6 +374,7 @@ fun RootNavGraph(
                     musicService = musicService,
                     authViewModel = authViewModel,
                     authState = authState,
+                    isOfflineMode = isOfflineMode,
                     hasLanguagePreferences = hasLanguagePreferences,
                     selectedLanguages = selectedLanguages,
                     playerViewModel = playerViewModel,
@@ -421,4 +427,12 @@ fun RootNavGraph(
             }
         }
     }
+}
+
+private fun isNetworkAvailable(context: Context): Boolean {
+    val connectivityManager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val network = connectivityManager.activeNetwork ?: return false
+    val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
 }

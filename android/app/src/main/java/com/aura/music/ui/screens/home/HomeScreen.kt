@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
@@ -37,8 +36,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -96,11 +93,13 @@ import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistEvent
 import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
+import com.aura.music.ui.viewmodel.DownloadsViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import com.aura.music.ui.screens.playlist.PlaylistPickerBottomSheet
+import com.aura.music.ui.components.SongOptionsMenuButton
 import com.aura.music.ui.components.home.DailyMixesSection
 import com.aura.music.ui.components.ShimmerSongItem
 import com.aura.music.ui.components.ShimmerRecommendedSection
@@ -145,6 +144,11 @@ fun HomeScreen(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
     val likedSongsState by likedSongsViewModel.uiState.collectAsState()
+    val downloadsViewModel: DownloadsViewModel = viewModel(
+        factory = ViewModelFactory.create(context.applicationContext as android.app.Application)
+    )
+    val downloads by downloadsViewModel.downloads.collectAsState()
+    val downloadedIds = remember(downloads) { downloads.map { it.videoId }.toSet() }
     val snackbarHostState = remember { SnackbarHostState() }
 
     var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
@@ -315,7 +319,6 @@ fun HomeScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
                     .pullRefresh(pullRefreshState)
             ) {
                 Column(
@@ -410,6 +413,7 @@ fun HomeScreen(
                                         RecommendationsWithFadeIn(
                                             songs = recommendedSongs,
                                             likedSongIds = likedSongsState.likedSongIds,
+                                            downloadedVideoIds = downloadedIds,
                                             onSongClick = { song, index ->
                                                 actualViewModel.playSongFromList(recommendedSongs, index, "recommendations")
                                                 onNavigateToPlayer()
@@ -422,6 +426,12 @@ fun HomeScreen(
                                             },
                                             onPlayNext = { song ->
                                                 musicService?.insertNext(song)
+                                            },
+                                            onDownload = { song ->
+                                                downloadsViewModel.downloadSong(song)
+                                            },
+                                            onRemoveFromDownloads = { song ->
+                                                downloadsViewModel.deleteSong(song.videoId)
                                             }
                                         )
                                     }
@@ -479,6 +489,7 @@ fun HomeScreen(
                                         TrendingRow(
                                             songs = state.trending,
                                             likedSongIds = likedSongsState.likedSongIds,
+                                            downloadedVideoIds = downloadedIds,
                                             onSongClick = { song, index ->
                                                 actualViewModel.playSongFromList(state.trending, index, "fresh_hits")
                                                 onNavigateToPlayer()
@@ -491,6 +502,12 @@ fun HomeScreen(
                                             },
                                             onPlayNext = { song ->
                                                 musicService?.insertNext(song)
+                                            },
+                                            onDownload = { song ->
+                                                downloadsViewModel.downloadSong(song)
+                                            },
+                                            onRemoveFromDownloads = { song ->
+                                                downloadsViewModel.deleteSong(song.videoId)
                                             }
                                         )
                                     }
@@ -524,6 +541,7 @@ fun HomeScreen(
                                         RecommendationsWithFadeIn(
                                             songs = state.collaborative,
                                             likedSongIds = likedSongsState.likedSongIds,
+                                            downloadedVideoIds = downloadedIds,
                                             onSongClick = { song, index ->
                                                 actualViewModel.playSongFromList(state.collaborative, index, "collaborative")
                                                 onNavigateToPlayer()
@@ -536,6 +554,12 @@ fun HomeScreen(
                                             },
                                             onPlayNext = { song ->
                                                 musicService?.insertNext(song)
+                                            },
+                                            onDownload = { song ->
+                                                downloadsViewModel.downloadSong(song)
+                                            },
+                                            onRemoveFromDownloads = { song ->
+                                                downloadsViewModel.deleteSong(song.videoId)
                                             }
                                         )
                                     }
@@ -845,10 +869,13 @@ private fun SectionHeader(
 private fun TrendingRow(
     songs: List<Song>,
     likedSongIds: Set<String>,
+    downloadedVideoIds: Set<String>,
     onSongClick: (Song, Int) -> Unit,
     onToggleLike: (Song) -> Unit,
     onAddToPlaylist: (Song) -> Unit,
     onPlayNext: (Song) -> Unit,
+    onDownload: (Song) -> Unit = {},
+    onRemoveFromDownloads: (Song) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (songs.isEmpty()) {
@@ -864,10 +891,13 @@ private fun TrendingRow(
             TrendingSongCard(
                 song = song,
                 isLiked = likedSongIds.contains(song.videoId),
+                isDownloaded = downloadedVideoIds.contains(song.videoId),
                 onSongClick = { onSongClick(song, index) },
                 onToggleLike = { onToggleLike(song) },
                 onAddToPlaylist = { onAddToPlaylist(song) },
-                onPlayNext = { onPlayNext(song) }
+                onPlayNext = { onPlayNext(song) },
+                onDownload = { onDownload(song) },
+                onRemoveFromDownloads = { onRemoveFromDownloads(song) }
             )
         }
     }
@@ -878,10 +908,13 @@ private fun TrendingRow(
 private fun TrendingSongCard(
     song: Song,
     isLiked: Boolean,
+    isDownloaded: Boolean,
     onSongClick: () -> Unit,
     onToggleLike: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    onPlayNext: () -> Unit
+    onPlayNext: () -> Unit,
+    onDownload: () -> Unit = {},
+    onRemoveFromDownloads: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var hasAnimated by remember { mutableStateOf(false) }
@@ -962,43 +995,16 @@ private fun TrendingSongCard(
                     .basicMarquee(iterations = Int.MAX_VALUE)
                     .clickable(onClick = onSongClick)
             )
-            IconButton(onClick = { showMenu = true }) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = "More options",
-                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                )
-            }
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Play Next") },
-                    onClick = {
-                        showMenu = false
-                        onPlayNext()
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (isLiked) "Remove from Liked Songs" else "Add to Liked Songs"
-                        )
-                    },
-                    onClick = {
-                        showMenu = false
-                        onToggleLike()
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Add to playlist") },
-                    onClick = {
-                        showMenu = false
-                        onAddToPlaylist()
-                    }
-                )
-            }
+            SongOptionsMenuButton(
+                isLiked = isLiked,
+                isDownloaded = isDownloaded,
+                onPlayNext = onPlayNext,
+                onToggleLike = onToggleLike,
+                onAddToPlaylist = onAddToPlaylist,
+                onDownload = onDownload,
+                onRemoveFromDownloads = onRemoveFromDownloads,
+                iconTint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+            )
         }
         Text(
             text = song.getArtistString(),
@@ -1014,10 +1020,13 @@ private fun TrendingSongCard(
 private fun RecommendationsWithFadeIn(
     songs: List<Song>,
     likedSongIds: Set<String>,
+    downloadedVideoIds: Set<String>,
     onSongClick: (Song, Int) -> Unit,
     onToggleLike: (Song) -> Unit,
     onAddToPlaylist: (Song) -> Unit,
-    onPlayNext: (Song) -> Unit
+    onPlayNext: (Song) -> Unit,
+    onDownload: (Song) -> Unit = {},
+    onRemoveFromDownloads: (Song) -> Unit = {}
 ) {
     // Fade-in animation - runs in Composable context
     val alpha by animateFloatAsState(
@@ -1030,10 +1039,13 @@ private fun RecommendationsWithFadeIn(
         modifier = Modifier.graphicsLayer(alpha = alpha),
         songs = songs,
         likedSongIds = likedSongIds,
+        downloadedVideoIds = downloadedVideoIds,
         onSongClick = onSongClick,
         onToggleLike = onToggleLike,
         onAddToPlaylist = onAddToPlaylist,
-        onPlayNext = onPlayNext
+        onPlayNext = onPlayNext,
+        onDownload = onDownload,
+        onRemoveFromDownloads = onRemoveFromDownloads
     )
 }
 

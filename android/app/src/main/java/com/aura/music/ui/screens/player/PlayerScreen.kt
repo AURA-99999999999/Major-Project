@@ -10,9 +10,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,11 +27,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.QueueMusic
@@ -63,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -72,8 +82,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.constraintlayout.compose.ConstraintLayout
 import coil.compose.AsyncImage
 import com.aura.music.player.MusicService
 import com.aura.music.player.PlayerState
@@ -92,9 +104,12 @@ import com.aura.music.ui.theme.ThemeColorEffect
 import com.aura.music.ui.theme.ThemeManager
 import com.aura.music.ui.utils.AudioEqualizerLauncher
 import com.aura.music.ui.utils.rememberEqualizerLauncher
+import com.aura.music.ui.viewmodel.DownloadsEvent
+import com.aura.music.ui.viewmodel.DownloadsViewModel
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.floor
@@ -118,6 +133,10 @@ fun PlayerScreen(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
     val likedSongsState by likedSongsViewModel.uiState.collectAsState()
+    val downloadsViewModel: DownloadsViewModel = viewModel(
+        factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
+    )
+    val downloads by downloadsViewModel.downloads.collectAsState()
     
     // Queue bottom sheet state
     var showQueueBottomSheet by remember { mutableStateOf(false) }
@@ -125,6 +144,14 @@ fun PlayerScreen(
 
     LaunchedEffect(Unit) {
         likedSongsViewModel.observeLikedSongs()
+    }
+
+    LaunchedEffect(downloadsViewModel) {
+        downloadsViewModel.events.collectLatest { event ->
+            when (event) {
+                is DownloadsEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+            }
+        }
     }
 
     // Trigger dynamic theme color extraction when artwork loads
@@ -171,17 +198,23 @@ fun PlayerScreen(
     val currentPosition = playerState.currentPosition
     val duration = playerState.duration
     val volume = playerState.volume
+    val isCurrentSongDownloaded = remember(song?.videoId, downloads) {
+        val currentVideoId = song?.videoId ?: return@remember false
+        downloads.any { it.videoId == currentVideoId }
+    }
 
     val controlsOffsetPx = with(LocalDensity.current) { 12.dp.toPx() }
     val backgroundAlpha = remember { Animatable(0f) }
     val controlsAlpha = remember { Animatable(0f) }
     val controlsTranslateY = remember { Animatable(controlsOffsetPx) }
+    val albumArtScale = remember { Animatable(0.94f) }
     val playButtonScale = remember { Animatable(0.95f) }
 
     LaunchedEffect(song?.videoId) {
         backgroundAlpha.snapTo(0f)
         controlsAlpha.snapTo(0f)
         controlsTranslateY.snapTo(controlsOffsetPx)
+        albumArtScale.snapTo(0.94f)
         playButtonScale.snapTo(0.95f)
 
         launch {
@@ -206,6 +239,12 @@ fun PlayerScreen(
             )
         }
         launch {
+            albumArtScale.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
             playButtonScale.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
@@ -213,16 +252,16 @@ fun PlayerScreen(
         }
     }
 
-    // Rotation animation for album art
-    val infiniteTransition = rememberInfiniteTransition(label = "rotation")
+    // Keep cover rotating while actively playing.
+    val infiniteTransition = rememberInfiniteTransition(label = "album_rotation")
     val rotationAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(20000, easing = LinearEasing),
+            animation = tween(durationMillis = 22000, easing = LinearEasing),
             repeatMode = AnimationRepeatMode.Restart
         ),
-        label = "rotation"
+        label = "album_rotation_angle"
     )
 
     // Dynamic background colors from album artwork or theme
@@ -298,9 +337,10 @@ fun PlayerScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             // Top section - Back button and action icons
             Row(
@@ -346,8 +386,6 @@ fun PlayerScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
-
             if (playerState.isLoading) {
                 LinearProgressIndicator(
                     modifier = Modifier
@@ -369,18 +407,26 @@ fun PlayerScreen(
                 )
             }
 
-            // Album Art - Large, rotating when playing
+            // Album Art with elevated rounded style and song-change scale animation
             Box(
                 modifier = Modifier
-                    .size(320.dp)
+                    .fillMaxWidth(0.8f)
+                    .widthIn(max = 360.dp)
+                    .aspectRatio(1f)
+                    .shadow(22.dp, CircleShape)
                     .clip(CircleShape)
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.secondary
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                                MaterialTheme.colorScheme.surface
                             )
                         )
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f),
+                        shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -390,12 +436,11 @@ fun PlayerScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .rotate(if (isPlaying) rotationAngle else 0f)
+                        .scale(albumArtScale.value)
                         .clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )
             }
-
-            Spacer(modifier = Modifier.weight(1f))
 
             // Song Info
             Column(
@@ -412,8 +457,10 @@ fun PlayerScreen(
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1,
-                    modifier = Modifier.basicMarquee()
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -428,7 +475,11 @@ fun PlayerScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Progress Bar
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
                     Slider(
                         value = if (duration > 0) {
                             (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
@@ -438,11 +489,13 @@ fun PlayerScreen(
                         onValueChange = { progress ->
                             musicService?.seekTo((progress * duration).toLong())
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(28.dp),
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
                             activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
+                            inactiveTrackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.22f)
                         )
                     )
 
@@ -465,56 +518,74 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Controls Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
+                // ConstraintLayout chain for perfectly centered and balanced controls.
+                ConstraintLayout(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .height(72.dp)
                 ) {
-                    // Repeat / Repeat One / Shuffle button (left)
-                    IconButton(
-                        onClick = {
-                            val isShuffle = playerState.shuffleEnabled
-                            val repeatMode = playerState.repeatMode
+                    val (modeRef, previousRef, playRef, nextRef, likeRef) = createRefs()
 
+                    TransportIconButton(
+                        onClick = {
                             when {
-                                isShuffle -> {
+                                !playerState.shuffleEnabled && playerState.repeatMode == PlayerRepeatMode.NONE -> {
+                                    musicService?.setShuffleEnabled(true)
+                                    musicService?.setRepeatMode(PlayerRepeatMode.NONE)
+                                }
+                                playerState.shuffleEnabled -> {
                                     musicService?.setShuffleEnabled(false)
                                     musicService?.setRepeatMode(PlayerRepeatMode.REPEAT_ALL)
                                 }
-                                repeatMode == PlayerRepeatMode.REPEAT_ALL -> {
-                                    musicService?.setRepeatMode(PlayerRepeatMode.REPEAT_ONE)
+                                playerState.repeatMode == PlayerRepeatMode.REPEAT_ALL -> {
                                     musicService?.setShuffleEnabled(false)
-                                }
-                                repeatMode == PlayerRepeatMode.REPEAT_ONE -> {
-                                    musicService?.setRepeatMode(PlayerRepeatMode.NONE)
-                                    musicService?.setShuffleEnabled(true)
+                                    musicService?.setRepeatMode(PlayerRepeatMode.REPEAT_ONE)
                                 }
                                 else -> {
                                     musicService?.setShuffleEnabled(false)
-                                    musicService?.setRepeatMode(PlayerRepeatMode.REPEAT_ALL)
+                                    musicService?.setRepeatMode(PlayerRepeatMode.NONE)
                                 }
                             }
-                        }
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .constrainAs(modeRef) {
+                                start.linkTo(parent.start)
+                                end.linkTo(previousRef.start, margin = 24.dp)
+                                top.linkTo(playRef.top)
+                                bottom.linkTo(playRef.bottom)
+                            }
                     ) {
                         val modeIcon = when {
                             playerState.shuffleEnabled -> Icons.Filled.Shuffle
                             playerState.repeatMode == PlayerRepeatMode.REPEAT_ONE -> Icons.Filled.RepeatOne
                             else -> Icons.Filled.Repeat
                         }
-                        val isActive = playerState.shuffleEnabled ||
+                        val modeActive = playerState.shuffleEnabled ||
                             playerState.repeatMode != PlayerRepeatMode.NONE
 
                         Icon(
                             imageVector = modeIcon,
-                            contentDescription = "Repeat mode",
-                            tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                            contentDescription = "Playback mode",
+                            tint = if (modeActive) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f)
+                            },
+                            modifier = Modifier.size(24.dp)
                         )
                     }
 
-                    // Previous
-                    IconButton(
-                        onClick = { musicService?.playPrevious() }
+                    TransportIconButton(
+                        onClick = { musicService?.playPrevious() },
+                        modifier = Modifier
+                            .size(52.dp)
+                            .constrainAs(previousRef) {
+                                end.linkTo(playRef.start, margin = 28.dp)
+                                top.linkTo(playRef.top)
+                                bottom.linkTo(playRef.bottom)
+                            }
                     ) {
                         Icon(
                             painter = androidx.compose.ui.res.painterResource(android.R.drawable.ic_media_rew),
@@ -524,14 +595,20 @@ fun PlayerScreen(
                         )
                     }
 
-                    // Play/Pause - Large button with glow
                     Box(
                         modifier = Modifier
-                            .size(80.dp)
+                            .size(72.dp)
                             .scale(playButtonScale.value)
+                            .shadow(16.dp, CircleShape)
                             .clip(CircleShape)
-                            .background(Color.Transparent)
-                            .clickable { musicService?.togglePlayPause() },
+                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable { musicService?.togglePlayPause() }
+                            .constrainAs(playRef) {
+                                start.linkTo(parent.start)
+                                end.linkTo(parent.end)
+                                top.linkTo(parent.top)
+                                bottom.linkTo(parent.bottom)
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -539,14 +616,20 @@ fun PlayerScreen(
                                 if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
                             ),
                             contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.size(40.dp)
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(36.dp)
                         )
                     }
 
-                    // Next
-                    IconButton(
-                        onClick = { musicService?.playNext() }
+                    TransportIconButton(
+                        onClick = { musicService?.playNext() },
+                        modifier = Modifier
+                            .size(52.dp)
+                            .constrainAs(nextRef) {
+                                start.linkTo(playRef.end, margin = 28.dp)
+                                top.linkTo(playRef.top)
+                                bottom.linkTo(playRef.bottom)
+                            }
                     ) {
                         Icon(
                             painter = androidx.compose.ui.res.painterResource(android.R.drawable.ic_media_ff),
@@ -556,26 +639,39 @@ fun PlayerScreen(
                         )
                     }
 
-                    // Like/Favorite button (right)
-                    IconButton(
-                        onClick = {
-                            likedSongsViewModel.toggleLike(song)
-                        }
+                    TransportIconButton(
+                        onClick = { likedSongsViewModel.toggleLike(song) },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .constrainAs(likeRef) {
+                                start.linkTo(nextRef.end, margin = 24.dp)
+                                end.linkTo(parent.end)
+                                top.linkTo(playRef.top)
+                                bottom.linkTo(playRef.bottom)
+                            }
                     ) {
                         val isLiked = likedSongsState.likedSongIds.contains(song.videoId)
                         Icon(
                             imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                             contentDescription = if (isLiked) "Liked" else "Not liked",
-                            tint = if (isLiked) Color.Red.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                            tint = if (isLiked) {
+                                Color.Red.copy(alpha = 0.9f)
+                            } else {
+                                MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f)
+                            },
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Volume Control
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -589,11 +685,13 @@ fun PlayerScreen(
                     Slider(
                         value = volume,
                         onValueChange = { musicService?.setVolume(it) },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(0.55f)
+                            .height(24.dp),
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
                             activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
+                            inactiveTrackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.22f)
                         )
                     )
 
@@ -603,10 +701,28 @@ fun PlayerScreen(
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                         modifier = Modifier.width(40.dp)
                     )
+
+                    IconButton(
+                        onClick = {
+                            playerState.currentSong?.let {
+                                if (isCurrentSongDownloaded) {
+                                    downloadsViewModel.deleteSong(it.videoId)
+                                } else {
+                                    downloadsViewModel.downloadSong(it)
+                                }
+                            }
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isCurrentSongDownloaded) Icons.Filled.DownloadDone else Icons.Filled.Download,
+                            contentDescription = if (isCurrentSongDownloaded) "Remove from downloads" else "Download",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.weight(0.5f))
         }
         
         // Snackbar for error messages (bottom of screen)
@@ -624,6 +740,31 @@ fun PlayerScreen(
                 onDismiss = { showQueueBottomSheet = false }
             )
         }
+    }
+}
+
+@Composable
+private fun TransportIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .scale(if (isPressed) 0.92f else 1f)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
     }
 }
 

@@ -33,6 +33,7 @@ import com.aura.music.ui.screens.playlist.PlaylistsScreen
 import com.aura.music.ui.screens.playlist.PlaylistDetailScreen
 import com.aura.music.ui.screens.playlist.PlaylistPreviewScreen
 import com.aura.music.ui.screens.liked.LikedSongsScreen
+import com.aura.music.ui.screens.downloads.DownloadsScreen
 import com.aura.music.ui.screens.profile.ProfileScreen
 import com.aura.music.ui.screens.profile.EditProfileScreen
 import com.aura.music.ui.screens.language.LanguageSelectionScreen
@@ -76,13 +77,14 @@ fun NavGraphBuilder.mainGraph(
     musicService: MusicService?,
     authViewModel: AuthViewModel,
     authState: AuthState,
+    isOfflineMode: Boolean,
     hasLanguagePreferences: Boolean,
     selectedLanguages: List<String>,
     playerViewModel: com.aura.music.ui.viewmodel.PlayerViewModel? = null,
     themeManager: ThemeManager? = null
 ) {
     navigation(
-        startDestination = "main/home",
+        startDestination = if (isOfflineMode) "main/downloads" else "main/home",
         route = "main"
     ) {
         // ==================== HOME SCREEN ====================
@@ -219,6 +221,9 @@ fun NavGraphBuilder.mainGraph(
                 onNavigateToLikedSongs = {
                     navController.navigate("main/liked-songs")
                 },
+                onNavigateToDownloads = {
+                    navController.navigate("main/downloads")
+                },
                 onNavigateBack = {
                     navController.popBackStack()
                 }
@@ -281,6 +286,28 @@ fun NavGraphBuilder.mainGraph(
 
             LaunchedEffect(authState) {
                 if (authState is AuthState.Unauthenticated) {
+                    navController.navigate("auth") {
+                        popUpTo("main") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+
+        // ==================== DOWNLOADS SCREEN ====================
+        composable("main/downloads") {
+            DownloadsScreen(
+                musicService = musicService,
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToPlayer = {
+                    navController.navigate("main/player")
+                }
+            )
+
+            LaunchedEffect(authState) {
+                if (authState is AuthState.Unauthenticated && !isOfflineMode) {
                     navController.navigate("auth") {
                         popUpTo("main") { inclusive = true }
                         launchSingleTop = true
