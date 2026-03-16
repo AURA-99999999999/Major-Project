@@ -870,6 +870,9 @@ def recommendations():
         raw_songs = _dedupe_response_songs(raw_songs)
         songs = [_to_song_dto(s) for s in raw_songs]
         songs = _dedupe_response_songs(songs)
+        # Album-aware shuffle for display
+        from services.personalized_recommender import shuffle_with_album_diversity
+        songs = shuffle_with_album_diversity(songs)
         return jsonify({"source": "personalized", "uid": uid, "results": songs, "count": len(songs)}), 200
 
     except Exception as exc:

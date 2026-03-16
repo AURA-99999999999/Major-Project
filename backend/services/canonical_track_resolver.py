@@ -38,19 +38,20 @@ def _clean_text(value: str) -> str:
 
 
 def _normalize_artist_identity(value: str) -> str:
-    cleaned = _clean_text(value)
-    if not cleaned:
-        return ""
-    tokens = [t for t in cleaned.split(" ") if t]
-    if not tokens:
-        return ""
-    token_sorted = " ".join(sorted(tokens))
-    return ARTIST_ALIASES.get(token_sorted, token_sorted)
+    # Normalization moved to shared utility; keep fallback for safety.
+    try:
+        from services.artist_normalization import normalized_artist_key
+
+        return normalized_artist_key(value)
+    except Exception:
+        cleaned = _clean_text(value)
+        if not cleaned:
+            return ""
+        return ARTIST_ALIASES.get(cleaned, cleaned)
 
 
 def _first_artist_name(artists) -> str:
     names: List[str] = []
-
     if isinstance(artists, list):
         for artist in artists:
             if isinstance(artist, dict):
@@ -66,12 +67,10 @@ def _first_artist_name(artists) -> str:
             cleaned = _normalize_artist_identity(part)
             if cleaned:
                 names.append(cleaned)
-
     if not names:
         return ""
-
-    # Deterministic primary artist: order-independent across duplicate variants.
-    return sorted(set(names))[0]
+    # Return the first artist as per original order
+    return names[0]
 
 
 def _song_title(song: Dict) -> str:

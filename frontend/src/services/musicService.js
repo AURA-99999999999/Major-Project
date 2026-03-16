@@ -24,5 +24,13 @@ export const musicService = {
     const response = await api.get(`/artist/${artistId}`)
     return response.data
   },
+  
+  getRecommendations: async (userId = 'default', limit = 20) => {
+    // If the backend expects userId as a param, add it; otherwise, just call the endpoint
+    const response = await api.get('/recommendations', {
+      params: { userId, limit },
+    })
+    return response.data
+  },
 }
 

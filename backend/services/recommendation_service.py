@@ -15,6 +15,7 @@ from services.music_filter import filter_music_tracks
 from services.collaborative_service import CollaborativeFilteringService
 from services.jiosaavn_service import JioSaavnService
 from services.user_service import get_firestore_client
+from services.artist_normalization import normalized_artist_key
 
 try:
     importlib.import_module('firebase_admin')
@@ -266,6 +267,19 @@ class RecommendationService:
                     'trending',
                     max_candidates=candidate_pool_limit,
                 )
+                # Guarantee minimum recommendations with trending fallback
+                seen_ids = set(recommendations.keys())
+                while len(recommendations) < limit:
+                    more = self._get_trending_fallback(per_query_limit=per_query_limit, max_candidates=candidate_pool_limit)
+                    for song in more:
+                        sid = song.get('videoId') or song.get('id')
+                        if sid and sid not in seen_ids:
+                            recommendations[sid] = song
+                            seen_ids.add(sid)
+                        if len(recommendations) >= limit:
+                            break
+                    if not more:
+                        break
                 logger.info(f"Added {len(trending_recommendations)} from trending (cold-start)")
                 logger.info("Candidates generated: %d", len(recommendations))
             
@@ -291,6 +305,11 @@ class RecommendationService:
             final_count = len(final_recommendations)
             logger.info("Final recommendations: %d", final_count)
             
+            # Guarantee at least one recommendation (fallback to trending if needed)
+            if not final_recommendations:
+                trending_recommendations = self._get_trending_fallback(per_query_limit=per_query_limit, max_candidates=1)
+                if trending_recommendations:
+                    final_recommendations = [trending_recommendations[0]]
             result = {
                 'count': len(final_recommendations),
                 'source': 'recommendation_engine',
@@ -1921,7 +1940,7 @@ class RecommendationService:
             # STEP 2/3/4: Extract artists (primary_artists -> singers), split comma values,
             # normalize for counting, and build frequency map.
             normalized_counts: Dict[str, int] = {}
-            normalized_display: Dict[str, str] = {}
+            display_counts: Dict[str, Counter[str]] = {}
 
             for play in plays:
                 if not isinstance(play, dict):
@@ -1936,10 +1955,11 @@ class RecommendationService:
                     continue
 
                 for artist_name in artist_candidates:
-                    normalized_name = artist_name.casefold()
+                    normalized_name = normalized_artist_key(artist_name)
+                    if not normalized_name:
+                        continue
                     normalized_counts[normalized_name] = normalized_counts.get(normalized_name, 0) + 1
-                    if normalized_name not in normalized_display:
-                        normalized_display[normalized_name] = artist_name
+                    display_counts.setdefault(normalized_name, Counter())[artist_name.strip()] += 1
 
             if not normalized_counts:
                 logger.info("Top artist candidates: {}")
@@ -1954,7 +1974,9 @@ class RecommendationService:
             )
 
             artist_counts_log = {
-                normalized_display.get(name, name): count
+                (display_counts.get(name) or Counter()).most_common(1)[0][0]
+                if (display_counts.get(name) or Counter())
+                else name: count
                 for name, count in sorted_artist_counts
             }
             logger.info("Top artist candidates: %s", artist_counts_log)
@@ -1966,14 +1988,15 @@ class RecommendationService:
             # Android-compatible with only name/image fields.
             response_artists: List[Dict] = []
             for normalized_name, play_count in top_candidates:
-                display_name = normalized_display.get(normalized_name, normalized_name)
+                counter = display_counts.get(normalized_name) or Counter()
+                display_name = counter.most_common(1)[0][0] if counter else normalized_name
                 metadata = fetch_artist_metadata(display_name)
                 if not metadata:
                     logger.info("Skipping artist with no Saavn metadata: %s", display_name)
                     continue
 
                 normalized_artist = {
-                    'name': metadata.get('name') or display_name,
+                    'name': display_name,  # Always use original display name
                     'image': metadata.get('image', ''),
                     'play_count': play_count
                 }

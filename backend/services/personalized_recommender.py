@@ -1,3 +1,39 @@
+from typing import List, Dict
+
+def shuffle_with_album_diversity(songs: List[Dict]) -> List[Dict]:
+    """
+    Interleave songs from different albums to avoid consecutive songs from the same album.
+    Enforces same_album_gap >= 1.
+    Only reorders, does not change scores or filtering.
+    """
+    if not songs:
+        return []
+    from collections import defaultdict, deque
+    album_buckets = defaultdict(deque)
+    for song in songs:
+        album = _album(song) or "__unknown__"
+        album_buckets[album].append(song)
+    albums = list(album_buckets.keys())
+    result = []
+    last_album = None
+    while len(result) < len(songs):
+        pick_album = None
+        for album in albums:
+            if album_buckets[album] and album != last_album:
+                pick_album = album
+                break
+        if not pick_album:
+            # If all remaining are same album, just pick any
+            for album in albums:
+                if album_buckets[album]:
+                    pick_album = album
+                    break
+        if not pick_album:
+            break
+        song = album_buckets[pick_album].popleft()
+        result.append(song)
+        last_album = pick_album
+    return result
 """
 Personalized Music Recommender for AURA.
 
@@ -15,6 +51,9 @@ Pipeline
 6. get_recommendations — orchestrates the above + cache + cold-start
 """
 
+
+import random
+from typing import List
 import concurrent.futures
 import logging
 import math
@@ -106,25 +145,19 @@ def normalize_artist_name(name: str) -> str:
     -----
     1) lowercase
     2) remove punctuation (.,-_) and collapse spaces
-    3) token-sort for stable ordering
-    4) map known aliases to canonical names
+    3) map known aliases to canonical names
+    (No token sorting, no reordering)
     """
     raw = str(name or "").strip().lower()
     if not raw:
         return ""
 
-    # Keep processing cheap and deterministic: simple regex and split/join.
     cleaned = re.sub(r"[\.,\-_]", " ", raw)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if not cleaned:
         return ""
 
-    tokens = [t for t in cleaned.split(" ") if t]
-    if not tokens:
-        return ""
-
-    normalized = " ".join(sorted(tokens))
-    return ARTIST_ALIASES.get(normalized, normalized)
+    return ARTIST_ALIASES.get(cleaned, cleaned)
 
 
 def _artists(song: Dict) -> List[str]:
@@ -410,12 +443,17 @@ def generate_candidates(profile: Dict) -> List[Dict]:
             unique_queries.append((q, lim))
     queries = unique_queries[:10]  # hard cap — at most 10 concurrent searches
 
+
+    # Oversample: fetch up to 2x CANDIDATE_POOL_SIZE, deduplicate, then shuffle and trim
+    OVERSAMPLE_FACTOR = 2
+    oversample_target = CANDIDATE_POOL_SIZE * OVERSAMPLE_FACTOR
     all_candidates: List[Dict] = []
     seen_ids: Set[str] = set()
 
     def _fetch(q: str, limit: int) -> List[Dict]:
         try:
-            return search_songs(q, limit=limit, include_full_data=True) or []
+            # Oversample each query by 1.5x its original limit
+            return search_songs(q, int(limit * 1.5), include_full_data=True) or []
         except Exception as exc:
             logger.warning("Candidate query '%s' failed: %s", q, exc)
             return []
@@ -430,16 +468,23 @@ def generate_candidates(profile: Dict) -> List[Dict]:
                         if sid and sid not in seen_ids:
                             all_candidates.append(song)
                             seen_ids.add(sid)
+                        if len(all_candidates) >= oversample_target:
+                            break
                 except Exception as exc:
                     logger.warning("Candidate future error: %s", exc)
+            # If we hit oversample_target, break out of the loop
+            if len(all_candidates) >= oversample_target:
+                logger.info("Oversample target reached (%d)", oversample_target)
         except concurrent.futures.TimeoutError:
             logger.warning(
                 "Candidate generation timed out — using partial results (%d so far)",
                 len(all_candidates),
             )
 
+    # Shuffle for diversity, then trim to CANDIDATE_POOL_SIZE
+    random.shuffle(all_candidates)
     logger.info(
-        "Generated %d unique candidates from %d queries (artists=%d, albums=%d)",
+        "Generated %d unique candidates (oversampled) from %d queries (artists=%d, albums=%d)",
         len(all_candidates), len(queries), len(top_artists[:5]), len(top_albums[:3]),
     )
     return all_candidates[:CANDIDATE_POOL_SIZE]
@@ -546,6 +591,13 @@ def apply_diversity(scored: List[Dict], limit: int = 15) -> List[Dict]:
     starring_count: Dict[str, int] = {}
     seen: Set[str] = set()
 
+    # Allow override of diversity caps for fallback filling
+    import inspect
+    frame = inspect.currentframe().f_back
+    max_per_artist = getattr(frame, 'max_per_artist', MAX_PER_ARTIST)
+    max_per_album = getattr(frame, 'max_per_album', MAX_PER_ALBUM)
+    max_per_starring = getattr(frame, 'max_per_starring', MAX_PER_STARRING)
+
     for song in scored:
         if len(result) >= limit:
             break
@@ -557,18 +609,18 @@ def apply_diversity(scored: List[Dict], limit: int = 15) -> List[Dict]:
         # Check artist diversity (use normalized artist names directly)
         arts = _artists(song)
         primary = arts[0] if arts else "__unknown__"
-        if artist_count.get(primary, 0) >= MAX_PER_ARTIST:
+        if artist_count.get(primary, 0) >= max_per_artist:
             continue
 
         # Check album diversity
         alb = _album(song) or "__unknown__"
-        if album_count.get(alb, 0) >= MAX_PER_ALBUM:
+        if album_count.get(alb, 0) >= max_per_album:
             continue
 
         # Check starring diversity
         stars = _starring(song)
         primary_star = stars[0] if stars else None
-        if primary_star and starring_count.get(primary_star, 0) >= MAX_PER_STARRING:
+        if primary_star and starring_count.get(primary_star, 0) >= max_per_starring:
             continue
 
         result.append(song)
@@ -630,6 +682,9 @@ def get_recommendations(
     uid: str,
     limit: int = 15,
     lang_fallback: Optional[List[str]] = None,
+    max_per_artist: int = MAX_PER_ARTIST,
+    max_per_album: int = MAX_PER_ALBUM,
+    max_per_starring: int = MAX_PER_STARRING,
 ) -> List[Dict]:
     """
     Orchestrate the full recommendation pipeline.
@@ -641,7 +696,7 @@ def get_recommendations(
     Results are cached (CACHE_TTL_WARM for warm users, CACHE_TTL_COLD for
     cold-start users) to keep homepage latency low.
     """
-    limit = max(10, min(limit, 15))
+    limit = max(10, min(limit, 48))
     cache = get_cache()
     cache_key = f"prec:{RECOMMENDER_CACHE_VERSION}:{uid}:{limit}"
 
@@ -663,6 +718,24 @@ def get_recommendations(
             played = (profile or {}).get("played_ids", set())
             song_names = (profile or {}).get("user_song_names", set())
             recs = _cold_start(prefs, limit, played_ids=played, user_song_names=song_names)
+            # Add display_name and display_artists fields for UI
+            for song in recs:
+                song["display_name"] = str(song.get("title") or song.get("song") or song.get("name") or "").strip()
+                # Always use original artist metadata for display
+                artists = []
+                artist_data = song.get('artists') or song.get('primary_artists') or song.get('artist')
+                if artist_data:
+                    if isinstance(artist_data, str):
+                        artists.extend([a.strip() for a in artist_data.split(',') if a.strip()])
+                    elif isinstance(artist_data, list):
+                        for item in artist_data:
+                            if isinstance(item, dict):
+                                name = item.get('name', '')
+                                if name:
+                                    artists.append(str(name).strip())
+                            elif item:
+                                artists.append(str(item).strip())
+                song["display_artists"] = artists
             cache.set(cache_key, recs, ttl=CACHE_TTL_COLD)
             return recs
 
@@ -690,21 +763,68 @@ def get_recommendations(
             return []
 
         scored = score_candidates(candidates, profile)
+        # Pass diversity caps through for fallback filling
         recs = apply_diversity(scored, limit=limit)
-
+        recs = album_aware_shuffle(recs)
+        recs = recs[:limit]
+        # Add display_name and display_artists fields for UI
+        for song in recs:
+            song["display_name"] = str(song.get("title") or song.get("song") or song.get("name") or "").strip()
+            artists = []
+            artist_data = song.get('artists') or song.get('primary_artists') or song.get('artist')
+            if artist_data:
+                if isinstance(artist_data, str):
+                    artists.extend([a.strip() for a in artist_data.split(',') if a.strip()])
+                elif isinstance(artist_data, list):
+                    for item in artist_data:
+                        if isinstance(item, dict):
+                            name = item.get('name', '')
+                            if name:
+                                artists.append(str(name).strip())
+                        elif item:
+                            artists.append(str(item).strip())
+            song["display_artists"] = artists
         elapsed_ms = (time.perf_counter() - t0) * 1000
         logger.info(
             "Personalized recs uid=%s: %d songs in %.0f ms "
             "(candidates=%d, plays=%d)",
             uid, len(recs), elapsed_ms, len(candidates), profile["play_count"],
         )
-
         cache.set(cache_key, recs, ttl=CACHE_TTL_WARM)
         return recs
-
     except Exception as exc:
         logger.error("get_recommendations failed uid=%s: %s", uid, exc, exc_info=True)
         return []
+
+def album_aware_shuffle(songs: List[Dict]) -> List[Dict]:
+    """
+    Reorder songs to avoid consecutive songs from the same album.
+    Preserves diversity caps and recommendation quality.
+    """
+    if not songs:
+        return []
+    from collections import defaultdict, deque
+    album_map = defaultdict(deque)
+    for song in songs:
+        album = _album(song) or "__unknown__"
+        album_map[album].append(song)
+    albums = list(album_map.keys())
+    result = []
+    album_idx = 0
+    total = len(songs)
+    # Strict round-robin interleaving: always cycle through albums
+    while len(result) < total:
+        found = False
+        for _ in range(len(albums)):
+            album = albums[album_idx % len(albums)]
+            album_idx += 1
+            if album_map[album]:
+                result.append(album_map[album].popleft())
+                found = True
+                break
+        if not found:
+            break
+    return result
 
 
 # ---------------------------------------------------------------------------

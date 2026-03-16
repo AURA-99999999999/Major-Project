@@ -98,7 +98,16 @@ class MusicService : MediaSessionService() {
             .also { player ->
                 player.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        _playerState.update { it.copy(isPlaying = isPlaying, isLoading = false) }
+                        _playerState.update { state ->
+                            val uiState = when {
+                                state.error != null -> PlaybackUiState.ERROR
+                                state.isLoading -> PlaybackUiState.LOADING
+                                isPlaying -> PlaybackUiState.PLAYING
+                                state.currentSong != null -> PlaybackUiState.PAUSED
+                                else -> PlaybackUiState.IDLE
+                            }
+                            state.copy(isPlaying = isPlaying, isLoading = false, uiState = uiState)
+                        }
                         _isPlaying.value = isPlaying
 
                         val debugSong = _playerState.value.currentSong
@@ -156,10 +165,18 @@ class MusicService : MediaSessionService() {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         when (playbackState) {
                             Player.STATE_BUFFERING -> {
-                                _playerState.update { it.copy(isLoading = true) }
+                                _playerState.update { it.copy(isLoading = true, uiState = PlaybackUiState.LOADING) }
                             }
                             Player.STATE_READY -> {
-                                _playerState.update { it.copy(isLoading = false) }
+                                _playerState.update { state ->
+                                    val uiState = when {
+                                        state.error != null -> PlaybackUiState.ERROR
+                                        state.isPlaying -> PlaybackUiState.PLAYING
+                                        state.currentSong != null -> PlaybackUiState.PAUSED
+                                        else -> PlaybackUiState.IDLE
+                                    }
+                                    state.copy(isLoading = false, uiState = uiState)
+                                }
                                 initializeAudioEffects()
                             }
                             Player.STATE_ENDED -> handleSongCompletion()
@@ -285,7 +302,16 @@ class MusicService : MediaSessionService() {
             }
 
             try {
-                _playerState.update { it.copy(isLoading = true, error = null) }
+                _playerState.update {
+                    it.copy(
+                        currentSong = current,
+                        playbackSource = source,
+                        isLoading = true,
+                        uiState = PlaybackUiState.LOADING,
+                        error = null
+                    )
+                }
+                _currentSong.value = current
                 val resolvedSong = if (current.url.isNullOrBlank()) {
                     resolveSong(current)
                 } else {
@@ -297,6 +323,7 @@ class MusicService : MediaSessionService() {
                 _playerState.update {
                     it.copy(
                         isLoading = false,
+                        uiState = PlaybackUiState.ERROR,
                         error = e.message ?: "Failed to play song"
                     )
                 }
@@ -549,11 +576,18 @@ class MusicService : MediaSessionService() {
         exoPlayer?.stop()
         _playerState.update {
             it.copy(
+                currentSong = null,
+                playbackSource = null,
                 isPlaying = false,
                 isLoading = false,
-                currentPosition = 0L
+                uiState = PlaybackUiState.IDLE,
+                currentPosition = 0L,
+                duration = 0L,
+                bufferedPosition = 0L,
+                error = null
             )
         }
+        _currentSong.value = null
         _isPlaying.value = false
     }
 
@@ -632,7 +666,8 @@ class MusicService : MediaSessionService() {
                     currentSong = resolvedSong,
                     playbackSource = currentPlaybackSource,
                     isPlaying = true,
-                    isLoading = false
+                    isLoading = false,
+                    uiState = PlaybackUiState.PLAYING
                 )
             }
             // Update individual StateFlows for mini player

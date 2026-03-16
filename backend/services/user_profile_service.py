@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from collections import Counter
 from services.user_service import get_firestore_client
 from services.cache_manager import get_cache
+from services.artist_normalization import normalized_artist_key
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +30,7 @@ class UserProfileService:
     # Bump when profile-shaping logic changes to avoid stale cached responses.
     PROFILE_CACHE_VERSION = "v2"
 
-    # Canonical artist aliases (after punctuation cleanup + token sorting)
-    ARTIST_ALIASES: Dict[str, str] = {
-        "ss thaman": "s thaman",
-        "s s thaman": "s thaman",
-        "thaman s": "s thaman",
-    }
+    # NOTE: Artist normalization is handled by services.artist_normalization.
     
     def __init__(self):
         self.cache = get_cache()
@@ -162,6 +158,7 @@ class UserProfileService:
         """Calculate top artists with weighted scoring and time decay."""
         artist_scores: Dict[str, float] = {}
         artist_play_count: Dict[str, int] = {}
+        artist_display_counts: Dict[str, Counter[str]] = {}
         
         current_time = time.time()
         
@@ -177,8 +174,9 @@ class UserProfileService:
             decay_factor = self._time_decay(timestamp, current_time)
             
             for artist in artists:
-                artist_norm = self._normalize_artist_name(artist)
+                artist_norm = normalized_artist_key(artist)
                 if artist_norm:
+                    artist_display_counts.setdefault(artist_norm, Counter())[artist.strip()] += 1
                     score = self.PLAY_WEIGHT * decay_factor
                     artist_scores[artist_norm] = artist_scores.get(artist_norm, 0) + score
                     artist_play_count[artist_norm] = artist_play_count.get(artist_norm, 0) + 1
@@ -194,8 +192,9 @@ class UserProfileService:
             decay_factor = self._time_decay(timestamp, current_time)
             
             for artist in artists:
-                artist_norm = self._normalize_artist_name(artist)
+                artist_norm = normalized_artist_key(artist)
                 if artist_norm:
+                    artist_display_counts.setdefault(artist_norm, Counter())[artist.strip()] += 1
                     score = self.LIKED_SONG_WEIGHT * decay_factor
                     artist_scores[artist_norm] = artist_scores.get(artist_norm, 0) + score
                     artist_play_count[artist_norm] = artist_play_count.get(artist_norm, 0) + 1
@@ -207,14 +206,19 @@ class UserProfileService:
             reverse=True
         )
         
-        return [
-            {
-                'artist': artist,
-                'score': round(score, 2),
-                'play_count': artist_play_count.get(artist, 0)
-            }
-            for artist, score in sorted_artists
-        ]
+        result: List[Dict] = []
+        for artist_key, score in sorted_artists:
+            display_counter = artist_display_counts.get(artist_key) or Counter()
+            display_name = display_counter.most_common(1)[0][0] if display_counter else artist_key
+            result.append(
+                {
+                    'artist': display_name,
+                    'normalized_key': artist_key,
+                    'score': round(score, 2),
+                    'play_count': artist_play_count.get(artist_key, 0),
+                }
+            )
+        return result
     
     def _calculate_top_albums(
         self,
@@ -320,27 +324,20 @@ class UserProfileService:
     
     def _extract_artists(self, song: Dict) -> List[str]:
         """Extract artist names from song data."""
+        # Always return original artist names from API, no normalization or reordering for display
         artists = []
-        
-        # Try different fields (check 'artists' plural first, then fallbacks)
         artist_data = song.get('artists') or song.get('primary_artists') or song.get('artist')
-        
         if artist_data:
             if isinstance(artist_data, str):
-                # String: split by comma
                 artists.extend([a.strip() for a in artist_data.split(',') if a.strip()])
             elif isinstance(artist_data, list):
-                # List: could be list of strings OR list of dicts with 'name' field
                 for item in artist_data:
                     if isinstance(item, dict):
-                        # Extract 'name' field from dict
                         name = item.get('name', '')
                         if name:
                             artists.append(str(name).strip())
                     elif item:
-                        # Direct string value
                         artists.append(str(item).strip())
-        
         return [a for a in artists if a]
     
     def _extract_album(self, song: Dict) -> Optional[str]:
@@ -366,16 +363,5 @@ class UserProfileService:
         return (text or '').strip().lower()
 
     def _normalize_artist_name(self, name: str) -> str:
-        """Canonicalize artist names so common variants map to one identity."""
-        if not name:
-            return ''
-
-        raw = name.strip().lower()
-        cleaned = re.sub(r"[\.,\-_]", " ", raw)
-        cleaned = re.sub(r"\s+", " ", cleaned).strip()
-        if not cleaned:
-            return ''
-
-        tokens = cleaned.split()
-        normalized = " ".join(sorted(tokens))
-        return self.ARTIST_ALIASES.get(normalized, normalized)
+        """Backward-compatible wrapper for internal callers."""
+        return normalized_artist_key(name)

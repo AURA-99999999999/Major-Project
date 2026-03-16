@@ -88,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.constraintlayout.compose.ConstraintLayout
 import coil.compose.AsyncImage
 import com.aura.music.player.MusicService
+import com.aura.music.player.PlaybackUiState
 import com.aura.music.player.PlayerState
 import com.aura.music.player.RepeatMode as PlayerRepeatMode
 import com.aura.music.ui.theme.ColorBlendingUtils
@@ -160,14 +161,14 @@ fun PlayerScreen(
         themeManager = actualThemeManager
     )
 
-    if (playerState.currentSong == null || playerState.isLoading) {
+    if (playerState.currentSong == null) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center
         ) {
-            if (playerState.isLoading) {
+            if (playerState.isLoading || playerState.uiState == PlaybackUiState.LOADING) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -198,6 +199,7 @@ fun PlayerScreen(
     val currentPosition = playerState.currentPosition
     val duration = playerState.duration
     val volume = playerState.volume
+    val isLoading = playerState.uiState == PlaybackUiState.LOADING || playerState.isLoading
     val isCurrentSongDownloaded = remember(song?.videoId, downloads) {
         val currentVideoId = song?.videoId ?: return@remember false
         downloads.any { it.videoId == currentVideoId }
@@ -386,7 +388,7 @@ fun PlayerScreen(
                 }
             }
 
-            if (playerState.isLoading) {
+            if (isLoading) {
                 LinearProgressIndicator(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -430,16 +432,30 @@ fun PlayerScreen(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = song.thumbnail ?: "",
-                    contentDescription = song.title,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .rotate(if (isPlaying) rotationAngle else 0f)
-                        .scale(albumArtScale.value)
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
+                if (isLoading) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(44.dp)
+                        )
+                    }
+                } else {
+                    AsyncImage(
+                        model = song.thumbnail ?: "",
+                        contentDescription = song.title,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .rotate(if (isPlaying) rotationAngle else 0f)
+                            .scale(albumArtScale.value)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                }
             }
 
             // Song Info
@@ -487,7 +503,9 @@ fun PlayerScreen(
                             0f
                         },
                         onValueChange = { progress ->
-                            musicService?.seekTo((progress * duration).toLong())
+                            if (!isLoading) {
+                                musicService?.seekTo((progress * duration).toLong())
+                            }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -578,7 +596,7 @@ fun PlayerScreen(
                     }
 
                     TransportIconButton(
-                        onClick = { musicService?.playPrevious() },
+                        onClick = { if (!isLoading) musicService?.playPrevious() },
                         modifier = Modifier
                             .size(52.dp)
                             .constrainAs(previousRef) {
@@ -601,8 +619,11 @@ fun PlayerScreen(
                             .scale(playButtonScale.value)
                             .shadow(16.dp, CircleShape)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                            .clickable { musicService?.togglePlayPause() }
+                            .background(
+                                if (isLoading) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                                else MaterialTheme.colorScheme.primary
+                            )
+                            .clickable(enabled = !isLoading) { musicService?.togglePlayPause() }
                             .constrainAs(playRef) {
                                 start.linkTo(parent.start)
                                 end.linkTo(parent.end)
@@ -622,7 +643,7 @@ fun PlayerScreen(
                     }
 
                     TransportIconButton(
-                        onClick = { musicService?.playNext() },
+                        onClick = { if (!isLoading) musicService?.playNext() },
                         modifier = Modifier
                             .size(52.dp)
                             .constrainAs(nextRef) {
@@ -684,7 +705,7 @@ fun PlayerScreen(
 
                     Slider(
                         value = volume,
-                        onValueChange = { musicService?.setVolume(it) },
+                        onValueChange = { if (!isLoading) musicService?.setVolume(it) },
                         modifier = Modifier
                             .weight(0.55f)
                             .height(24.dp),
@@ -704,6 +725,7 @@ fun PlayerScreen(
 
                     IconButton(
                         onClick = {
+                            if (isLoading) return@IconButton
                             playerState.currentSong?.let {
                                 if (isCurrentSongDownloaded) {
                                     downloadsViewModel.deleteSong(it.videoId)

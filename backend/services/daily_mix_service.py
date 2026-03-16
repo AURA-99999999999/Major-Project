@@ -25,9 +25,76 @@ logger = logging.getLogger(__name__)
 
 
 class DailyMixService:
-    MIX_SIZE = 24
+    MIX_SIZE = 20
     MIN_MIX_SIZE = 20
-    MAX_MIX_SIZE = 30
+    MAX_MIX_SIZE = 20
+
+    # Fresh Picks fallbacks (reuse the same playlist queries used by /api/fresh-picks).
+    FRESH_PICKS_CACHE_TTL_SECONDS = 10 * 60
+    FRESH_PICKS_INTERNATIONAL_QUERY = "International: India superhits top 50"
+
+    def ensure_mix_size(
+        self,
+        mix: List[Dict[str, Any]],
+        fallback_candidates: Sequence[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Deterministically fill a mix to exactly MIX_SIZE without re-ranking.
+
+        - Preserve original mix order
+        - Deduplicate using videoId
+        - Prefer respecting artist/album diversity where possible; relax if needed
+        """
+        if not mix:
+            mix = []
+
+        if len(mix) >= self.MIX_SIZE:
+            return list(mix)[: self.MIX_SIZE]
+
+        filled = list(mix)
+        existing_ids: Set[str] = {self._song_id(song) for song in filled if self._song_id(song)}
+
+        artist_counts: Counter[str] = Counter()
+        album_counts: Counter[str] = Counter()
+        for song in filled:
+            artists = self._extract_artists(song)
+            primary_artist = self._normalize_artist_name(artists[0]) if artists else "unknown"
+            album = str(song.get("album") or "unknown").strip().lower()
+            artist_counts[primary_artist] += 1
+            album_counts[album] += 1
+
+        def _append_if_ok(song: Dict[str, Any], enforce_diversity: bool) -> bool:
+            sid = self._song_id(song)
+            if not sid or sid in existing_ids:
+                return False
+            if enforce_diversity:
+                artists = self._extract_artists(song)
+                primary_artist = self._normalize_artist_name(artists[0]) if artists else "unknown"
+                album = str(song.get("album") or "unknown").strip().lower()
+                if artist_counts[primary_artist] >= self.MAX_SONGS_PER_ARTIST:
+                    return False
+                if album_counts[album] >= self.MAX_SONGS_PER_ALBUM:
+                    return False
+                artist_counts[primary_artist] += 1
+                album_counts[album] += 1
+            filled.append(song)
+            existing_ids.add(sid)
+            return True
+
+        # Pass 1: fill while respecting diversity caps.
+        for song in fallback_candidates:
+            if len(filled) >= self.MIX_SIZE:
+                break
+            _append_if_ok(song, enforce_diversity=True)
+
+        # Pass 2: relax diversity if we still must reach MIX_SIZE.
+        if len(filled) < self.MIX_SIZE:
+            for song in fallback_candidates:
+                if len(filled) >= self.MIX_SIZE:
+                    break
+                _append_if_ok(song, enforce_diversity=False)
+
+        return filled[: self.MIX_SIZE]
+
     MAX_SONGS_PER_ARTIST = 2
     MAX_SONGS_PER_ALBUM = 3
     MIN_UNIQUE_ARTISTS = 6
@@ -119,6 +186,149 @@ class DailyMixService:
         self.decay_lambda = decay_lambda
         self.cache = get_cache()
         self.db = getattr(self.user_service, "db", None) or get_firestore_client()
+        self._fresh_picks_cache = self.cache  # shared cache backend
+
+    def _fresh_picks_cache_key(self, languages: Sequence[str], tag: str) -> str:
+        langs = [self._canonical_language(str(l)) for l in (languages or [])]
+        langs = [l for l in langs if l]
+        langs = list(dict.fromkeys(langs))
+        langs_key = "_".join(langs) if langs else "none"
+        return f"daily_mix:fresh_picks:{tag}:{langs_key}"
+
+    def _fresh_picks_queries_for_language(self, language: str) -> List[str]:
+        normalized = self._canonical_language(language)
+        if not normalized:
+            return []
+        if normalized == "english":
+            return [
+                self.FRESH_PICKS_INTERNATIONAL_QUERY,
+                "english: India superhits top 50",
+            ]
+        return [f"{normalized}: India superhits top 50"]
+
+    def _pick_first_playlist_url(self, query: str, preferred_language: Optional[str] = None) -> str:
+        query = str(query or "").strip()
+        if not query:
+            return ""
+        try:
+            results = self.jiosaavn_service.search_all_categories(query, limit=8) or {}
+            playlists = results.get("playlists") or []
+        except Exception:
+            playlists = []
+        if not isinstance(playlists, list) or not playlists:
+            return ""
+
+        pref = self._canonical_language(str(preferred_language or ""))
+        pref = pref.lower().strip() if pref else ""
+
+        def _url_of(item: Dict[str, Any]) -> str:
+            return str(item.get("url") or item.get("perma_url") or "").strip()
+
+        if pref:
+            best_url = ""
+            best_score = -1
+            for playlist in playlists:
+                if not isinstance(playlist, dict):
+                    continue
+                url = _url_of(playlist)
+                if not url:
+                    continue
+                haystack = " ".join(
+                    [
+                        str(playlist.get("title") or ""),
+                        str(playlist.get("name") or ""),
+                        str(playlist.get("subtitle") or ""),
+                        str(playlist.get("music") or ""),
+                        str(url),
+                    ]
+                ).lower()
+                if pref == "english":
+                    score = 0
+                    if "international" in haystack or "english" in haystack:
+                        score = 3
+                    if score > best_score:
+                        best_score = score
+                        best_url = url
+                else:
+                    if pref in haystack:
+                        return url
+            if pref == "english":
+                return best_url if best_score > 0 else ""
+
+        for playlist in playlists:
+            if isinstance(playlist, dict):
+                url = _url_of(playlist)
+                if url:
+                    return url
+        return ""
+
+    def _fetch_fresh_picks_candidates(self, languages: Sequence[str], limit: int) -> List[Dict[str, Any]]:
+        """Fetch Fresh Picks candidates for the given languages (cached)."""
+        limit = max(1, min(int(limit), 120))
+        cache_key = self._fresh_picks_cache_key(languages, tag=f"limit{limit}")
+        cached = self.cache.get(cache_key)
+        if isinstance(cached, list):
+            return cached[:limit]
+
+        normalized_languages = [self._canonical_language(l) for l in (languages or [])]
+        normalized_languages = [l for l in normalized_languages if l]
+        normalized_languages = list(dict.fromkeys(normalized_languages))
+
+        playlist_urls: List[Tuple[str, str]] = []
+        for language in normalized_languages:
+            url = ""
+            for query in self._fresh_picks_queries_for_language(language):
+                url = self._pick_first_playlist_url(query, preferred_language=language)
+                if url:
+                    break
+            if url:
+                playlist_urls.append((language, url))
+
+        candidates: List[Dict[str, Any]] = []
+        seen_ids: Set[str] = set()
+        for language, url in playlist_urls:
+            try:
+                songs = self.jiosaavn_service.get_playlist_songs_from_url(url)[:60]
+            except Exception:
+                songs = []
+            for raw in songs:
+                dto = self._to_song_dto(raw)
+                sid = self._song_id(dto)
+                if not sid or sid in seen_ids:
+                    continue
+                # Keep language-matched candidates in the language pool.
+                if language and self._canonical_language(str(dto.get("language") or "")) != language:
+                    continue
+                seen_ids.add(sid)
+                candidates.append(dto)
+                if len(candidates) >= limit:
+                    break
+            if len(candidates) >= limit:
+                break
+
+        candidates = resolve_canonical_tracks(candidates)
+        self.cache.set(cache_key, candidates, ttl=self.FRESH_PICKS_CACHE_TTL_SECONDS)
+        return candidates[:limit]
+
+    def _fetch_global_fresh_picks_candidates(self, limit: int) -> List[Dict[str, Any]]:
+        """Global Fresh Picks fallback (cached)."""
+        limit = max(1, min(int(limit), 120))
+        cache_key = self._fresh_picks_cache_key([], tag=f"global_limit{limit}")
+        cached = self.cache.get(cache_key)
+        if isinstance(cached, list):
+            return cached[:limit]
+
+        url = self._pick_first_playlist_url(self.FRESH_PICKS_INTERNATIONAL_QUERY, preferred_language="english")
+        if not url:
+            self.cache.set(cache_key, [], ttl=self.FRESH_PICKS_CACHE_TTL_SECONDS)
+            return []
+        try:
+            songs = self.jiosaavn_service.get_playlist_songs_from_url(url)[:80]
+        except Exception:
+            songs = []
+        candidates = resolve_canonical_tracks([self._to_song_dto(s) for s in songs])
+        self.cache.set(cache_key, candidates, ttl=self.FRESH_PICKS_CACHE_TTL_SECONDS)
+        return candidates[:limit]
 
     def get_daily_mixes(self, uid: str, refresh: bool = False) -> Dict[str, Any]:
         uid = str(uid or "").strip()
@@ -141,15 +351,36 @@ class DailyMixService:
         used_ids: Set[str] = set()
 
         favorites = self._generate_favorites_mix(profile, used_ids)
+        favorites_fallback = self._get_personalized_candidates(profile, limit=50)
+        favorites = self.ensure_mix_size(favorites, favorites_fallback)
         used_ids.update(self._song_ids(favorites))
 
         similar = self._generate_similar_artists_mix(profile, used_ids)
+        similar_fallback = (
+            self._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=80)
+            + self._fetch_global_fresh_picks_candidates(limit=60)
+        )
+        similar = self.ensure_mix_size(similar, similar_fallback)
         used_ids.update(self._song_ids(similar))
 
         discover = self._generate_discover_mix(profile, used_ids)
+        discover_fallback = (
+            self._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=100)
+            + self._fetch_global_fresh_picks_candidates(limit=80)
+            + self._search_songs("trending songs", limit=80)
+        )
+        discover = self.ensure_mix_size(discover, discover_fallback)
         used_ids.update(self._song_ids(discover))
 
         mood_name, mood_description, mood_tracks, mood_time_block, mood_subtitle = self._generate_mood_mix(profile, used_ids)
+        mood_fallback = (
+            self._get_personalized_candidates(profile, limit=60)
+            + self._get_collaborative_candidates(profile, limit=40)
+            + self._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=60)
+            + self._fetch_global_fresh_picks_candidates(limit=60)
+            + self._search_songs("trending songs", limit=60)
+        )
+        mood_tracks = self.ensure_mix_size(mood_tracks, mood_fallback)
 
         specs = {
             "dailyMix1": {**self.MIX_SPECS[0], "songs": favorites},
@@ -167,6 +398,14 @@ class DailyMixService:
 
         for mix in specs.values():
             songs = mix.get("songs") or []
+            # Guarantee at least one song in each mix (fallback to trending if needed)
+            if not songs:
+                fallback = self._get_personalized_candidates(profile, 1) or self._get_collaborative_candidates(profile, 1)
+                if not fallback:
+                    fallback = []
+                if fallback:
+                    songs = [fallback[0]]
+                    mix["songs"] = songs
             mix["count"] = len(songs)
             mix["tracks"] = songs
             mix["generatedAt"] = int(time.time())
@@ -210,10 +449,11 @@ class DailyMixService:
             self._accumulate_artist_scores(entry, weight, artist_scores, artist_display)
             self._accumulate_language(entry, weight, language_scores)
 
+        # Always use original metadata order for display, never reconstruct from normalized tokens.
         sorted_artists = [
-            artist_display.get(name, name.title())
+            artist_display[name]
             for name, _ in artist_scores.most_common(8)
-            if name
+            if name in artist_display
         ]
         sorted_languages = [name for name, _ in language_scores.most_common(4) if name]
         recent_entries.sort(key=lambda item: item[0], reverse=True)
@@ -224,7 +464,8 @@ class DailyMixService:
             "liked": liked,
             "consumed_ids": consumed_ids,
             "top_artists": sorted_artists,
-            "top_artist_norms": {self._normalize_artist_name(name) for name in sorted_artists if name},
+            # Norms are only for internal keys, not display
+            "top_artist_norms": {self._normalize_artist_name(artist_display[name]) for name, _ in artist_scores.most_common(8) if name in artist_display},
             "top_languages": preferred_languages or sorted_languages,
             "recent_entries": [entry for _, entry in recent_entries[:40]],
         }
@@ -236,10 +477,10 @@ class DailyMixService:
         candidates: List[Dict[str, Any]] = []
 
         for artist in top_artists:
-            candidates.extend(self._search_songs(f"{artist} songs", limit=12))
+            candidates.extend(self._search_songs(f"{artist} songs", limit=80))
 
         if not candidates:
-            candidates = self._get_personalized_candidates(profile, limit=36)
+            candidates = self._get_personalized_candidates(profile, limit=50)
 
         filtered = [
             song
@@ -247,11 +488,18 @@ class DailyMixService:
             if self._song_id(song) not in profile["consumed_ids"]
             and self._song_id(song) not in exclude_ids
         ]
-        return self._finalize_mix(filtered, profile, limit=self.MIX_SIZE)
+
+        # Language balancing: use preferred languages if available
+        preferred_languages = profile.get("top_languages") or []
+        if preferred_languages and len(preferred_languages) > 1:
+            balanced = self._select_balanced_language_quota_tracks(filtered, profile, preferred_languages, self.MIX_SIZE)
+            return balanced
+        else:
+            return filtered
 
     def _generate_similar_artists_mix(self, profile: Dict[str, Any], exclude_ids: Set[str]) -> List[Dict[str, Any]]:
-        personalized = self._get_personalized_candidates(profile, limit=36)
-        collaborative = self._get_collaborative_candidates(profile, limit=24)
+        personalized = self._get_personalized_candidates(profile, limit=80)
+        collaborative = self._get_collaborative_candidates(profile, limit=80)
 
         related_artist_counts: Counter[str] = Counter()
         related_artist_display: Dict[str, str] = {}
@@ -272,7 +520,7 @@ class DailyMixService:
 
         search_results: List[Dict[str, Any]] = []
         for artist in search_artists:
-            search_results.extend(self._search_songs(f"{artist} hits", limit=10))
+            search_results.extend(self._search_songs(f"{artist} hits", limit=40))
 
         candidates = collaborative + personalized + search_results
         filtered = [
@@ -281,19 +529,19 @@ class DailyMixService:
             if self._song_id(song) not in profile["consumed_ids"]
             and self._song_id(song) not in exclude_ids
         ]
-        return self._finalize_mix(filtered, profile, limit=self.MIX_SIZE)
+        return filtered
 
     def _generate_discover_mix(self, profile: Dict[str, Any], exclude_ids: Set[str]) -> List[Dict[str, Any]]:
         candidates: List[Dict[str, Any]] = []
-        candidates.extend(self._get_collaborative_candidates(profile, limit=30))
-        candidates.extend(self._get_personalized_candidates(profile, limit=30))
+        candidates.extend(self._get_collaborative_candidates(profile, limit=60))
+        candidates.extend(self._get_personalized_candidates(profile, limit=60))
 
         preferred_languages = profile.get("top_languages") or []
         for language in preferred_languages[:2]:
-            candidates.extend(self._search_songs(f"latest {language} songs", limit=10))
+            candidates.extend(self._search_songs(f"latest {language} songs", limit=40))
 
         if not candidates:
-            candidates.extend(self._search_songs("trending songs", limit=20))
+            candidates.extend(self._search_songs("trending songs", limit=60))
 
         filtered = [
             song
@@ -301,14 +549,14 @@ class DailyMixService:
             if self._song_id(song) not in profile["consumed_ids"]
             and self._song_id(song) not in exclude_ids
         ]
-        return self._finalize_mix(filtered, profile, limit=self.MIX_SIZE)
+        return filtered
 
     def _generate_mood_mix(
         self,
         profile: Dict[str, Any],
         exclude_ids: Set[str],
     ) -> Tuple[str, str, List[Dict[str, Any]], str, str]:
-        TOTAL_TRACKS = self.MIX_SIZE  # 24
+        TOTAL_TRACKS = self.MIX_SIZE
 
         time_block = self._current_time_block()
         subtitle = self.MOOD_SUBTITLES.get(time_block, "Mood Picks")
@@ -903,10 +1151,14 @@ class DailyMixService:
         try:
             from services.personalized_recommender import get_recommendations
 
+            # For fallback, request more songs and relax diversity
             songs = get_recommendations(
                 profile["uid"],
-                limit=min(15, max(10, limit // 2)),
+                limit=min(48, max(24, limit)),
                 lang_fallback=profile.get("top_languages") or [],
+                max_per_artist=4,
+                max_per_album=6,
+                max_per_starring=3,
             )
             normalized = [self._to_song_dto(song) for song in songs]
             self.cache.set(cache_key, normalized, ttl=30 * 60)
@@ -932,7 +1184,7 @@ class DailyMixService:
 
     def _search_songs(self, query: str, limit: int) -> List[Dict[str, Any]]:
         try:
-            results = self.jiosaavn_service.search_songs(query, limit=min(limit, 12))
+            results = self.jiosaavn_service.search_songs(query, limit=min(max(1, int(limit)), 60))
             return [self._to_song_dto(song) for song in results]
         except Exception as exc:
             logger.warning("Daily mix search failed for '%s': %s", query, exc)
@@ -1171,16 +1423,19 @@ class DailyMixService:
         return str(name or "").strip().lower()
 
     def _extract_artists(self, song: Dict[str, Any]) -> List[str]:
+        # Always return original artist names from API, no normalization or reordering for display
         artists = song.get("artists") or song.get("artist") or song.get("primary_artists") or song.get("singers") or []
         results: List[str] = []
         if isinstance(artists, list):
             for item in artists:
                 if isinstance(item, dict):
                     name = item.get("name") or item.get("artist") or ""
+                    if name and name.strip():
+                        results.append(name.strip())
                 else:
                     name = str(item)
-                if name.strip():
-                    results.append(name.strip())
+                    if name.strip():
+                        results.append(name.strip())
         else:
             for item in str(artists).split(","):
                 cleaned = item.strip()
@@ -1336,3 +1591,93 @@ class DailyMixService:
                 selected_ids.add(song_id)
 
         return result[: min(target_limit, self.MAX_MIX_SIZE)]
+
+    def _finalize_mix_size(
+        self,
+        mix: List[Dict[str, Any]],
+        profile: Dict[str, Any],
+        exclude_ids: Set[str],
+    ) -> List[Dict[str, Any]]:
+        """Guarantee *mix* has exactly MIX_SIZE tracks.
+
+        If the primary generator returned fewer than MIX_SIZE songs, this
+        method fills the remaining slots from cached fallback candidate pools
+        (personalized, collaborative, language search, trending) with relaxed
+        diversity constraints so the mix always reaches MIX_SIZE tracks.
+        """
+        if len(mix) >= self.MIX_SIZE:
+            return mix[: self.MIX_SIZE]
+
+        SOFT_MAX_PER_ARTIST = 3
+        SOFT_MAX_PER_ALBUM = 4
+
+        existing_ids: Set[str] = {self._song_id(s) for s in mix if self._song_id(s)}
+        blocked_ids: Set[str] = existing_ids | exclude_ids | profile.get("consumed_ids", set())
+
+        # Priority 1 & 2: personalized + collaborative (both are cached, no new API calls)
+        fallback: List[Dict[str, Any]] = []
+        fallback.extend(self._get_personalized_candidates(profile, limit=36))
+        fallback.extend(self._get_collaborative_candidates(profile, limit=24))
+
+        still_missing = self.MIX_SIZE - len(mix)
+
+        # Priority 3: language-based search (only when cached pools are insufficient)
+        if len(fallback) < still_missing * 2:
+            preferred_languages = profile.get("top_languages") or []
+            for language in preferred_languages[:2]:
+                fallback.extend(self._search_songs(f"latest {language} songs", limit=10))
+
+        # Priority 4: trending (last resort)
+        if len(fallback) < still_missing:
+            fallback.extend(self._search_songs("trending songs", limit=20))
+
+        # Deduplicate fallback pool
+        seen: Set[str] = set()
+        unique_fallback: List[Dict[str, Any]] = []
+        for song in fallback:
+            sid = self._song_id(song)
+            if not sid or sid in blocked_ids or sid in seen:
+                continue
+            seen.add(sid)
+            unique_fallback.append(song)
+
+        # Count diversity already used in the existing mix
+        artist_counts: Counter[str] = Counter()
+        album_counts: Counter[str] = Counter()
+        for song in mix:
+            artists = self._extract_artists(song)
+            primary_artist = self._normalize_artist_name(artists[0]) if artists else "unknown"
+            album = str(song.get("album") or "unknown").strip().lower()
+            artist_counts[primary_artist] += 1
+            album_counts[album] += 1
+
+        filled: List[Dict[str, Any]] = list(mix)
+
+        # Pass 1: fill with soft diversity constraints
+        for song in unique_fallback:
+            if len(filled) >= self.MIX_SIZE:
+                break
+            artists = self._extract_artists(song)
+            primary_artist = self._normalize_artist_name(artists[0]) if artists else "unknown"
+            album = str(song.get("album") or "unknown").strip().lower()
+            if artist_counts[primary_artist] >= SOFT_MAX_PER_ARTIST:
+                continue
+            if album_counts[album] >= SOFT_MAX_PER_ALBUM:
+                continue
+            filled.append(song)
+            artist_counts[primary_artist] += 1
+            album_counts[album] += 1
+
+        # Pass 2: drop diversity constraints entirely as last resort
+        if len(filled) < self.MIX_SIZE:
+            filled_ids: Set[str] = {self._song_id(s) for s in filled if self._song_id(s)}
+            for song in unique_fallback:
+                if len(filled) >= self.MIX_SIZE:
+                    break
+                sid = self._song_id(song)
+                if sid not in filled_ids:
+                    filled.append(song)
+                    filled_ids.add(sid)
+
+        random.shuffle(filled)
+        return filled[: self.MIX_SIZE]

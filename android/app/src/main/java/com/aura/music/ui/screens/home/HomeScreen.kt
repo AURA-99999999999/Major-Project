@@ -104,8 +104,12 @@ import com.aura.music.ui.components.home.DailyMixesSection
 import com.aura.music.ui.components.ShimmerSongItem
 import com.aura.music.ui.components.ShimmerRecommendedSection
 
+
+import androidx.lifecycle.viewmodel.compose.viewModel as lifecycleViewModel
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
+
 fun HomeScreen(
     musicService: MusicService?,
     authState: AuthState,
@@ -117,7 +121,8 @@ fun HomeScreen(
     onNavigateToArtist: (String) -> Unit = {},
     onNavigateToDailyMix: (String) -> Unit = {},
     onNavigateToMood: (String, String) -> Unit = { _, _ -> },
-    viewModel: HomeViewModel? = null
+    viewModel: HomeViewModel? = null,
+    playerViewModel: com.aura.music.ui.viewmodel.PlayerViewModel = lifecycleViewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val context = LocalContext.current
     
@@ -415,6 +420,7 @@ fun HomeScreen(
                                             likedSongIds = likedSongsState.likedSongIds,
                                             downloadedVideoIds = downloadedIds,
                                             onSongClick = { song, index ->
+                                                playerViewModel.updateCurrentSong(song)
                                                 actualViewModel.playSongFromList(recommendedSongs, index, "recommendations")
                                                 onNavigateToPlayer()
                                             },
@@ -450,6 +456,7 @@ fun HomeScreen(
                                         RecentlyPlayedGrid(
                                             songs = recentlyPlayedSongs.take(10),
                                             onSongClick = { song, index ->
+                                                playerViewModel.updateCurrentSong(song)
                                                 actualViewModel.playSongFromList(recentlyPlayedSongs, index, "recently_played")
                                                 onNavigateToPlayer()
                                             }
@@ -491,6 +498,7 @@ fun HomeScreen(
                                             likedSongIds = likedSongsState.likedSongIds,
                                             downloadedVideoIds = downloadedIds,
                                             onSongClick = { song, index ->
+                                                playerViewModel.updateCurrentSong(song)
                                                 actualViewModel.playSongFromList(state.trending, index, "fresh_hits")
                                                 onNavigateToPlayer()
                                             },
@@ -543,6 +551,7 @@ fun HomeScreen(
                                             likedSongIds = likedSongsState.likedSongIds,
                                             downloadedVideoIds = downloadedIds,
                                             onSongClick = { song, index ->
+                                                playerViewModel.updateCurrentSong(song)
                                                 actualViewModel.playSongFromList(state.collaborative, index, "collaborative")
                                                 onNavigateToPlayer()
                                             },

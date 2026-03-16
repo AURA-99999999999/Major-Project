@@ -77,8 +77,12 @@ import com.aura.music.ui.screens.playlist.PlaylistPickerBottomSheet
 import androidx.compose.runtime.setValue
 import coil.compose.AsyncImage
 
+
+import androidx.lifecycle.viewmodel.compose.viewModel as lifecycleViewModel
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
+
 fun SearchScreen(
     musicService: MusicService?,
     onNavigateToPlayer: () -> Unit,
@@ -86,7 +90,8 @@ fun SearchScreen(
     onNavigateToAlbum: (String) -> Unit,
     onNavigateToArtist: (String) -> Unit,
     onNavigateToPlaylist: (String) -> Unit,
-    viewModel: SearchViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
+    viewModel: SearchViewModel = viewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)),
+    playerViewModel: com.aura.music.ui.viewmodel.PlayerViewModel = lifecycleViewModel(factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application))
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val playlistViewModel: PlaylistViewModel = viewModel(
@@ -312,7 +317,10 @@ fun SearchScreen(
                                         isPlaying = musicService?.playerState?.value?.currentSong?.videoId == song.videoId &&
                                                 musicService?.playerState?.value?.isPlaying == true,
                                         isLiked = likedSongsState.likedSongIds.contains(song.videoId),
-                                        onClick = { viewModel.prepareSongForPlayback(song) },
+                                        onClick = {
+                                            playerViewModel.updateCurrentSong(song)
+                                            viewModel.prepareSongForPlayback(song)
+                                        },
                                         onToggleLike = { likedSongsViewModel.toggleLike(song) },
                                         onAddToPlaylist = { pendingSongForPlaylist = song },
                                         onPlayNext = { musicService?.insertNext(song) }

@@ -71,44 +71,27 @@ def _extract_artists(artists_raw) -> List[str]:
     """
     if not artists_raw:
         return []
-    
     artists = []
-    
     if isinstance(artists_raw, list):
         for artist in artists_raw:
             if isinstance(artist, dict):
                 name = artist.get('name', '').strip()
                 if name:
-                    # Process this artist name
-                    processed = _process_artist_name(name)
-                    if processed:
-                        artists.append(processed)
+                    artists.append(name)
             elif isinstance(artist, str):
                 name = artist.strip()
                 if name:
-                    # Process this artist name
-                    processed = _process_artist_name(name)
-                    if processed:
-                        artists.append(processed)
+                    artists.append(name)
     elif isinstance(artists_raw, str):
         name = artists_raw.strip()
         if name:
-            # IMPORTANT: Split multi-artist collaborations FIRST before normalizing
             if ',' in name:
-                # Split by comma first
                 for part in name.split(','):
                     part = part.strip()
                     if part:
-                        # Then normalize each artist
-                        processed = _process_artist_name(part)
-                        if processed:
-                            artists.append(processed)
+                        artists.append(part)
             else:
-                # Single artist - normalize it
-                processed = _process_artist_name(name)
-                if processed:
-                    artists.append(processed)
-    
+                artists.append(name)
     # Remove duplicates while preserving order
     seen = set()
     unique_artists = []
@@ -116,7 +99,6 @@ def _extract_artists(artists_raw) -> List[str]:
         if artist not in seen:
             seen.add(artist)
             unique_artists.append(artist)
-    
     return unique_artists or []
 
 
@@ -225,22 +207,26 @@ def _get_duration_seconds(duration_raw) -> Optional[int]:
     
     # String format MM:SS or H:MM:SS
     if isinstance(duration_raw, str):
-        try:
-            duration_raw = duration_raw.strip()
-            parts = duration_raw.split(':')
-            
-            if len(parts) == 2:  # MM:SS
-                minutes, seconds = map(int, parts)
-                total_seconds = minutes * 60 + seconds
-            elif len(parts) == 3:  # H:MM:SS
-                hours, minutes, seconds = map(int, parts)
-                total_seconds = hours * 3600 + minutes * 60 + seconds
-            else:
-                return None
-            
-            return total_seconds if total_seconds > 0 else None
-        except (ValueError, AttributeError):
+        text = duration_raw.strip()
+        if not text:
             return None
+        try:
+            parts = [int(p) for p in text.split(":")]
+        except Exception:
+            return None
+        if len(parts) == 2:
+            minutes, seconds = parts
+            if minutes < 0 or seconds < 0 or seconds >= 60:
+                return None
+            total = minutes * 60 + seconds
+            return total if total > 0 else None
+        if len(parts) == 3:
+            hours, minutes, seconds = parts
+            if hours < 0 or minutes < 0 or seconds < 0 or minutes >= 60 or seconds >= 60:
+                return None
+            total = hours * 3600 + minutes * 60 + seconds
+            return total if total > 0 else None
+        return None
     
     return None
 

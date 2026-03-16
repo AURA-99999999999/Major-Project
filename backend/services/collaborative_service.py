@@ -24,6 +24,11 @@ try:
 except Exception:  # pragma: no cover
     _normalize_artist_name_shared = None
 
+try:
+    from services.artist_normalization import normalized_artist_key as _normalized_artist_key
+except Exception:  # pragma: no cover
+    _normalized_artist_key = None
+
 
 class CollaborativeFilteringService:
     MIN_USER_PLAYS = 5
@@ -43,21 +48,13 @@ class CollaborativeFilteringService:
         self._db = getattr(user_service, "db", None) or get_firestore_client()
 
     def _normalize_artist_name(self, name: str) -> str:
+        # Internal comparison key only (never for display).
+        if _normalized_artist_key:
+            return _normalized_artist_key(name)
         if _normalize_artist_name_shared:
             return _normalize_artist_name_shared(name)
-
         value = str(name or "").strip().lower()
-        if not value:
-            return ""
-        value = " ".join(value.replace(".", " ").replace("-", " ").split())
-        tokens = sorted(t for t in value.split(" ") if t)
-        joined = " ".join(tokens)
-        aliases = {
-            "ss thaman": "s thaman",
-            "s s thaman": "s thaman",
-            "thaman s": "s thaman",
-        }
-        return aliases.get(joined, joined)
+        return value
 
     def _song_id(self, song: Dict[str, Any]) -> str:
         return str(song.get("id") or song.get("videoId") or "").strip()
@@ -609,8 +606,19 @@ class CollaborativeFilteringService:
 
         if plays_count < self.MIN_USER_PLAYS or not user_profile:
             recs = self._cold_start_fallback(uid, exclude_ids)
-            if len(recs) < self.MIN_RECOMMENDATIONS:
-                recs.extend([r for r in self._cold_start_fallback(uid, exclude_ids) if self._song_id(r) not in {self._song_id(x) for x in recs}])
+            # Guarantee minimum recommendations with fallback, deduplication
+            seen_ids = {self._song_id(r) for r in recs}
+            while len(recs) < self.MIN_RECOMMENDATIONS:
+                more = [r for r in self._cold_start_fallback(uid, exclude_ids) if self._song_id(r) not in seen_ids]
+                if not more:
+                    break
+                for r in more:
+                    sid = self._song_id(r)
+                    if sid and sid not in seen_ids:
+                        recs.append(r)
+                        seen_ids.add(sid)
+                    if len(recs) >= self.MIN_RECOMMENDATIONS:
+                        break
             recs = recs[: self.MAX_RECOMMENDATIONS]
             self.cache.set(cache_key, recs, ttl=self.CACHE_TTL_RECOMMENDATIONS)
             return recs
@@ -626,19 +634,28 @@ class CollaborativeFilteringService:
         recs = self._apply_diversity(candidates, total_users)
 
         if len(recs) < self.MIN_RECOMMENDATIONS:
-            fallback = self._cold_start_fallback(uid, exclude_ids)
-            existing_ids = {self._song_id(r) for r in recs}
-            for song in fallback:
-                sid = self._song_id(song)
-                if sid and sid not in existing_ids:
-                    recs.append(song)
-                    existing_ids.add(sid)
-                if len(recs) >= self.MIN_RECOMMENDATIONS:
+            # Guarantee minimum recommendations with fallback, deduplication
+            seen_ids = {self._song_id(r) for r in recs}
+            while len(recs) < self.MIN_RECOMMENDATIONS:
+                more = [r for r in self._cold_start_fallback(uid, exclude_ids) if self._song_id(r) not in seen_ids]
+                if not more:
                     break
+                for r in more:
+                    sid = self._song_id(r)
+                    if sid and sid not in seen_ids:
+                        recs.append(r)
+                        seen_ids.add(sid)
+                    if len(recs) >= self.MIN_RECOMMENDATIONS:
+                        break
 
         recs = [self._normalize_track_schema(s) for s in recs]
         recs = [s for s in recs if self._song_id(s) not in exclude_ids]
         recs = recs[: self.MAX_RECOMMENDATIONS]
+        # Guarantee at least one recommendation (fallback to trending if needed)
+        if not recs:
+            fallback = self._cold_start_fallback(uid, set())
+            if fallback:
+                recs = [self._normalize_track_schema(fallback[0])]
         self.cache.set(cache_key, recs, ttl=self.CACHE_TTL_RECOMMENDATIONS)
         return recs
 
