@@ -5,8 +5,9 @@ import requests
 import json
 import sys
 import pytest
+import os
 
-BASE_URL = "http://localhost:5000"  # Adjust if your Flask app runs on a different port
+BASE_URL = os.getenv("BASE_URL", "http://localhost:5000")  # Use env var for production
 
 
 @pytest.fixture

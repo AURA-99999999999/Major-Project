@@ -75,7 +75,6 @@ object ServiceLocator {
                 Log.i(TAG, "========================================")
                 Log.i(TAG, "Initializing Network Client")
                 Log.i(TAG, "Base URL: $baseUrl")
-                Log.i(TAG, "Environment: ${BuildConfig.API_ENV}")
                 Log.i(TAG, "========================================")
             }
             

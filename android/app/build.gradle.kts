@@ -1,48 +1,9 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("com.google.gms.google-services")
 }
-
-val localProperties = Properties().apply {
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        load(localPropertiesFile.inputStream())
-    }
-}
-
-fun normalizeBaseUrl(raw: String): String {
-    val trimmed = raw.trim()
-    if (trimmed.isEmpty()) return trimmed
-    return if (trimmed.endsWith("/")) trimmed else "$trimmed/"
-}
-
-fun propertyOrNull(key: String): String? =
-    localProperties.getProperty(key)?.takeIf { it.isNotBlank() }
-
-fun propertyOrDefault(key: String, fallback: String): String =
-    propertyOrNull(key) ?: fallback
-
-val emulatorBaseUrl = normalizeBaseUrl(
-    propertyOrDefault("API_BASE_URL_EMULATOR", "http://10.0.2.2:5000/")
-)
-val deviceBaseUrl = normalizeBaseUrl(
-    propertyOrDefault("API_BASE_URL_DEVICE", "http://192.168.1.2:5000/")
-)
-val customBaseUrl = normalizeBaseUrl(
-    propertyOrDefault("API_BASE_URL_CUSTOM", propertyOrDefault("API_BASE_URL", deviceBaseUrl))
-)
-val apiEnvironment = propertyOrDefault("API_ENV", "CUSTOM").uppercase()
-val resolvedBaseUrl = when (apiEnvironment) {
-    "DEVICE" -> deviceBaseUrl
-    "CUSTOM" -> customBaseUrl
-    else -> emulatorBaseUrl
-}
-
-println("Aura API environment: $apiEnvironment -> $resolvedBaseUrl")
 
 android {
     namespace = "com.aura.music"
@@ -59,13 +20,15 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+    }
 
-        // API base URLs (override via local.properties)
-        buildConfigField("String", "API_ENV", "\"$apiEnvironment\"")
-        buildConfigField("String", "API_BASE_URL", "\"$resolvedBaseUrl\"")
-        buildConfigField("String", "API_BASE_URL_EMULATOR", "\"$emulatorBaseUrl\"")
-        buildConfigField("String", "API_BASE_URL_DEVICE", "\"$deviceBaseUrl\"")
-        buildConfigField("String", "API_BASE_URL_CUSTOM", "\"$customBaseUrl\"")
+    buildTypes {
+        debug {
+            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:5000/\"")
+        }
+        release {
+            buildConfigField("String", "BASE_URL", "\"https://your-render-url.onrender.com/\"")
+        }
     }
 
     buildTypes {

@@ -202,8 +202,7 @@ class SearchViewModel(
     }
 
     private fun mapNetworkError(throwable: Throwable): String {
-        val baseUrl = BuildConfig.API_BASE_URL
-        val env = BuildConfig.API_ENV
+        val baseUrl = BuildConfig.BASE_URL
         
         Log.e(TAG, "========================================")
         Log.e(TAG, "NETWORK ERROR DETAILS")
@@ -216,7 +215,7 @@ class SearchViewModel(
         
         return when (throwable) {
             is UnknownHostException -> {
-                "Cannot resolve host. Check:\n• Flask server is running\n• Correct IP in local.properties\n• Same Wi-Fi network (device)"
+                "Cannot resolve host. Check:\n• Backend server is running and reachable\n• Correct backend URL is set in the app\n• Device has internet access"
             }
             is ConnectException -> {
                 "Cannot connect to server at $baseUrl\n\nPlease verify:\n• Flask server running (python app.py)\n• Server accessible from this device\n• Check Logcat for details"

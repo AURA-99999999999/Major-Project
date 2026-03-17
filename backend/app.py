@@ -1,5 +1,6 @@
 """Minimal AURA backend for stable Android debugging."""
 
+
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
 import json
@@ -9,6 +10,7 @@ import re
 import sys
 import time
 from typing import Any, Dict, List
+from config import BASE_URL, PORT
 
 from services.jiosaavn_service import JioSaavnService
 import services.jiosaavn_service as jio_api
@@ -1795,5 +1797,4 @@ def add_song_to_user_playlist(playlist_id):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=PORT, debug=False)

@@ -6,8 +6,9 @@ Tests new endpoints and verifies zero API calls on Firestore-only operations
 import requests
 import json
 import time
+import os
 
-BASE_URL = "http://localhost:5000"
+BASE_URL = os.getenv("BASE_URL", "http://localhost:5000")
 TEST_USER_ID = "test_user_123"  # Replace with a real user ID from your Firestore
 
 def print_section(title):

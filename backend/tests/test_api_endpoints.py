@@ -4,11 +4,12 @@ Lightweight API smoke tests for core endpoints.
 """
 from __future__ import annotations
 
+
 import subprocess
 import sys
 import time
 from pathlib import Path
-
+import os
 import requests
 
 
@@ -28,11 +29,12 @@ def main() -> int:
 
     time.sleep(3)
 
+    BASE_URL = os.getenv("BASE_URL", "http://localhost:5000")
     try:
         # Test /api/trending endpoint
         print("\n\n>>> Testing /api/trending endpoint")
         print("-" * 60)
-        response = requests.get("http://localhost:5000/api/trending", timeout=15)
+        response = requests.get(f"{BASE_URL}/api/trending", timeout=15)
 
         if response.status_code == 200:
             data = response.json()
@@ -44,7 +46,7 @@ def main() -> int:
         # Test /api/home endpoint
         print("\n\n>>> Testing /api/home endpoint")
         print("-" * 60)
-        response = requests.get("http://localhost:5000/api/home?limit=5", timeout=15)
+        response = requests.get(f"{BASE_URL}/api/home?limit=5", timeout=15)
 
         if response.status_code == 200:
             data = response.json()
