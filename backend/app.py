@@ -25,7 +25,7 @@ app = Flask(__name__)
 
 # --- Root and Health Endpoints: Always registered, support GET and HEAD ---
 @app.route("/", methods=["GET", "HEAD"])
-def home():
+def root_home():
     return {
         "message": "AURA backend is running",
         "status": "ok"
@@ -1002,7 +1002,7 @@ def collaborative_debug_status():
 
 
 @app.route("/api/home", methods=["GET"])
-def home():
+def api_home():
     uid = (request.args.get("uid") or "").strip()
     
     # Fetch user's language preferences if uid provided
