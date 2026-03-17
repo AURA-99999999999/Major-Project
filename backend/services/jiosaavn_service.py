@@ -150,33 +150,37 @@ def _format_song(song_data: Dict[str, Any], include_lyrics: bool = False) -> Dic
     try:
         # Decrypt media URL
         encrypted_url = song_data.get('encrypted_media_url', '')
+        media_url = None
         if encrypted_url:
             media_url = _decrypt_url(encrypted_url)
+            if media_url:
+                logger.info(f"Decryption success for song: {song_data.get('id', song_data.get('song', ''))}")
+            else:
+                logger.warning(f"Decryption failed for song: {song_data.get('id', song_data.get('song', ''))}, falling back to original URL.")
             # Adjust quality based on availability
             if song_data.get('320kbps') != "true" and media_url:
                 media_url = media_url.replace("_320.mp4", "_160.mp4")
-        else:
-            # Fallback to preview URL
-            preview_url = song_data.get('media_preview_url', '')
-            if preview_url:
-                media_url = preview_url.replace("preview", "aac")
-                if song_data.get('320kbps') == "true":
-                    media_url = media_url.replace("_96_p.mp4", "_320.mp4")
+        if not media_url:
+            # Fallback to original or preview URL
+            media_url = song_data.get('url') or song_data.get('media_url') or song_data.get('media_preview_url', '')
+            if not media_url:
+                preview_url = song_data.get('media_preview_url', '')
+                if preview_url:
+                    media_url = preview_url.replace("preview", "aac")
+                    if song_data.get('320kbps') == "true":
+                        media_url = media_url.replace("_96_p.mp4", "_320.mp4")
+                    else:
+                        media_url = media_url.replace("_96_p.mp4", "_160.mp4")
                 else:
-                    media_url = media_url.replace("_96_p.mp4", "_160.mp4")
-            else:
-                media_url = ""
-        
+                    media_url = ""
         song_data['media_url'] = media_url
-        
         # Create preview URL
         if media_url:
             preview = media_url.replace("_320.mp4", "_96_p.mp4").replace("_160.mp4", "_96_p.mp4").replace("//aac.", "//preview.")
             song_data['media_preview_url'] = preview
-        
     except Exception as e:
         logger.warning(f"Error processing media URL: {e}")
-        song_data['media_url'] = song_data.get('media_preview_url', '')
+        song_data['media_url'] = song_data.get('url') or song_data.get('media_url') or song_data.get('media_preview_url', '')
     
     # Format text fields
     for field in ['song', 'music', 'singers', 'starring', 'album', 'primary_artists', 'title']:
