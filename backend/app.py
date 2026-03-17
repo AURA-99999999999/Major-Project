@@ -1,21 +1,4 @@
-@app.route("/", methods=["GET"])
-def home():
-    logger.info("[API] IN  GET /")
-    response = jsonify({
-        "message": "AURA backend is running",
-        "status": "ok"
-    })
-    logger.info("[API] OUT GET / -> 200")
-    return response, 200
 
-@app.route("/health", methods=["GET"])
-def health():
-    logger.info("[API] IN  GET /health")
-    response = jsonify({
-        "status": "ok"
-    })
-    logger.info("[API] OUT GET /health -> 200")
-    return response, 200
 """Minimal AURA backend for stable Android debugging."""
 
 
@@ -37,6 +20,27 @@ from services.collaborative_service import CollaborativeFilteringService
 from services.daily_mix_service import DailyMixService
 from services.user_profile_service import UserProfileService
 from services.user_service import UserService, get_firestore_client
+
+app = Flask(__name__)
+
+@app.route("/", methods=["GET"])
+def home():
+    logger.info("[API] IN  GET /")
+    response = jsonify({
+        "message": "AURA backend is running",
+        "status": "ok"
+    })
+    logger.info("[API] OUT GET / -> 200")
+    return response, 200
+
+@app.route("/health", methods=["GET"])
+def health():
+    logger.info("[API] IN  GET /health")
+    response = jsonify({
+        "status": "ok"
+    })
+    logger.info("[API] OUT GET /health -> 200")
+    return response, 200
 
 try:
     from firebase_admin import firestore as admin_firestore
