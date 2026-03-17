@@ -23,24 +23,19 @@ from services.user_service import UserService, get_firestore_client
 
 app = Flask(__name__)
 
-@app.route("/", methods=["GET"])
+# --- Root and Health Endpoints: Always registered, support GET and HEAD ---
+@app.route("/", methods=["GET", "HEAD"])
 def home():
-    logger.info("[API] IN  GET /")
-    response = jsonify({
+    return {
         "message": "AURA backend is running",
         "status": "ok"
-    })
-    logger.info("[API] OUT GET / -> 200")
-    return response, 200
+    }, 200
 
 @app.route("/health", methods=["GET"])
 def health():
-    logger.info("[API] IN  GET /health")
-    response = jsonify({
+    return {
         "status": "ok"
-    })
-    logger.info("[API] OUT GET /health -> 200")
-    return response, 200
+    }, 200
 
 try:
     from firebase_admin import firestore as admin_firestore
@@ -60,10 +55,9 @@ logging.basicConfig(
 # Suppress werkzeug logs unless critical
 logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
+
 logger = logging.getLogger(__name__)
 logger.info("[STARTUP] Backend starting up...")
-
-app = Flask(__name__)
 
 # Configure Flask app logger
 app.logger.setLevel(logging.INFO)
