@@ -24,10 +24,10 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:5000/\"")
+            buildConfigField("String", "BASE_URL", "\"https://aura-b7vm.onrender.com/\"")
         }
         release {
-            buildConfigField("String", "BASE_URL", "\"https://your-render-url.onrender.com/\"")
+            buildConfigField("String", "BASE_URL", "\"https://aura-b7vm.onrender.com/\"")
         }
     }
 

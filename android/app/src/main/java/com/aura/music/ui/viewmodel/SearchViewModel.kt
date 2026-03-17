@@ -203,16 +203,13 @@ class SearchViewModel(
 
     private fun mapNetworkError(throwable: Throwable): String {
         val baseUrl = BuildConfig.BASE_URL
-        
         Log.e(TAG, "========================================")
         Log.e(TAG, "NETWORK ERROR DETAILS")
         Log.e(TAG, "Exception type: ${throwable.javaClass.simpleName}")
         Log.e(TAG, "Exception message: ${throwable.message}")
         Log.e(TAG, "Base URL: $baseUrl")
-        Log.e(TAG, "Environment: $env")
         Log.e(TAG, "Full stack trace:", throwable)
         Log.e(TAG, "========================================")
-        
         return when (throwable) {
             is UnknownHostException -> {
                 "Cannot resolve host. Check:\n• Backend server is running and reachable\n• Correct backend URL is set in the app\n• Device has internet access"
