@@ -113,7 +113,7 @@ fun DailyMixesSection(
                 // Reset per-mix state
                 mixStates.clear()
                 list.forEach { meta ->
-                    mixStates[meta.key] = Triple(false, null, null)
+                    mixStates[meta.key ?: ""] = Triple(false, null, null)
                 }
             }.onFailure { exception ->
                 metaError = "Error loading mixes: ${exception.message}"
@@ -200,12 +200,12 @@ fun DailyMixesSection(
                     contentPadding = PaddingValues(horizontal = 0.dp)
                 ) {
                     items(metaList!!) { meta ->
-                        val mixState = mixStates[meta.key] ?: Triple(false, null, null)
+                        val mixState = mixStates[meta.key ?: ""] ?: Triple(false, null, null)
                         val (loading, error, data) = mixState
                         DailyMixCard(
-                            mixKey = meta.key,
+                            mixKey = meta.key ?: "",
                             mixData = data ?: MixCardData(
-                                key = meta.key,
+                                key = meta.key ?: "",
                                 name = meta.name,
                                 description = meta.description,
                                 icon = meta.icon,
@@ -213,20 +213,20 @@ fun DailyMixesSection(
                                 songs = emptyList()
                             ),
                             onPlayMix = {
-                                if (data == null && !loading) loadMixSongs(meta.key)
-                                data?.let { onPlayMix(meta.key, it.songs) }
+                                if (data == null && !loading) loadMixSongs(meta.key ?: "")
+                                data?.let { onPlayMix(meta.key ?: "", it.songs) }
                             },
                             onNavigateToMix = {
-                                if (data == null && !loading) loadMixSongs(meta.key)
-                                data?.let { onNavigateToMix(meta.key, it.name, it.songs) }
+                                if (data == null && !loading) loadMixSongs(meta.key ?: "")
+                                data?.let { onNavigateToMix(meta.key ?: "", it.name, it.songs) }
                             },
                             onShufflePlayMix = {
-                                if (data == null && !loading) loadMixSongs(meta.key)
-                                data?.let { onShufflePlayMix(meta.key, it.songs) }
+                                if (data == null && !loading) loadMixSongs(meta.key ?: "")
+                                data?.let { onShufflePlayMix(meta.key ?: "", it.songs) }
                             },
                             onSaveMix = {
-                                if (data == null && !loading) loadMixSongs(meta.key)
-                                data?.let { onSaveMix(meta.key, it.name, it.songs) }
+                                if (data == null && !loading) loadMixSongs(meta.key ?: "")
+                                data?.let { onSaveMix(meta.key ?: "", it.name, it.songs) }
                             }
                         )
                         if (loading) {

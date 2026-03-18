@@ -10,9 +10,9 @@ import com.google.gson.annotations.SerializedName
 
 data class MixCardMeta(
     @SerializedName("type")
-    val key: String,
-    val name: String,
-    val description: String,
-    val icon: String,
-    val color: Color
+    val key: String? = null,
+    val name: String? = null,
+    val description: String? = null,
+    val icon: String? = null,
+    val color: Color? = null
 )

@@ -42,15 +42,18 @@ class MusicRepository(
                 Result.failure(Exception("User not authenticated"))
             } else {
                 val response = api.getDailyMixesMeta(uid = uid)
-                val metaList = response.map { meta ->
-                    com.aura.music.data.model.MixCardMeta(
-                        key = meta.key,
-                        name = meta.name,
-                        description = meta.description,
-                        icon = meta.icon ?: "\uD83C\uDFB5", // Default music note
-                        color = try { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(meta.color ?: "#9B87F5")) } catch (_: Exception) { androidx.compose.ui.graphics.Color(0xFF9B87F5) }
-                    )
-                }
+                val metaList = response
+                    .filter { it.key != null && it.name != null }
+                    .map { meta ->
+                        com.aura.music.data.model.MixCardMeta(
+                            key = meta.key ?: "unknown",
+                            name = meta.name ?: "",
+                            description = meta.description ?: "",
+                            icon = meta.icon ?: "\uD83C\uDFB5", // Default music note
+                            color = try { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(meta.color ?: "#9B87F5")) } catch (_: Exception) { androidx.compose.ui.graphics.Color(0xFF9B87F5) }
+                        )
+                    }
+                android.util.Log.d("DailyMix", "Response: $metaList")
                 Result.success(metaList)
             }
         } catch (e: Exception) {
