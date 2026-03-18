@@ -140,7 +140,7 @@ interface MusicApi {
     @GET("api/daily-mixes/meta")
     suspend fun getDailyMixesMeta(
         @Query("uid") uid: String
-    ): com.aura.music.data.remote.dto.DailyMixesMetaResponse
+    ): List<com.aura.music.data.remote.dto.DailyMixMetaDto>
 
     // New: Per-mix endpoint (songs for a single mix)
     @GET("api/daily-mix/{type}")

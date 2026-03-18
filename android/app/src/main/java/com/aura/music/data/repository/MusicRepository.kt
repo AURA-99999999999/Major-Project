@@ -29,72 +29,72 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 class MusicRepository(
-        /**
-         * Fetch metadata for all daily mixes (no songs)
-         */
-        suspend fun getDailyMixesMeta(): Result<List<com.aura.music.data.model.MixCardMeta>> {
-            return try {
-                val uid = FirebaseAuth.getInstance().currentUser?.uid
-                if (uid.isNullOrBlank() || uid == "guest") {
-                    Result.failure(Exception("User not authenticated"))
-                } else {
-                    val response = api.getDailyMixesMeta(uid = uid)
-                    val metaList = response.mixes.map { meta ->
-                        com.aura.music.data.model.MixCardMeta(
-                            key = meta.key,
-                            name = meta.name,
-                            description = meta.description,
-                            icon = meta.icon ?: "\uD83C\uDFB5", // Default music note
-                            color = try { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(meta.color ?: "#9B87F5")) } catch (_: Exception) { androidx.compose.ui.graphics.Color(0xFF9B87F5) }
-                        )
-                    }
-                    Result.success(metaList)
-                }
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
-
-        /**
-         * Fetch songs for a single daily mix by type (e.g., "favorites", "similar", "discover", "mood")
-         */
-        suspend fun getDailyMixSongs(type: String, refresh: Boolean = false): Result<com.aura.music.data.model.MixCardData> {
-            return try {
-                val uid = FirebaseAuth.getInstance().currentUser?.uid
-                if (uid.isNullOrBlank() || uid == "guest") {
-                    Result.failure(Exception("User not authenticated"))
-                } else {
-                    val mix = api.getDailyMix(type = type, uid = uid, refresh = refresh)
-                    Result.success(
-                        com.aura.music.data.model.MixCardData(
-                            key = type,
-                            name = mix.name,
-                            description = mix.description,
-                            icon = when (type) {
-                                "favorites" -> "\uD83C\uDFB5"
-                                "similar" -> "\uD83C\uDFB6"
-                                "discover" -> "\u2728"
-                                "mood" -> "\uD83C\uDF19"
-                                else -> "\uD83C\uDFB5"
-                            },
-                            color = when (type) {
-                                "favorites" -> androidx.compose.ui.graphics.Color(0xFF9B87F5)
-                                "similar" -> androidx.compose.ui.graphics.Color(0xFF87F5E0)
-                                "discover" -> androidx.compose.ui.graphics.Color(0xFFF5B787)
-                                "mood" -> androidx.compose.ui.graphics.Color(0xFFF587B2)
-                                else -> androidx.compose.ui.graphics.Color(0xFF9B87F5)
-                            },
-                            songs = mix.songs?.map { it.toSong() } ?: emptyList()
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
     private val api: MusicApi,
     private val firestoreLogger: FirestoreLogger = NoOpFirestoreLogger
 ) {
+    /**
+     * Fetch metadata for all daily mixes (no songs)
+     */
+    suspend fun getDailyMixesMeta(): Result<List<com.aura.music.data.model.MixCardMeta>> {
+        return try {
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid.isNullOrBlank() || uid == "guest") {
+                Result.failure(Exception("User not authenticated"))
+            } else {
+                val response = api.getDailyMixesMeta(uid = uid)
+                val metaList = response.map { meta ->
+                    com.aura.music.data.model.MixCardMeta(
+                        key = meta.key,
+                        name = meta.name,
+                        description = meta.description,
+                        icon = meta.icon ?: "\uD83C\uDFB5", // Default music note
+                        color = try { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(meta.color ?: "#9B87F5")) } catch (_: Exception) { androidx.compose.ui.graphics.Color(0xFF9B87F5) }
+                    )
+                }
+                Result.success(metaList)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetch songs for a single daily mix by type (e.g., "favorites", "similar", "discover", "mood")
+     */
+    suspend fun getDailyMixSongs(type: String, refresh: Boolean = false): Result<com.aura.music.data.model.MixCardData> {
+        return try {
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid.isNullOrBlank() || uid == "guest") {
+                Result.failure(Exception("User not authenticated"))
+            } else {
+                val mix = api.getDailyMix(type = type, uid = uid, refresh = refresh)
+                Result.success(
+                    com.aura.music.data.model.MixCardData(
+                        key = type,
+                        name = mix.name,
+                        description = mix.description,
+                        icon = when (type) {
+                            "favorites" -> "\uD83C\uDFB5"
+                            "similar" -> "\uD83C\uDFB6"
+                            "discover" -> "\u2728"
+                            "mood" -> "\uD83C\uDF19"
+                            else -> "\uD83C\uDFB5"
+                        },
+                        color = when (type) {
+                            "favorites" -> androidx.compose.ui.graphics.Color(0xFF9B87F5)
+                            "similar" -> androidx.compose.ui.graphics.Color(0xFF87F5E0)
+                            "discover" -> androidx.compose.ui.graphics.Color(0xFFF5B787)
+                            "mood" -> androidx.compose.ui.graphics.Color(0xFFF587B2)
+                            else -> androidx.compose.ui.graphics.Color(0xFF9B87F5)
+                        },
+                        songs = mix.songs?.map { it.toSong() } ?: emptyList()
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
     private fun toTrackingSongPayload(song: Song): Map<String, Any> {
         val artistValue = song.artist?.takeIf { it.isNotBlank() }
             ?: song.artists?.firstOrNull()?.takeIf { it.isNotBlank() }

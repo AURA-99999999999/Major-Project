@@ -1,4 +1,9 @@
+
 package com.aura.music.ui.components.home
+
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 import android.util.Log
 import androidx.compose.animation.animateContentSize
@@ -87,6 +92,7 @@ fun DailyMixesSection(
 
     // Per-mix state: key -> (loading, error, data)
     val mixStates = remember { mutableStateMapOf<String, Triple<Boolean, String?, MixCardData?>>() }
+    val coroutineScope = rememberCoroutineScope()
 
     // Fetch metadata on userId change
     LaunchedEffect(userId) {
@@ -126,8 +132,7 @@ fun DailyMixesSection(
         if (mixStates[mixKey]?.first == true || mixStates[mixKey]?.third != null) return // already loading or loaded
         mixStates[mixKey] = Triple(true, null, null)
         val repository = ServiceLocator.getMusicRepository()
-        // Launch coroutine for loading songs
-        kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+        coroutineScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
                     repository.getDailyMixSongs(mixKey)

@@ -17,11 +17,3 @@ data class DailyMixMetaDto(
     @SerializedName("color")
     val color: String? // Hex color string, e.g. #9B87F5
 )
-
-/**
- * Response for /api/daily-mixes/meta
- */
-data class DailyMixesMetaResponse(
-    @SerializedName("mixes")
-    val mixes: List<DailyMixMetaDto>
-)
