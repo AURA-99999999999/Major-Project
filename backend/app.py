@@ -914,6 +914,99 @@ def daily_mixes(uid: str | None = None):
         logger.error("daily_mixes() failed uid=%s: %s", uid, exc, exc_info=True)
         return jsonify(daily_mix_service._empty_response(uid)), 200
 
+# --- NEW: Daily Mix Metadata Endpoint ---
+@app.route("/api/daily-mixes/meta", methods=["GET"])
+def daily_mixes_meta():
+    uid = str(request.args.get("uid") or "").strip()
+    # Metadata is static, but you can customize per user if needed
+    meta = [
+        {"type": "favorites", "title": "Your Favorites", "subtitle": "Based on your listening"},
+        {"type": "mood", "title": "Mood Mix", "subtitle": "Changes throughout the day"},
+        {"type": "discover", "title": "Discover Mix", "subtitle": "New songs for you"},
+        {"type": "similar", "title": "Similar Artists", "subtitle": "Based on your taste"},
+    ]
+    return jsonify(meta), 200
+
+# --- NEW: Individual Daily Mix Endpoints ---
+import time
+
+def _mix_response(mix_type, uid):
+    start = time.time()
+    cache_key = f"daily_mix:{uid}:{mix_type}"
+    refresh = str(request.args.get("refresh", "false")).strip().lower() == "true"
+    logger.info(f"[DailyMix] {mix_type} requested for uid={uid} refresh={refresh}")
+    cache = daily_mix_service.cache
+    cached = cache.get(cache_key)
+    if cached and not refresh:
+        logger.info(f"[DailyMix] {mix_type} cache hit for uid={uid}")
+        result = cached
+        cache_status = "hit"
+    else:
+        logger.info(f"[DailyMix] {mix_type} cache miss for uid={uid}")
+        try:
+            profile = daily_mix_service._build_user_taste_profile(uid)
+            used_ids = set()
+            if mix_type == "favorites":
+                songs = daily_mix_service._generate_favorites_mix(profile, used_ids)
+                fallback = daily_mix_service._get_personalized_candidates(profile, limit=50)
+            elif mix_type == "similar":
+                songs = daily_mix_service._generate_similar_artists_mix(profile, used_ids)
+                fallback = daily_mix_service._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=80) + daily_mix_service._fetch_global_fresh_picks_candidates(limit=60)
+            elif mix_type == "discover":
+                songs = daily_mix_service._generate_discover_mix(profile, used_ids)
+                fallback = daily_mix_service._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=100) + daily_mix_service._fetch_global_fresh_picks_candidates(limit=80) + daily_mix_service._search_songs("trending songs", limit=80)
+            elif mix_type == "mood":
+                _, _, songs, _, _ = daily_mix_service._generate_mood_mix(profile, used_ids)
+                fallback = daily_mix_service._get_personalized_candidates(profile, limit=60) + daily_mix_service._get_collaborative_candidates(profile, limit=40) + daily_mix_service._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=60) + daily_mix_service._fetch_global_fresh_picks_candidates(limit=60) + daily_mix_service._search_songs("trending songs", limit=60)
+            else:
+                return jsonify({"error": "Invalid mix type"}), 400
+            # Early exit when 20 songs collected
+            songs = songs[:20]
+            # Fallback if not enough songs
+            if len(songs) < 20:
+                needed = 20 - len(songs)
+                songs += [s for s in fallback if s not in songs][:needed]
+            # Always return exactly 20
+            songs = songs[:20]
+            result = {"songs": songs, "count": len(songs), "cached": False}
+            cache.set(cache_key, result, ttl=15 * 60)
+            cache_status = "miss"
+        except Exception as exc:
+            logger.error(f"[DailyMix] {mix_type} generation failed for uid={uid}: {exc}")
+            result = {"songs": [], "count": 0, "cached": False, "error": str(exc)}
+            cache_status = "fail"
+    elapsed = int((time.time() - start) * 1000)
+    logger.info(f"[DailyMix] {mix_type} uid={uid} time={elapsed}ms cache={cache_status}")
+    return jsonify(result), 200
+
+@app.route("/api/daily-mix/favorites", methods=["GET"])
+def daily_mix_favorites():
+    uid = str(request.args.get("uid") or "").strip()
+    if not uid:
+        return jsonify({"error": "uid is required"}), 400
+    return _mix_response("favorites", uid)
+
+@app.route("/api/daily-mix/similar", methods=["GET"])
+def daily_mix_similar():
+    uid = str(request.args.get("uid") or "").strip()
+    if not uid:
+        return jsonify({"error": "uid is required"}), 400
+    return _mix_response("similar", uid)
+
+@app.route("/api/daily-mix/discover", methods=["GET"])
+def daily_mix_discover():
+    uid = str(request.args.get("uid") or "").strip()
+    if not uid:
+        return jsonify({"error": "uid is required"}), 400
+    return _mix_response("discover", uid)
+
+@app.route("/api/daily-mix/mood", methods=["GET"])
+def daily_mix_mood():
+    uid = str(request.args.get("uid") or "").strip()
+    if not uid:
+        return jsonify({"error": "uid is required"}), 400
+    return _mix_response("mood", uid)
+
 
 @app.route("/api/recommendations/collaborative", methods=["GET"])
 @app.route("/api/recommendations/collaborative/<uid>", methods=["GET"])

@@ -48,6 +48,8 @@ import com.aura.music.di.ServiceLocator
 import com.aura.music.ui.theme.ColorBlendingUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.aura.music.data.model.MixCardMeta
+import com.aura.music.data.model.MixCardData
 import androidx.compose.ui.graphics.Brush
 
 private fun normalizeMixName(mixKey: String, rawName: String?): String {
@@ -79,102 +81,65 @@ fun DailyMixesSection(
     onShufflePlayMix: (String, List<Song>) -> Unit = { _, _ -> },
     onSaveMix: (String, String, List<Song>) -> Unit = { _, _, _ -> }
 ) {
-    var mixData by remember { mutableStateOf<Map<String, MixCardData>?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(false) }
-    
-    // Fetch mixes when userId changes
+    var metaList by remember { mutableStateOf<List<MixCardMeta>?>(null) }
+    var metaError by remember { mutableStateOf<String?>(null) }
+    var metaLoading by remember { mutableStateOf(false) }
+
+    // Per-mix state: key -> (loading, error, data)
+    val mixStates = remember { mutableStateMapOf<String, Triple<Boolean, String?, MixCardData?>>() }
+
+    // Fetch metadata on userId change
     LaunchedEffect(userId) {
         if (userId.isNullOrEmpty()) {
-            error = "User ID not available"
+            metaError = "User ID not available"
             Log.w("DailyMixes", "No user ID provided")
             return@LaunchedEffect
         }
-        
-        isLoading = true
-        error = null
-        
+        metaLoading = true
+        metaError = null
         try {
             val repository = ServiceLocator.getMusicRepository()
             val response = withContext(Dispatchers.IO) {
-                repository.getDailyMixes(refresh = false)
+                repository.getDailyMixesMeta()
             }
-            
-            response.onSuccess { dailyMixResponse ->
-                Log.i("DailyMixes", "Successfully loaded mixes")
-                Log.d("DailyMixes", "Response: cached=${dailyMixResponse.cached}, mixes=${dailyMixResponse.mixes}")
-                
-                // Parse response into UI components
-                val parsedMixes = mutableMapOf<String, MixCardData>()
-                
-                // Mix 1: Favorites
-                dailyMixResponse.mixes?.dailyMix1?.let { mix ->
-                    val displayName = normalizeMixName("dailyMix1", mix.name)
-                    Log.d("DailyMixes", "Mix 1: $displayName, songs=${mix.songs?.size ?: 0}")
-                    parsedMixes["dailyMix1"] = MixCardData(
-                        name = displayName,
-                        description = mix.description,
-                        icon = "🎧",
-                        songs = mix.songs?.toSongs() ?: emptyList(),
-                        color = Color(0xFF9B87F5)
-                    )
-                }
-                
-                // Mix 2: Similar Artists
-                dailyMixResponse.mixes?.dailyMix2?.let { mix ->
-                    val displayName = normalizeMixName("dailyMix2", mix.name)
-                    Log.d("DailyMixes", "Mix 2: $displayName, songs=${mix.songs?.size ?: 0}")
-                    parsedMixes["dailyMix2"] = MixCardData(
-                        name = displayName,
-                        description = mix.description,
-                        icon = "🎶",
-                        songs = mix.songs?.toSongs() ?: emptyList(),
-                        color = Color(0xFF87F5E0)
-                    )
-                }
-                
-                // Mix 3: Discover
-                dailyMixResponse.mixes?.discoverMix?.let { mix ->
-                    val displayName = normalizeMixName("discoverMix", mix.name)
-                    Log.d("DailyMixes", "Mix 3: $displayName, songs=${mix.songs?.size ?: 0}")
-                    parsedMixes["discoverMix"] = MixCardData(
-                        name = displayName,
-                        description = mix.description,
-                        icon = "✨",
-                        songs = mix.songs?.toSongs() ?: emptyList(),
-                        color = Color(0xFFF5B787)
-                    )
-                }
-                
-                // Mix 4: Mood
-                dailyMixResponse.mixes?.moodMix?.let { mix ->
-                    val displayName = normalizeMixName("moodMix", mix.name)
-                    Log.d("DailyMixes", "Mix 4: $displayName, songs=${mix.songs?.size ?: 0}")
-                    parsedMixes["moodMix"] = MixCardData(
-                        name = displayName,
-                        description = mix.description,
-                        icon = "🌙",
-                        songs = mix.songs?.toSongs() ?: emptyList(),
-                        color = Color(0xFFF587B2)
-                    )
-                }
-                
-                if (parsedMixes.isNotEmpty()) {
-                    mixData = parsedMixes
-                    Log.i("DailyMixes", "Loaded ${parsedMixes.size} mixes successfully")
-                } else {
-                    error = "No mixes available"
-                    Log.w("DailyMixes", "No mixes found in response")
+            response.onSuccess { list ->
+                metaList = list
+                // Reset per-mix state
+                mixStates.clear()
+                list.forEach { meta ->
+                    mixStates[meta.key] = Triple(false, null, null)
                 }
             }.onFailure { exception ->
-                error = "Error loading mixes: ${exception.message}"
-                Log.e("DailyMixes", "Failed to load mixes", exception)
+                metaError = "Error loading mixes: ${exception.message}"
+                metaList = null
             }
         } catch (e: Exception) {
-            error = "Error loading mixes: ${e.message}"
-            Log.e("DailyMixes", "Exception loading mixes", e)
+            metaError = "Error loading mixes: ${e.message}"
+            metaList = null
         } finally {
-            isLoading = false
+            metaLoading = false
+        }
+    }
+
+    // Helper to trigger per-mix load
+    fun loadMixSongs(mixKey: String) {
+        if (mixStates[mixKey]?.first == true || mixStates[mixKey]?.third != null) return // already loading or loaded
+        mixStates[mixKey] = Triple(true, null, null)
+        val repository = ServiceLocator.getMusicRepository()
+        // Launch coroutine for loading songs
+        kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    repository.getDailyMixSongs(mixKey)
+                }
+                result.onSuccess { data ->
+                    mixStates[mixKey] = Triple(false, null, data)
+                }.onFailure { e ->
+                    mixStates[mixKey] = Triple(false, "Failed to load songs: ${e.message}", null)
+                }
+            } catch (e: Exception) {
+                mixStates[mixKey] = Triple(false, "Failed to load songs: ${e.message}", null)
+            }
         }
     }
     
@@ -193,9 +158,9 @@ fun DailyMixesSection(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(bottom = 12.dp)
         )
-        
+
         when {
-            isLoading -> {
+            metaLoading -> {
                 // Show shimmer loading state
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
@@ -207,7 +172,7 @@ fun DailyMixesSection(
                     }
                 }
             }
-            error != null -> {
+            metaError != null -> {
                 // Show error message
                 Box(
                     modifier = Modifier
@@ -216,29 +181,73 @@ fun DailyMixesSection(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = error ?: "Failed to load mixes",
+                        text = metaError ?: "Failed to load mixes",
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 14.sp
                     )
                 }
             }
-            mixData != null -> {
-                // Show mixes carousel
+            metaList != null -> {
+                // Show mixes carousel (metadata only, lazy load songs)
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(horizontal = 0.dp)
                 ) {
-                    items(listOf("dailyMix1", "dailyMix2", "discoverMix", "moodMix")) { mixKey ->
-                        mixData?.get(mixKey)?.let { cardData ->
-                            DailyMixCard(
-                                mixKey = mixKey,
-                                mixData = cardData,
-                                onPlayMix = { onPlayMix(mixKey, cardData.songs) },
-                                onNavigateToMix = { onNavigateToMix(mixKey, cardData.name, cardData.songs) },
-                                onShufflePlayMix = { onShufflePlayMix(mixKey, cardData.songs) },
-                                onSaveMix = { onSaveMix(mixKey, cardData.name, cardData.songs) }
-                            )
+                    items(metaList!!) { meta ->
+                        val mixState = mixStates[meta.key] ?: Triple(false, null, null)
+                        val (loading, error, data) = mixState
+                        DailyMixCard(
+                            mixKey = meta.key,
+                            mixData = data ?: MixCardData(
+                                key = meta.key,
+                                name = meta.name,
+                                description = meta.description,
+                                icon = meta.icon,
+                                color = meta.color,
+                                songs = emptyList()
+                            ),
+                            onPlayMix = {
+                                if (data == null && !loading) loadMixSongs(meta.key)
+                                data?.let { onPlayMix(meta.key, it.songs) }
+                            },
+                            onNavigateToMix = {
+                                if (data == null && !loading) loadMixSongs(meta.key)
+                                data?.let { onNavigateToMix(meta.key, it.name, it.songs) }
+                            },
+                            onShufflePlayMix = {
+                                if (data == null && !loading) loadMixSongs(meta.key)
+                                data?.let { onShufflePlayMix(meta.key, it.songs) }
+                            },
+                            onSaveMix = {
+                                if (data == null && !loading) loadMixSongs(meta.key)
+                                data?.let { onSaveMix(meta.key, it.name, it.songs) }
+                            }
+                        )
+                        if (loading) {
+                            // Overlay loading indicator
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 160.dp, height = 200.dp)
+                                    .background(Color.Black.copy(alpha = 0.3f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.compose.material3.CircularProgressIndicator(color = Color.White)
+                            }
+                        } else if (error != null) {
+                            // Overlay error message
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 160.dp, height = 200.dp)
+                                    .background(Color.Black.copy(alpha = 0.3f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = error,
+                                    color = Color.White,
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
                     }
                 }

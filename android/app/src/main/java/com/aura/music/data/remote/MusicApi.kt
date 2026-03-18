@@ -136,6 +136,20 @@ interface MusicApi {
         @Query("refresh") refresh: Boolean = false
     ): DailyMixResponse
 
+    // New: Daily Mixes Metadata (no songs)
+    @GET("api/daily-mixes/meta")
+    suspend fun getDailyMixesMeta(
+        @Query("uid") uid: String
+    ): com.aura.music.data.remote.dto.DailyMixesMetaResponse
+
+    // New: Per-mix endpoint (songs for a single mix)
+    @GET("api/daily-mix/{type}")
+    suspend fun getDailyMix(
+        @Path("type") type: String,
+        @Query("uid") uid: String,
+        @Query("refresh") refresh: Boolean = false
+    ): com.aura.music.data.remote.dto.MixContainer
+
     // YTMusic Playlist Songs
     @GET("api/playlist/{playlistId}/songs")
     suspend fun getYTMusicPlaylistSongs(
