@@ -206,10 +206,10 @@ fun DailyMixesSection(
                             mixKey = meta.key ?: "",
                             mixData = data ?: MixCardData(
                                 key = meta.key ?: "",
-                                name = meta.name,
-                                description = meta.description,
-                                icon = meta.icon,
-                                color = meta.color,
+                                name = meta.name ?: "",
+                                description = meta.description ?: "",
+                                icon = meta.icon ?: "",
+                                color = meta.color ?: Color.Gray,
                                 songs = emptyList()
                             ),
                             onPlayMix = {
