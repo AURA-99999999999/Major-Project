@@ -131,17 +131,17 @@ fun DailyMixesSection(
         ) {
             items(dailyMixes) { mix ->
                 DailyMixCard(
-                    mixKey = mix.key ?: "",
+                    mixKey = mix.key,
                     mixData = MixCardData(
-                        key = mix.key ?: "",
-                        name = mix.name ?: "",
-                        description = mix.description ?: "",
-                        icon = mix.icon ?: "",
-                        color = mix.color ?: Color.Gray,
+                        key = mix.key,
+                        name = mix.title,
+                        description = mix.subtitle,
+                        icon = "", // No icon in MixCardMeta
+                        color = Color.Gray, // No color in MixCardMeta
                         songs = emptyList()
                     ),
                     onPlayMix = { /* Optionally handle play */ },
-                    onNavigateToMix = { onNavigateToMix(mix.key ?: "", mix.name ?: "", emptyList()) },
+                    onNavigateToMix = { onNavigateToMix(mix.key, mix.title, emptyList()) },
                     onShufflePlayMix = {},
                     onSaveMix = {}
                 )

@@ -23,6 +23,7 @@ import com.aura.music.data.remote.dto.LoginRequest
 import com.aura.music.data.remote.dto.PlaylistSongRequest
 import com.aura.music.data.remote.dto.RegisterRequest
 import com.aura.music.data.remote.dto.TrackEventRequest
+import com.aura.music.data.mapper.toMixCardMetaList
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -42,9 +43,10 @@ class MusicRepository(
                 Result.failure(Exception("User not authenticated"))
             } else {
                 val response = api.getDailyMixesMeta(uid = uid)
-                // Response is List<MixCardMeta> with key, title, subtitle
-                android.util.Log.d("DailyMix", "Meta response: $response")
-                Result.success(response)
+                // Map List<DailyMixMetaDto> to List<MixCardMeta>
+                val mapped = response.toMixCardMetaList()
+                android.util.Log.d("DailyMix", "Meta response: $mapped")
+                Result.success(mapped)
             }
         } catch (e: Exception) {
             Result.failure(e)
