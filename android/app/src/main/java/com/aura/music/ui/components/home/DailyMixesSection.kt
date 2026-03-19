@@ -86,78 +86,40 @@ fun DailyMixesSection(
     onShufflePlayMix: (String, List<Song>) -> Unit = { _, _ -> },
     onSaveMix: (String, String, List<Song>) -> Unit = { _, _, _ -> }
 ) {
-    var metaList by remember { mutableStateOf<List<MixCardMeta>?>(null) }
-    var metaError by remember { mutableStateOf<String?>(null) }
-    var metaLoading by remember { mutableStateOf(false) }
+    // --- Daily Mixes Section: Compose State & API Flow ---
+    var mixes by remember { mutableStateOf<List<MixCardMeta>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
 
-    // Per-mix state: key -> (loading, error, data)
-    val mixStates = remember { mutableStateMapOf<String, Triple<Boolean, String?, MixCardData?>>() }
-    val coroutineScope = rememberCoroutineScope()
-
-    // Fetch metadata on userId change
     LaunchedEffect(userId) {
-        if (userId.isNullOrEmpty()) {
-            metaError = "User ID not available"
-            Log.w("DailyMixes", "No user ID provided")
-            return@LaunchedEffect
-        }
-        metaLoading = true
-        metaError = null
+        loading = true
+        error = null
         try {
             val repository = ServiceLocator.getMusicRepository()
             val response = withContext(Dispatchers.IO) {
                 repository.getDailyMixesMeta()
             }
             response.onSuccess { list ->
-                metaList = list
-                Log.d("DailyMix", "metaList size: ${metaList?.size}")
-                Log.d("DailyMix", "metaList data: $metaList")
-                // Reset per-mix state
-                mixStates.clear()
-                list.forEach { meta ->
-                    mixStates[meta.key ?: "unknown"] = Triple(false, null, null)
-                }
+                mixes = list ?: emptyList()
+                Log.d("DailyMix", "Received mixes: ${mixes.size}")
             }.onFailure { exception ->
-                metaError = "Error loading mixes: ${exception.message}"
-                metaList = null
+                error = "Error loading mixes: ${exception.message}"
+                mixes = emptyList()
             }
         } catch (e: Exception) {
-            metaError = "Error loading mixes: ${e.message}"
-            metaList = null
+            error = "Error loading mixes: ${e.message}"
+            mixes = emptyList()
         } finally {
-            metaLoading = false
+            loading = false
         }
     }
 
-    // Helper to trigger per-mix load
-    fun loadMixSongs(mixKey: String) {
-        if (mixStates[mixKey]?.first == true || mixStates[mixKey]?.third != null) return // already loading or loaded
-        mixStates[mixKey] = Triple(true, null, null)
-        val repository = ServiceLocator.getMusicRepository()
-        coroutineScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    repository.getDailyMixSongs(mixKey)
-                }
-                result.onSuccess { data ->
-                    mixStates[mixKey] = Triple(false, null, data)
-                }.onFailure { e ->
-                    mixStates[mixKey] = Triple(false, "Failed to load songs: ${e.message}", null)
-                }
-            } catch (e: Exception) {
-                mixStates[mixKey] = Triple(false, "Failed to load songs: ${e.message}", null)
-            }
-        }
-    }
-    
-    // Always show the section container
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .animateContentSize(animationSpec = tween(300))
     ) {
-        // Section Header
         Text(
             text = "Daily Mixes",
             fontSize = 20.sp,
@@ -167,8 +129,7 @@ fun DailyMixesSection(
         )
 
         when {
-            metaLoading -> {
-                // Show shimmer loading state
+            loading -> {
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -179,8 +140,7 @@ fun DailyMixesSection(
                     }
                 }
             }
-            metaError != null -> {
-                // Show error message
+            error != null -> {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -188,74 +148,37 @@ fun DailyMixesSection(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = metaError ?: "Failed to load mixes",
+                        text = error ?: "Failed to load mixes",
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 14.sp
                     )
                 }
             }
-            metaList != null -> {
-                // Show mixes carousel (metadata only, lazy load songs)
+            mixes.isEmpty() -> {
+                Text("Loading mixes...", modifier = Modifier.padding(16.dp))
+            }
+            else -> {
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(horizontal = 0.dp)
                 ) {
-                    items(metaList!!) { meta ->
-                        val mixState = mixStates[meta.key ?: ""] ?: Triple(false, null, null)
-                        val (loading, error, data) = mixState
+                    items(mixes) { mix ->
                         DailyMixCard(
-                            mixKey = meta.key ?: "",
-                            mixData = data ?: MixCardData(
-                                key = meta.key ?: "",
-                                name = meta.name ?: "",
-                                description = meta.description ?: "",
-                                icon = meta.icon ?: "",
-                                color = meta.color ?: Color.Gray,
+                            mixKey = mix.key ?: "",
+                            mixData = MixCardData(
+                                key = mix.key ?: "",
+                                name = mix.name ?: "",
+                                description = mix.description ?: "",
+                                icon = mix.icon ?: "",
+                                color = mix.color ?: Color.Gray,
                                 songs = emptyList()
                             ),
-                            onPlayMix = {
-                                if (data == null && !loading) loadMixSongs(meta.key ?: "")
-                                data?.let { onPlayMix(meta.key ?: "", it.songs) }
-                            },
-                            onNavigateToMix = {
-                                if (data == null && !loading) loadMixSongs(meta.key ?: "")
-                                data?.let { onNavigateToMix(meta.key ?: "", it.name, it.songs) }
-                            },
-                            onShufflePlayMix = {
-                                if (data == null && !loading) loadMixSongs(meta.key ?: "")
-                                data?.let { onShufflePlayMix(meta.key ?: "", it.songs) }
-                            },
-                            onSaveMix = {
-                                if (data == null && !loading) loadMixSongs(meta.key ?: "")
-                                data?.let { onSaveMix(meta.key ?: "", it.name, it.songs) }
-                            }
+                            onPlayMix = { /* TODO: Implement play */ },
+                            onNavigateToMix = { /* TODO: Implement navigation */ },
+                            onShufflePlayMix = {},
+                            onSaveMix = {}
                         )
-                        if (loading) {
-                            // Overlay loading indicator
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 160.dp, height = 200.dp)
-                                    .background(Color.Black.copy(alpha = 0.3f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                androidx.compose.material3.CircularProgressIndicator(color = Color.White)
-                            }
-                        } else if (error != null) {
-                            // Overlay error message
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 160.dp, height = 200.dp)
-                                    .background(Color.Black.copy(alpha = 0.3f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = error,
-                                    color = Color.White,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
                     }
                 }
             }
