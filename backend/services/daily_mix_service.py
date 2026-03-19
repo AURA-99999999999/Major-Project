@@ -25,9 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 class DailyMixService:
-    MIX_SIZE = 20
-    MIN_MIX_SIZE = 20
-    MAX_MIX_SIZE = 20
+    # --- LIMITS for performance ---
+    MIX_SIZE = 15  # Limit songs per mix
+    MIN_MIX_SIZE = 15
+    MAX_MIX_SIZE = 15
+    MAX_PLAYLISTS_PER_MIX = 2  # Limit playlists per mix
 
     # Fresh Picks fallbacks (reuse the same playlist queries used by /api/fresh-picks).
     FRESH_PICKS_CACHE_TTL_SECONDS = 10 * 60
@@ -211,7 +213,14 @@ class DailyMixService:
         if not query:
             return ""
         try:
-            results = self.jiosaavn_service.search_all_categories(query, limit=8) or {}
+            # --- TIMEOUT for external API ---
+            import requests
+            from requests.exceptions import Timeout
+            try:
+                results = self.jiosaavn_service.search_all_categories(query, limit=8, timeout=5) or {}
+            except TypeError:
+                # If service does not support timeout param, fallback
+                results = self.jiosaavn_service.search_all_categories(query, limit=8) or {}
             playlists = results.get("playlists") or []
         except Exception:
             playlists = []
@@ -255,16 +264,20 @@ class DailyMixService:
             if pref == "english":
                 return best_url if best_score > 0 else ""
 
+        count = 0
         for playlist in playlists:
+            if count >= self.MAX_PLAYLISTS_PER_MIX:
+                break
             if isinstance(playlist, dict):
                 url = _url_of(playlist)
                 if url:
+                    count += 1
                     return url
         return ""
 
     def _fetch_fresh_picks_candidates(self, languages: Sequence[str], limit: int) -> List[Dict[str, Any]]:
         """Fetch Fresh Picks candidates for the given languages (cached)."""
-        limit = max(1, min(int(limit), 120))
+        limit = max(1, min(int(limit), self.MAX_MIX_SIZE * 2))
         cache_key = self._fresh_picks_cache_key(languages, tag=f"limit{limit}")
         cached = self.cache.get(cache_key)
         if isinstance(cached, list):
@@ -288,7 +301,13 @@ class DailyMixService:
         seen_ids: Set[str] = set()
         for language, url in playlist_urls:
             try:
-                songs = self.jiosaavn_service.get_playlist_songs_from_url(url)[:60]
+                # --- TIMEOUT for external API ---
+                import requests
+                from requests.exceptions import Timeout
+                try:
+                    songs = self.jiosaavn_service.get_playlist_songs_from_url(url, timeout=5)[:60]
+                except TypeError:
+                    songs = self.jiosaavn_service.get_playlist_songs_from_url(url)[:60]
             except Exception:
                 songs = []
             for raw in songs:
@@ -340,78 +359,96 @@ class DailyMixService:
             if cached is not None:
                 return cached
 
-        generated = self.generate_daily_mixes(uid)
-        response = self._response_from_mix_map(uid, generated, cached=False)
-        self._store_mixes(uid, generated)
-        self.cache.set(self._response_cache_key(uid), response, ttl=self.CACHE_TTL_SECONDS)
-        return response
+        try:
+            generated = self.generate_daily_mixes(uid)
+            response = self._response_from_mix_map(uid, generated, cached=False)
+            self._store_mixes(uid, generated)
+            self.cache.set(self._response_cache_key(uid), response, ttl=self.CACHE_TTL_SECONDS)
+            return response
+        except Exception as exc:
+            # --- FAIL-SAFE RETURN ---
+            import logging
+            logging.error(f"[DailyMix] generation failed for uid={uid}: {exc}")
+            return self._empty_response(uid)
 
     def generate_daily_mixes(self, uid: str) -> Dict[str, Dict[str, Any]]:
         profile = self._build_user_taste_profile(uid)
         used_ids: Set[str] = set()
 
-        favorites = self._generate_favorites_mix(profile, used_ids)
-        favorites_fallback = self._get_personalized_candidates(profile, limit=50)
-        favorites = self.ensure_mix_size(favorites, favorites_fallback)
-        used_ids.update(self._song_ids(favorites))
+        try:
+            favorites = self._generate_favorites_mix(profile, used_ids)[:self.MAX_MIX_SIZE]
+            favorites_fallback = self._get_personalized_candidates(profile, limit=20)
+            favorites = self.ensure_mix_size(favorites, favorites_fallback)[:self.MAX_MIX_SIZE]
+            used_ids.update(self._song_ids(favorites))
 
-        similar = self._generate_similar_artists_mix(profile, used_ids)
-        similar_fallback = (
-            self._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=80)
-            + self._fetch_global_fresh_picks_candidates(limit=60)
-        )
-        similar = self.ensure_mix_size(similar, similar_fallback)
-        used_ids.update(self._song_ids(similar))
+            similar = self._generate_similar_artists_mix(profile, used_ids)[:self.MAX_MIX_SIZE]
+            similar_fallback = (
+                self._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=20)
+                + self._fetch_global_fresh_picks_candidates(limit=20)
+            )
+            similar = self.ensure_mix_size(similar, similar_fallback)[:self.MAX_MIX_SIZE]
+            used_ids.update(self._song_ids(similar))
 
-        discover = self._generate_discover_mix(profile, used_ids)
-        discover_fallback = (
-            self._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=100)
-            + self._fetch_global_fresh_picks_candidates(limit=80)
-            + self._search_songs("trending songs", limit=80)
-        )
-        discover = self.ensure_mix_size(discover, discover_fallback)
-        used_ids.update(self._song_ids(discover))
+            discover = self._generate_discover_mix(profile, used_ids)[:self.MAX_MIX_SIZE]
+            discover_fallback = (
+                self._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=20)
+                + self._fetch_global_fresh_picks_candidates(limit=20)
+                + self._search_songs("trending songs", limit=20)
+            )
+            discover = self.ensure_mix_size(discover, discover_fallback)[:self.MAX_MIX_SIZE]
+            used_ids.update(self._song_ids(discover))
 
-        mood_name, mood_description, mood_tracks, mood_time_block, mood_subtitle = self._generate_mood_mix(profile, used_ids)
-        mood_fallback = (
-            self._get_personalized_candidates(profile, limit=60)
-            + self._get_collaborative_candidates(profile, limit=40)
-            + self._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=60)
-            + self._fetch_global_fresh_picks_candidates(limit=60)
-            + self._search_songs("trending songs", limit=60)
-        )
-        mood_tracks = self.ensure_mix_size(mood_tracks, mood_fallback)
+            mood_name, mood_description, mood_tracks, mood_time_block, mood_subtitle = self._generate_mood_mix(profile, used_ids)
+            mood_fallback = (
+                self._get_personalized_candidates(profile, limit=20)
+                + self._get_collaborative_candidates(profile, limit=20)
+                + self._fetch_fresh_picks_candidates(profile.get("top_languages") or [], limit=20)
+                + self._fetch_global_fresh_picks_candidates(limit=20)
+                + self._search_songs("trending songs", limit=20)
+            )
+            mood_tracks = self.ensure_mix_size(mood_tracks, mood_fallback)[:self.MAX_MIX_SIZE]
 
-        specs = {
-            "dailyMix1": {**self.MIX_SPECS[0], "songs": favorites},
-            "dailyMix2": {**self.MIX_SPECS[1], "songs": similar},
-            "dailyMix3": {**self.MIX_SPECS[2], "songs": discover},
-            "moodMix": {
-                **self.MIX_SPECS[3],
-                "name": mood_name,
-                "description": mood_description,
-                "subtitle": mood_subtitle,
-                "timeBlock": mood_time_block,
-                "songs": mood_tracks,
-            },
-        }
+            specs = {
+                "dailyMix1": {**self.MIX_SPECS[0], "songs": favorites},
+                "dailyMix2": {**self.MIX_SPECS[1], "songs": similar},
+                "dailyMix3": {**self.MIX_SPECS[2], "songs": discover},
+                "moodMix": {
+                    **self.MIX_SPECS[3],
+                    "name": mood_name,
+                    "description": mood_description,
+                    "subtitle": mood_subtitle,
+                    "timeBlock": mood_time_block,
+                    "songs": mood_tracks,
+                },
+            }
 
-        for mix in specs.values():
-            songs = mix.get("songs") or []
-            # Guarantee at least one song in each mix (fallback to trending if needed)
-            if not songs:
-                fallback = self._get_personalized_candidates(profile, 1) or self._get_collaborative_candidates(profile, 1)
-                if not fallback:
-                    fallback = []
-                if fallback:
-                    songs = [fallback[0]]
-                    mix["songs"] = songs
-            mix["count"] = len(songs)
-            mix["tracks"] = songs
-            mix["generatedAt"] = int(time.time())
-            mix["source"] = "daily_mix"
+            for mix in specs.values():
+                songs = mix.get("songs") or []
+                # Guarantee at least one song in each mix (fallback to trending if needed)
+                if not songs:
+                    fallback = self._get_personalized_candidates(profile, 1) or self._get_collaborative_candidates(profile, 1)
+                    if not fallback:
+                        fallback = []
+                    if fallback:
+                        songs = [fallback[0]]
+                        mix["songs"] = songs
+                mix["count"] = len(songs)
+                mix["tracks"] = songs
+                mix["generatedAt"] = int(time.time())
+                mix["source"] = "daily_mix"
 
-        return specs
+            return specs
+        except Exception as exc:
+            # --- FAIL-SAFE RETURN ---
+            import logging
+            logging.error(f"[DailyMix] generate_daily_mixes failed for uid={uid}: {exc}")
+            # Return minimal mixes with empty songs
+            return {
+                "dailyMix1": {"key": "favorites", "name": "Your Favorites", "songs": []},
+                "dailyMix2": {"key": "similar", "name": "Similar Artists", "songs": []},
+                "dailyMix3": {"key": "discover", "name": "Discover Mix", "songs": []},
+                "moodMix": {"key": "mood", "name": "Mood Mix", "songs": []},
+            }
 
     def _build_user_taste_profile(self, uid: str) -> Dict[str, Any]:
         cache_key = f"daily_mix_profile:{uid}"

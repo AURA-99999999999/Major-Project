@@ -90,31 +90,23 @@ fun DailyMixesSection(
     val dailyMixes = listOf(
         MixCardMeta(
             key = "favorites",
-            name = "Your Favorites",
-            description = "Based on your listening",
-            icon = null,
-            color = null
+            title = "Your Favorites",
+            subtitle = "Based on your listening"
         ),
         MixCardMeta(
             key = "mood",
-            name = "Mood Mix",
-            description = "Changes throughout the day",
-            icon = null,
-            color = null
+            title = "Mood Mix",
+            subtitle = "Changes throughout the day"
         ),
         MixCardMeta(
             key = "discover",
-            name = "Discover Mix",
-            description = "New songs for you",
-            icon = null,
-            color = null
+            title = "Discover Mix",
+            subtitle = "New songs for you"
         ),
         MixCardMeta(
             key = "similar",
-            name = "Similar Artists",
-            description = "Based on your taste",
-            icon = null,
-            color = null
+            title = "Similar Artists",
+            subtitle = "Based on your taste"
         )
     )
 
