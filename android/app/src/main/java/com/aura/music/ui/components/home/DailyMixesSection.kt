@@ -88,10 +88,34 @@ fun DailyMixesSection(
 ) {
     // --- Daily Mixes Section: Static Cards, No API on Home ---
     val dailyMixes = listOf(
-        MixCardMeta("favorites", "Your Favorites", "Based on your listening"),
-        MixCardMeta("mood", "Mood Mix", "Changes throughout the day"),
-        MixCardMeta("discover", "Discover Mix", "New songs for you"),
-        MixCardMeta("similar", "Similar Artists", "Based on your taste")
+        MixCardMeta(
+            key = "favorites",
+            name = "Your Favorites",
+            description = "Based on your listening",
+            icon = null,
+            color = null
+        ),
+        MixCardMeta(
+            key = "mood",
+            name = "Mood Mix",
+            description = "Changes throughout the day",
+            icon = null,
+            color = null
+        ),
+        MixCardMeta(
+            key = "discover",
+            name = "Discover Mix",
+            description = "New songs for you",
+            icon = null,
+            color = null
+        ),
+        MixCardMeta(
+            key = "similar",
+            name = "Similar Artists",
+            description = "Based on your taste",
+            icon = null,
+            color = null
+        )
     )
 
     Column(
@@ -115,17 +139,17 @@ fun DailyMixesSection(
         ) {
             items(dailyMixes) { mix ->
                 DailyMixCard(
-                    mixKey = mix.key,
+                    mixKey = mix.key ?: "",
                     mixData = MixCardData(
-                        key = mix.key,
-                        name = mix.title,
-                        description = mix.subtitle,
-                        icon = "", // Optionally set a static icon
-                        color = Color.Gray, // Optionally set a static color
+                        key = mix.key ?: "",
+                        name = mix.name ?: "",
+                        description = mix.description ?: "",
+                        icon = mix.icon ?: "",
+                        color = mix.color ?: Color.Gray,
                         songs = emptyList()
                     ),
                     onPlayMix = { /* Optionally handle play */ },
-                    onNavigateToMix = { onNavigateToMix(mix.key, mix.title, emptyList()) },
+                    onNavigateToMix = { onNavigateToMix(mix.key ?: "", mix.name ?: "", emptyList()) },
                     onShufflePlayMix = {},
                     onSaveMix = {}
                 )
