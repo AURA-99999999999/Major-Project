@@ -86,33 +86,13 @@ fun DailyMixesSection(
     onShufflePlayMix: (String, List<Song>) -> Unit = { _, _ -> },
     onSaveMix: (String, String, List<Song>) -> Unit = { _, _, _ -> }
 ) {
-    // --- Daily Mixes Section: Compose State & API Flow ---
-    var mixes by remember { mutableStateOf<List<MixCardMeta>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(userId) {
-        loading = true
-        error = null
-        try {
-            val repository = ServiceLocator.getMusicRepository()
-            val response = withContext(Dispatchers.IO) {
-                repository.getDailyMixesMeta()
-            }
-            response.onSuccess { list ->
-                mixes = list ?: emptyList()
-                Log.d("DailyMix", "Received mixes: ${mixes.size}")
-            }.onFailure { exception ->
-                error = "Error loading mixes: ${exception.message}"
-                mixes = emptyList()
-            }
-        } catch (e: Exception) {
-            error = "Error loading mixes: ${e.message}"
-            mixes = emptyList()
-        } finally {
-            loading = false
-        }
-    }
+    // --- Daily Mixes Section: Static Cards, No API on Home ---
+    val dailyMixes = listOf(
+        MixCardMeta("favorites", "Your Favorites", "Based on your listening"),
+        MixCardMeta("mood", "Mood Mix", "Changes throughout the day"),
+        MixCardMeta("discover", "Discover Mix", "New songs for you"),
+        MixCardMeta("similar", "Similar Artists", "Based on your taste")
+    )
 
     Column(
         modifier = Modifier
@@ -128,59 +108,27 @@ fun DailyMixesSection(
             modifier = Modifier.padding(bottom = 12.dp)
         )
 
-        when {
-            loading -> {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(horizontal = 0.dp)
-                ) {
-                    items(4) {
-                        com.aura.music.ui.components.ShimmerDailyMixCard()
-                    }
-                }
-            }
-            error != null -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = error ?: "Failed to load mixes",
-                        color = MaterialTheme.colorScheme.error,
-                        fontSize = 14.sp
-                    )
-                }
-            }
-            mixes.isEmpty() -> {
-                Text("Loading mixes...", modifier = Modifier.padding(16.dp))
-            }
-            else -> {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(horizontal = 0.dp)
-                ) {
-                    items(mixes) { mix ->
-                        DailyMixCard(
-                            mixKey = mix.key ?: "",
-                            mixData = MixCardData(
-                                key = mix.key ?: "",
-                                name = mix.name ?: "",
-                                description = mix.description ?: "",
-                                icon = mix.icon ?: "",
-                                color = mix.color ?: Color.Gray,
-                                songs = emptyList()
-                            ),
-                            onPlayMix = { /* TODO: Implement play */ },
-                            onNavigateToMix = { /* TODO: Implement navigation */ },
-                            onShufflePlayMix = {},
-                            onSaveMix = {}
-                        )
-                    }
-                }
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 0.dp)
+        ) {
+            items(dailyMixes) { mix ->
+                DailyMixCard(
+                    mixKey = mix.key,
+                    mixData = MixCardData(
+                        key = mix.key,
+                        name = mix.title,
+                        description = mix.subtitle,
+                        icon = "", // Optionally set a static icon
+                        color = Color.Gray, // Optionally set a static color
+                        songs = emptyList()
+                    ),
+                    onPlayMix = { /* Optionally handle play */ },
+                    onNavigateToMix = { onNavigateToMix(mix.key, mix.title, emptyList()) },
+                    onShufflePlayMix = {},
+                    onSaveMix = {}
+                )
             }
         }
     }
