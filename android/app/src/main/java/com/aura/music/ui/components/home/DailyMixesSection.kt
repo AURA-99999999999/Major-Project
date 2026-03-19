@@ -110,10 +110,12 @@ fun DailyMixesSection(
             }
             response.onSuccess { list ->
                 metaList = list
+                Log.d("DailyMix", "metaList size: ${metaList?.size}")
+                Log.d("DailyMix", "metaList data: $metaList")
                 // Reset per-mix state
                 mixStates.clear()
                 list.forEach { meta ->
-                    mixStates[meta.key ?: ""] = Triple(false, null, null)
+                    mixStates[meta.key ?: "unknown"] = Triple(false, null, null)
                 }
             }.onFailure { exception ->
                 metaError = "Error loading mixes: ${exception.message}"

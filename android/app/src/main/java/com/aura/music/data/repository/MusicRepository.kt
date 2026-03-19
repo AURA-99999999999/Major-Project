@@ -43,7 +43,8 @@ class MusicRepository(
             } else {
                 val response = api.getDailyMixesMeta(uid = uid)
                 val metaList = response
-                    .filter { it.key != null && it.name != null }
+                    // .filter { it.key != null && it.name != null } // Over-filtering removed
+                    .filter { it.name != null } // Only require name, allow null key
                     .map { meta ->
                         com.aura.music.data.model.MixCardMeta(
                             key = meta.key ?: "unknown",
@@ -54,6 +55,7 @@ class MusicRepository(
                         )
                     }
                 android.util.Log.d("DailyMix", "Response: $metaList")
+                android.util.Log.d("DailyMix", "Response size: ${metaList.size}")
                 Result.success(metaList)
             }
         } catch (e: Exception) {
