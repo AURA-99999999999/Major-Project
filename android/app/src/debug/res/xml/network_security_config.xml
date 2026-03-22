@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Production-only HTTPS network security configuration -->
-    <base-config cleartextTrafficPermitted="false">
+    <!-- Debug builds allow HTTP calls to local backend hosts (emulator/LAN). -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
 </network-security-config>
-

@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.ViewModelProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,7 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
-import com.aura.music.data.mapper.toSongs
+import java.util.Calendar
 import com.aura.music.data.model.Song
 import com.aura.music.di.ServiceLocator
 import com.aura.music.player.MusicService
@@ -67,17 +68,46 @@ import com.aura.music.ui.viewmodel.HomeViewModel
 import com.aura.music.ui.viewmodel.LikedSongsViewModel
 import com.aura.music.ui.viewmodel.PlaylistViewModel
 import com.aura.music.ui.viewmodel.ViewModelFactory
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.aura.music.ui.viewmodel.DailyMixViewModel
 
 private fun normalizeMixName(mixKey: String, rawName: String?): String {
     val trimmed = rawName?.trim().orEmpty()
     return when (mixKey) {
-        "dailyMix1" -> if (trimmed.equals("Daily Mix 1", ignoreCase = true) || trimmed.isBlank()) "Favorites Mix" else trimmed
-        "dailyMix2" -> if (trimmed.equals("Daily Mix 2", ignoreCase = true) || trimmed.isBlank()) "Similar Artists Mix" else trimmed
-        "discoverMix" -> if (trimmed.equals("Daily Mix 3", ignoreCase = true) || trimmed.isBlank()) "Discover Mix" else trimmed
-        "moodMix" -> if (trimmed.isBlank()) "Mood Mix" else trimmed
+        "favorites" -> if (trimmed.isBlank()) "Your Favorites" else trimmed
+        "similar" -> if (trimmed.isBlank()) "Similar Artists" else trimmed
+        "discover" -> if (trimmed.isBlank()) "Discover Mix" else trimmed
+        "mood" -> if (trimmed.isBlank()) "Mood Mix" else trimmed
         else -> if (trimmed.isBlank()) "Daily Mix" else trimmed
+    }
+}
+
+private fun normalizeMixType(mixKey: String): String {
+    return when (mixKey.trim().lowercase()) {
+        "dailymix1", "favorites", "focusmix", "focus" -> "favorites"
+        "dailymix2", "similar", "chillmix", "chill" -> "similar"
+        "discovermix", "discover", "energymix", "energy" -> "discover"
+        "moodmix", "mood" -> "mood"
+        else -> mixKey.trim().lowercase()
+    }
+}
+
+private fun moodMixOneLinerByTime(): String {
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when (hour) {
+        in 5..11 -> "Sunrise tunes for a bright start."
+        in 12..16 -> "Midday rhythm, zero stress."
+        in 17..20 -> "Golden hour grooves on repeat."
+        else -> "Night mode melodies, all calm."
+    }
+}
+
+private fun mixOneLinerFor(mixType: String): String {
+    return when (mixType.trim().lowercase()) {
+        "favorites" -> "Your all-time bangers, lined up."
+        "mood" -> moodMixOneLinerByTime()
+        "discover" -> "Fresh finds you will love next."
+        "similar" -> "Artists that match your exact vibe."
+        else -> "Handpicked tracks for this moment."
     }
 }
 
@@ -103,13 +133,14 @@ fun DailyMixDetailScreen(
         factory = ViewModelFactory.create(LocalContext.current.applicationContext as android.app.Application)
     )
     
-    var isLoading by remember { mutableStateOf(true) }
-    var mixName by remember { mutableStateOf("Daily Mix") }
-    var mixDescription by remember { mutableStateOf("") }
-    var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
-    var mixColor by remember { mutableStateOf(Color(0xFF9B87F5)) }
-    var mixIcon by remember { mutableStateOf("🎧") }
-    var error by remember { mutableStateOf<String?>(null) }
+    val dailyMixViewModel: DailyMixViewModel = viewModel(
+        factory = object : ViewModelProvider.Factory {
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                return DailyMixViewModel(ServiceLocator.getMusicRepository()) as T
+            }
+        }
+    )
+    val dailyMixState by dailyMixViewModel.uiState.collectAsState()
     var pendingSongForPlaylist by remember { mutableStateOf<Song?>(null) }
 
     val playlistViewModel: PlaylistViewModel = viewModel(
@@ -123,65 +154,19 @@ fun DailyMixDetailScreen(
     }
 
     LaunchedEffect(mixKey) {
-        isLoading = true
-        try {
-            val repository = ServiceLocator.getMusicRepository()
-            val response = withContext(Dispatchers.IO) {
-                repository.getDailyMixes(refresh = false)
-            }
-            
-            response.onSuccess { dailyMixResponse ->
-                val mixData = when (mixKey) {
-                    "dailyMix1" -> {
-                        mixName = normalizeMixName("dailyMix1", dailyMixResponse.mixes?.dailyMix1?.name)
-                        mixDescription = dailyMixResponse.mixes?.dailyMix1?.description ?: ""
-                        mixColor = Color(0xFF9B87F5)
-                        mixIcon = "🎧"
-                        dailyMixResponse.mixes?.dailyMix1?.songs?.toSongs()
-                    }
-                    "dailyMix2" -> {
-                        mixName = normalizeMixName("dailyMix2", dailyMixResponse.mixes?.dailyMix2?.name)
-                        mixDescription = dailyMixResponse.mixes?.dailyMix2?.description ?: ""
-                        mixColor = Color(0xFF87F5E0)
-                        mixIcon = "🎶"
-                        dailyMixResponse.mixes?.dailyMix2?.songs?.toSongs()
-                    }
-                    "discoverMix" -> {
-                        mixName = normalizeMixName("discoverMix", dailyMixResponse.mixes?.discoverMix?.name)
-                        mixDescription = dailyMixResponse.mixes?.discoverMix?.description ?: ""
-                        mixColor = Color(0xFFF5B787)
-                        mixIcon = "✨"
-                        dailyMixResponse.mixes?.discoverMix?.songs?.toSongs()
-                    }
-                    "moodMix" -> {
-                        mixName = normalizeMixName("moodMix", dailyMixResponse.mixes?.moodMix?.name)
-                        mixDescription = dailyMixResponse.mixes?.moodMix?.description ?: ""
-                        mixColor = Color(0xFFF587B2)
-                        mixIcon = "🌙"
-                        dailyMixResponse.mixes?.moodMix?.songs?.toSongs()
-                    }
-                    else -> emptyList()
-                }
-                
-                songs = mixData ?: emptyList()
-                isLoading = false
-                Log.i("DailyMixDetail", "Loaded mix $mixKey with ${songs.size} songs")
-            }.onFailure { exception ->
-                error = "Failed to load mix: ${exception.message}"
-                isLoading = false
-                Log.e("DailyMixDetail", "Failed to load mix $mixKey", exception)
-            }
-        } catch (e: Exception) {
-            error = "Error: ${e.message}"
-            isLoading = false
-            Log.e("DailyMixDetail", "Exception loading mix $mixKey", e)
-        }
+        val apiMixType = normalizeMixType(mixKey)
+        dailyMixViewModel.loadMix(
+            type = apiMixType,
+            displayNameFallback = normalizeMixName(apiMixType, null),
+            refresh = false
+        )
+        Log.i("DailyMixDetail", "Requested mix type=$apiMixType")
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = mixName, color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(text = dailyMixState.mixName, color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -212,7 +197,7 @@ fun DailyMixDetailScreen(
                 .padding(innerPadding)
         ) {
             when {
-                isLoading -> {
+                dailyMixState.isLoading -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -220,13 +205,13 @@ fun DailyMixDetailScreen(
                         CircularProgressIndicator()
                     }
                 }
-                error != null -> {
+                dailyMixState.error != null -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = error ?: "Unknown error",
+                            text = dailyMixState.error ?: "Unknown error",
                             color = MaterialTheme.colorScheme.error
                         )
                     }
@@ -238,34 +223,34 @@ fun DailyMixDetailScreen(
                         // Header with mix info
                         item {
                             MixHeader(
-                                mixIcon = mixIcon,
-                                mixName = mixName,
-                                mixDescription = mixDescription,
-                                songCount = songs.size,
-                                mixColor = mixColor,
+                                mixIcon = dailyMixState.mixIcon,
+                                mixType = normalizeMixType(mixKey),
+                                mixName = dailyMixState.mixName,
+                                mixDescription = dailyMixState.mixDescription,
+                                mixColor = dailyMixState.mixColor,
                                 onPlayAll = {
-                                    if (songs.isNotEmpty()) {
-                                        musicService?.setQueueAndPlay(songs, 0, "daily_mix_$mixKey")
+                                    if (dailyMixState.songs.isNotEmpty()) {
+                                        musicService?.setQueueAndPlay(dailyMixState.songs, 0, "daily_mix_$mixKey")
                                         onNavigateToPlayer()
                                     }
                                 },
                                 onShufflePlay = {
-                                    homeViewModel.shufflePlayMix(mixKey, songs)
+                                    homeViewModel.shufflePlayMix(mixKey, dailyMixState.songs)
                                     onNavigateToPlayer()
                                 },
                                 onSaveMix = {
-                                    homeViewModel.saveMixToLibrary(mixKey, mixName, songs)
+                                    homeViewModel.saveMixToLibrary(mixKey, dailyMixState.mixName, dailyMixState.songs)
                                 }
                             )
                         }
 
                         // Songs list
-                        itemsIndexed(songs) { index, song ->
+                        itemsIndexed(dailyMixState.songs) { index, song ->
                             DailyMixSongItem(
                                 song = song,
                                 isLiked = likedSongsState.likedSongIds.contains(song.videoId),
                                 onSongClick = {
-                                    musicService?.setQueueAndPlay(songs, index, "daily_mix_$mixKey")
+                                    musicService?.setQueueAndPlay(dailyMixState.songs, index, "daily_mix_$mixKey")
                                     onNavigateToPlayer()
                                 },
                                 onToggleLike = {
@@ -311,9 +296,9 @@ fun DailyMixDetailScreen(
 @Composable
 fun MixHeader(
     mixIcon: String,
+    mixType: String,
     mixName: String,
     mixDescription: String,
-    songCount: Int,
     mixColor: Color,
     onPlayAll: () -> Unit,
     onShufflePlay: () -> Unit = {},
@@ -368,11 +353,11 @@ fun MixHeader(
                         modifier = Modifier.padding(bottom = 6.dp)
                     )
                 }
-                
-                // Song count
+
+                // Catchy one-liner (replaces song count)
                 Text(
-                    text = "$songCount songs",
-                    fontSize = 13.sp,
+                    text = mixOneLinerFor(mixType),
+                    fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.85f),
                     modifier = Modifier.padding(bottom = 20.dp)
                 )

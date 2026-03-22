@@ -2,54 +2,30 @@ package com.aura.music.data.remote.dto
 
 import com.google.gson.annotations.SerializedName
 
-/**
- * Response object for daily mixes endpoint
- * Returns 4 personalized mixes: Favorites, Similar Artists, Discover, Mood
- */
-data class DailyMixResponse(
-    @SerializedName("userId")
-    val userId: String,
-    
-    @SerializedName("timestamp")
-    val timestamp: Long,
-    
-    @SerializedName("cached")
-    val cached: Boolean,
-    
-    @SerializedName("mixes")
-    val mixes: MixesContainer?
+data class DailyMixSongDto(
+    @SerializedName("id")
+    val id: String,
+    @SerializedName("title")
+    val title: String,
+    @SerializedName("artist")
+    val artist: String? = null,
+    @SerializedName("image")
+    val image: String? = null,
+    @SerializedName("stream_url")
+    val streamUrl: String? = null
 )
 
-/**
- * Container for all 4 mixes
- */
-data class MixesContainer(
-    @SerializedName("dailyMix1")
-    val dailyMix1: MixContainer?,
-    
-    @SerializedName("dailyMix2")
-    val dailyMix2: MixContainer?,
-    
-    @SerializedName("discoverMix")
-    val discoverMix: MixContainer?,
-    
-    @SerializedName("moodMix")
-    val moodMix: MixContainer?
-)
-
-/**
- * Individual mix metadata and songs
- */
 data class MixContainer(
-    @SerializedName("name")
-    val name: String,
-    
-    @SerializedName("description")
-    val description: String,
-    
-    @SerializedName("count")
-    val count: Int,
-    
+    @SerializedName("id")
+    val id: String,
+    @SerializedName("title")
+    val title: String,
+    @SerializedName("emoji")
+    val emoji: String? = null,
+    @SerializedName("color")
+    val color: String? = null,
     @SerializedName("songs")
-    val songs: List<SongDto>?
+    val songs: List<DailyMixSongDto> = emptyList(),
+    @SerializedName("count")
+    val count: Int = 0
 )

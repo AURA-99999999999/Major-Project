@@ -66,9 +66,10 @@ object ServiceLocator {
             okHttpClient = OkHttpClient.Builder()
                 .addInterceptor(AppInterceptor())
                 .addInterceptor(loggingInterceptor)
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .writeTimeout(30, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .connectTimeout(60, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
                 .build()
 
             // Initialize Retrofit with base URL from BuildConfig

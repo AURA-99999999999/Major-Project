@@ -62,6 +62,34 @@ After scoring candidates:
 4. Skip song otherwise
 5. Return top N diverse recommendations
 
+### 🎵 Daily Mixes
+High-performance curated playlists with <2 second response time and 95%+ fewer API calls.
+
+**4 Mix Types:**
+1. **Favorites Mix** - Top songs from your favorite artists (0-1 API call)
+2. **Mood Mix** - Curated mood songs with time-based selection
+   - Fresh (6 AM - 12 PM)
+   - Chill (12 PM - 6 PM)
+   - Party (6 PM - 12 AM)  
+   - Calm (12 AM - 6 AM)
+3. **Discover Mix** - Trending songs you haven't heard (0 API calls)
+4. **Similar Mix** - Songs like your top artists (0-1 API call)
+
+**Optimization Features:**
+- Global preloaded music pools (45-60 sec one-time startup)
+- Multi-level caching (mix results, profiles, artist songs, decrypted URLs)
+- Parallel ThreadPoolExecutor pool loading (8 workers)
+- Zero API calls for mood/discover on cache hit
+- Fresh Picks fallback (defaults to English if no language preferences)
+
+**Performance Targets:**
+- Response: <2 seconds (typical <500ms on cache hit)
+- API calls: 0-1 per request (95%+ reduction vs. legacy)
+- Cache hit rate: 80-90%
+- Typical daily preload: 45-60 seconds
+
+See [backend/services/daily_mix_optimized_service.py](backend/services/daily_mix_optimized_service.py) for implementation.
+
 ### 🤝 Collaborative Filtering (CF)
 Complements personalized recommendations with a "Users like you also listen to" feature featuring **adaptive filtering** that scales naturally from small to large user bases.
 

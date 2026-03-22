@@ -38,56 +38,69 @@ class MusicRepository(
      */
     suspend fun getDailyMixesMeta(): Result<List<com.aura.music.data.model.MixCardMeta>> {
         return try {
-            val uid = FirebaseAuth.getInstance().currentUser?.uid
-            if (uid.isNullOrBlank() || uid == "guest") {
-                Result.failure(Exception("User not authenticated"))
-            } else {
-                val response = api.getDailyMixesMeta(uid = uid)
-                // Map List<DailyMixMetaDto> to List<MixCardMeta>
-                val mapped = response.toMixCardMetaList()
-                android.util.Log.d("DailyMix", "Meta response: $mapped")
-                Result.success(mapped)
-            }
+            val response = api.getDailyMixesMeta()
+            val mapped = response.toMixCardMetaList()
+            android.util.Log.d("DailyMix", "Meta response: $mapped")
+            Result.success(mapped)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     /**
-     * Fetch songs for a single daily mix by type (e.g., "favorites", "similar", "discover", "mood")
+        * Fetch songs for a single daily mix by type (e.g., "focus", "chill", "energy")
      */
     suspend fun getDailyMixSongs(type: String, refresh: Boolean = false): Result<com.aura.music.data.model.MixCardData> {
         return try {
             val uid = FirebaseAuth.getInstance().currentUser?.uid
             if (uid.isNullOrBlank() || uid == "guest") {
-                Result.failure(Exception("User not authenticated"))
-            } else {
-                val mix = api.getDailyMix(type = type, uid = uid, refresh = refresh)
-                Result.success(
-                    com.aura.music.data.model.MixCardData(
-                        key = type,
-                        name = mix.name,
-                        description = mix.description,
-                        icon = when (type) {
-                            "favorites" -> "\uD83C\uDFB5"
-                            "similar" -> "\uD83C\uDFB6"
-                            "discover" -> "\u2728"
-                            "mood" -> "\uD83C\uDF19"
-                            else -> "\uD83C\uDFB5"
-                        },
-                        color = when (type) {
-                            "favorites" -> androidx.compose.ui.graphics.Color(0xFF9B87F5)
-                            "similar" -> androidx.compose.ui.graphics.Color(0xFF87F5E0)
-                            "discover" -> androidx.compose.ui.graphics.Color(0xFFF5B787)
-                            "mood" -> androidx.compose.ui.graphics.Color(0xFFF587B2)
-                            else -> androidx.compose.ui.graphics.Color(0xFF9B87F5)
-                        },
-                        songs = mix.songs?.map { it.toSong() } ?: emptyList()
-                    )
+                return Result.failure(Exception("User not authenticated"))
+            }
+
+            val mix = api.getDailyMix(type = type, uid = uid, refresh = refresh)
+            val songs: List<Song> = mix.songs.map { item ->
+                Song(
+                    videoId = item.id,
+                    title = item.title,
+                    artist = item.artist,
+                    artists = item.artist?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() },
+                    thumbnail = item.image,
+                    duration = null,
+                    url = item.streamUrl ?: "",
+                    album = null,
+                    artistId = null,
+                    playCount = 0,
+                    language = "unknown",
+                    year = "unknown",
+                    starring = null
                 )
             }
+
+            Result.success(
+                com.aura.music.data.model.MixCardData(
+                    key = mix.id,
+                    name = mix.title,
+                    description = "",
+                    icon = mix.emoji ?: "\u2764\uFE0F",
+                    color = parseColorOrDefault(mix.color),
+                    songs = songs
+                )
+            )
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private fun parseColorOrDefault(colorHex: String?): androidx.compose.ui.graphics.Color {
+        return try {
+            val value = colorHex?.removePrefix("#") ?: return androidx.compose.ui.graphics.Color(0xFF9B87F5)
+            when (value.length) {
+                6 -> androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor("#$value"))
+                8 -> androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor("#$value"))
+                else -> androidx.compose.ui.graphics.Color(0xFF9B87F5)
+            }
+        } catch (_: Exception) {
+            androidx.compose.ui.graphics.Color(0xFF9B87F5)
         }
     }
     private fun toTrackingSongPayload(song: Song): Map<String, Any> {
@@ -480,21 +493,6 @@ class MusicRepository(
             }
         } catch (e: Exception) {
             safeLog { Log.e(TAG, "getTopArtists() exception", e) }
-            Result.failure(e)
-        }
-    }
-
-    suspend fun getDailyMixes(refresh: Boolean = false): Result<com.aura.music.data.remote.dto.DailyMixResponse> {
-        return try {
-            val uid = FirebaseAuth.getInstance().currentUser?.uid
-            if (uid.isNullOrBlank() || uid == "guest") {
-                Result.failure(Exception("User not authenticated"))
-            } else {
-                safeLog { Log.d(TAG, "getDailyMixes() uid=$uid refresh=$refresh") }
-                Result.success(api.getDailyMixes(uid = uid, refresh = refresh))
-            }
-        } catch (e: Exception) {
-            safeLog { Log.e(TAG, "getDailyMixes() exception", e) }
             Result.failure(e)
         }
     }

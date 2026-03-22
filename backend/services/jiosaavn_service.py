@@ -29,7 +29,7 @@ JIOSAAVN_LYRICS_BASE = "https://www.jiosaavn.com/api.php?__call=lyrics.getLyrics
 SAAVN_SUMIT_BASE = "https://saavn.sumit.co/api"
 
 # Network tuning for flaky upstream endpoints.
-HTTP_TIMEOUT = (8, 20)  # (connect_timeout, read_timeout)
+HTTP_TIMEOUT = 5
 
 # Shared session for connection pooling
 session = requests.Session()

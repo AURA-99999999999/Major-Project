@@ -3,7 +3,6 @@ package com.aura.music.data.remote
 import com.aura.music.data.remote.dto.AlbumDetailResponse
 import com.aura.music.data.remote.dto.ArtistNameDetailResponse
 import com.aura.music.data.remote.dto.ApiResponse
-import com.aura.music.data.remote.dto.DailyMixResponse
 import com.aura.music.data.remote.dto.HealthDto
 import com.aura.music.data.remote.dto.HomeResponseDto
 import com.aura.music.data.remote.dto.LoginRequest
@@ -129,21 +128,12 @@ interface MusicApi {
         @Query("limit") limit: Int = 10
     ): TopArtistsResponse
 
-    // Daily Mixes - 4 personalized playlists: Favorites, Similar Artists, Discover, Mood
-    @GET("api/daily-mixes")
-    suspend fun getDailyMixes(
-        @Query("uid") uid: String,
-        @Query("refresh") refresh: Boolean = false
-    ): DailyMixResponse
-
-    // New: Daily Mixes Metadata (no songs)
+    // Daily Mix metadata (lightweight)
     @GET("api/daily-mixes/meta")
-    suspend fun getDailyMixesMeta(
-        @Query("uid") uid: String
-    ): List<com.aura.music.data.remote.dto.DailyMixMetaDto>
+    suspend fun getDailyMixesMeta(): List<com.aura.music.data.remote.dto.DailyMixMetaDto>
 
-    // New: Per-mix endpoint (songs for a single mix)
-    @GET("api/daily-mix/{type}")
+    // Per-mix endpoint (songs loaded on demand)
+    @GET("api/daily-mixes/{type}")
     suspend fun getDailyMix(
         @Path("type") type: String,
         @Query("uid") uid: String,

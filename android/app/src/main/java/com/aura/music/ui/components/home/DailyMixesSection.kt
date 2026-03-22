@@ -1,11 +1,6 @@
 
 package com.aura.music.ui.components.home
 
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
-
-import android.util.Log
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -36,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,24 +43,66 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.aura.music.data.mapper.toSongs
 import com.aura.music.data.model.Song
 import com.aura.music.di.ServiceLocator
 import com.aura.music.ui.theme.ColorBlendingUtils
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.aura.music.data.model.MixCardMeta
 import com.aura.music.data.model.MixCardData
 import androidx.compose.ui.graphics.Brush
+import java.util.Calendar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private fun normalizeMixName(mixKey: String, rawName: String?): String {
     val trimmed = rawName?.trim().orEmpty()
     return when (mixKey) {
-        "dailyMix1" -> if (trimmed.equals("Daily Mix 1", ignoreCase = true) || trimmed.isBlank()) "Favorites Mix" else trimmed
-        "dailyMix2" -> if (trimmed.equals("Daily Mix 2", ignoreCase = true) || trimmed.isBlank()) "Similar Artists Mix" else trimmed
-        "discoverMix" -> if (trimmed.equals("Daily Mix 3", ignoreCase = true) || trimmed.isBlank()) "Discover Mix" else trimmed
-        "moodMix" -> if (trimmed.isBlank()) "Mood Mix" else trimmed
+        "favorites" -> if (trimmed.isBlank()) "Your Favorites" else trimmed
+        "similar" -> if (trimmed.isBlank()) "Similar Artists" else trimmed
+        "discover" -> if (trimmed.isBlank()) "Discover Mix" else trimmed
+        "mood" -> if (trimmed.isBlank()) "Mood Mix" else trimmed
         else -> trimmed
+    }
+}
+
+private fun moodMixDescriptionByTime(): String {
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when (hour) {
+        in 5..11 -> "Soft sunrise sounds."
+        in 12..16 -> "Midday glow, steady flow."
+        in 17..20 -> "Sunset vibes, easy mind."
+        else -> "Late-night lights, mellow nights."
+    }
+}
+
+private fun mixDescriptionFor(mixKey: String, rawSubtitle: String?): String {
+    val subtitle = rawSubtitle?.trim().orEmpty()
+    val normalizedKey = mixKey.trim().lowercase()
+
+    // Always keep Mood Mix contextual and time-aware.
+    if (normalizedKey == "mood") return moodMixDescriptionByTime()
+
+    if (subtitle.isNotBlank()) return subtitle
+
+    return when (normalizedKey) {
+        "favorites" -> "Only your forever tracks."
+        "discover" -> "New gems, zero skips."
+        "similar" -> "Artists you will instantly vibe with."
+        else -> "Fresh sound for right now."
+    }
+}
+
+private fun mixEmojiFor(mixKey: String, backendEmoji: String?): String {
+    return when (mixKey.trim().lowercase()) {
+        "mood" -> "\uD83C\uDF19"
+        else -> backendEmoji ?: "\uD83C\uDFB5"
+    }
+}
+
+private fun mixColorFor(mixKey: String, backendColorHex: String?): String? {
+    return when (mixKey.trim().lowercase()) {
+        "discover" -> "#3A86FF"
+        else -> backendColorHex
     }
 }
 
@@ -86,29 +124,35 @@ fun DailyMixesSection(
     onShufflePlayMix: (String, List<Song>) -> Unit = { _, _ -> },
     onSaveMix: (String, String, List<Song>) -> Unit = { _, _, _ -> }
 ) {
-    // --- Daily Mixes Section: Static Cards, No API on Home ---
-    val dailyMixes = listOf(
-        MixCardMeta(
-            key = "favorites",
-            title = "Your Favorites",
-            subtitle = "Based on your listening"
-        ),
-        MixCardMeta(
-            key = "mood",
-            title = "Mood Mix",
-            subtitle = "Changes throughout the day"
-        ),
-        MixCardMeta(
-            key = "discover",
-            title = "Discover Mix",
-            subtitle = "New songs for you"
-        ),
-        MixCardMeta(
-            key = "similar",
-            title = "Similar Artists",
-            subtitle = "Based on your taste"
-        )
-    )
+    val repository = remember { ServiceLocator.getMusicRepository() }
+    val scope = rememberCoroutineScope()
+    var dailyMixes by remember { mutableStateOf<List<MixCardMeta>>(emptyList()) }
+    var mixSongsCache by remember { mutableStateOf<Map<String, List<Song>>>(emptyMap()) }
+
+    LaunchedEffect(userId) {
+        val result = withContext(Dispatchers.IO) { repository.getDailyMixesMeta() }
+        dailyMixes = result.getOrElse {
+            listOf(
+                MixCardMeta(key = "favorites", title = "Your Favorites", subtitle = "", emoji = "\u2764\uFE0F", colorHex = "#FF6B6B"),
+                MixCardMeta(key = "mood", title = "Mood Mix", subtitle = "", emoji = "\uD83C\uDF19", colorHex = "#6C5CE7"),
+                MixCardMeta(key = "discover", title = "Discover Mix", subtitle = "", emoji = "\u2728", colorHex = "#3A86FF"),
+                MixCardMeta(key = "similar", title = "Similar Artists", subtitle = "", emoji = "\uD83C\uDFA4", colorHex = "#4ECDC4")
+            )
+        }
+    }
+
+    fun getCachedSongs(mixKey: String): List<Song>? = mixSongsCache[mixKey]
+
+    suspend fun loadSongsForMix(mixKey: String): List<Song> {
+        getCachedSongs(mixKey)?.let { return it }
+
+        val result = withContext(Dispatchers.IO) { repository.getDailyMixSongs(mixKey) }
+        val songs = result.getOrNull()?.songs.orEmpty()
+        if (songs.isNotEmpty()) {
+            mixSongsCache = mixSongsCache + (mixKey to songs)
+        }
+        return songs
+    }
 
     Column(
         modifier = Modifier
@@ -135,25 +179,49 @@ fun DailyMixesSection(
                     mixData = MixCardData(
                         key = mix.key,
                         name = mix.title,
-                        description = mix.subtitle,
-                        icon = "", // No icon in MixCardMeta
-                        color = Color.Gray, // No color in MixCardMeta
+                        description = mixDescriptionFor(mix.key, mix.subtitle),
+                        icon = mixEmojiFor(mix.key, mix.emoji),
+                        color = parseHexColor(mixColorFor(mix.key, mix.colorHex), fallback = Color(0xFF9B87F5)),
                         songs = emptyList()
                     ),
-                    onPlayMix = { /* Optionally handle play */ },
+                    onPlayMix = {
+                        scope.launch {
+                            val songs = loadSongsForMix(mix.key)
+                            onPlayMix(mix.key, songs)
+                        }
+                    },
                     onNavigateToMix = { onNavigateToMix(mix.key, mix.title, emptyList()) },
-                    onShufflePlayMix = {},
-                    onSaveMix = {}
+                    onShufflePlayMix = {
+                        scope.launch {
+                            val songs = loadSongsForMix(mix.key)
+                            onShufflePlayMix(mix.key, songs)
+                        }
+                    },
+                    onSaveMix = {
+                        scope.launch {
+                            val songs = loadSongsForMix(mix.key)
+                            onSaveMix(mix.key, mix.title, songs)
+                        }
+                    }
                 )
             }
         }
     }
 }
 
+private fun parseHexColor(hex: String?, fallback: Color): Color {
+    return try {
+        if (hex.isNullOrBlank()) return fallback
+        Color(android.graphics.Color.parseColor(hex))
+    } catch (_: Exception) {
+        fallback
+    }
+}
+
 /**
  * Individual mix card component
  * - 160x200dp card with gradient background
- * - Shows mix name, description, song count
+ * - Shows mix name and description
  * - Play button with semi-transparent overlay
  * - Shuffle play and save mix options
  */
@@ -187,7 +255,7 @@ fun DailyMixCard(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Header: Icon, name, song count
+            // Header: Icon, name, description
             Column {
                 // Icon
                 Text(
@@ -206,11 +274,13 @@ fun DailyMixCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // Song count
                 Text(
-                    text = "${mixData.songs.size} songs",
+                    text = mixData.description,
                     fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.8f),
+                    lineHeight = 12.sp,
+                    color = Color.White.copy(alpha = 0.82f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -218,7 +288,8 @@ fun DailyMixCard(
             // Action buttons
             Row(
                 modifier = Modifier
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Play button

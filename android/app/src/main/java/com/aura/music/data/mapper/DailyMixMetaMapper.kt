@@ -5,9 +5,11 @@ import com.aura.music.data.remote.dto.DailyMixMetaDto
 
 fun DailyMixMetaDto.toMixCardMeta(): MixCardMeta {
     return MixCardMeta(
-        key = key ?: "",
-        title = name ?: "",
-        subtitle = description ?: ""
+        key = id ?: "",
+        title = title ?: "",
+        subtitle = "",
+        emoji = emoji,
+        colorHex = color
     )
 }
 

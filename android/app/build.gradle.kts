@@ -1,8 +1,40 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("com.google.gms.google-services")
+}
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun normalizeBaseUrl(raw: String): String {
+    val trimmed = raw.trim()
+    return if (trimmed.endsWith("/")) trimmed else "$trimmed/"
+}
+
+val productionBaseUrl = "https://aura-b7vm.onrender.com/"
+val emulatorBaseUrl = normalizeBaseUrl(
+    localProperties.getProperty("API_BASE_URL_EMULATOR", productionBaseUrl)
+)
+val deviceBaseUrl = normalizeBaseUrl(
+    localProperties.getProperty("API_BASE_URL_DEVICE", productionBaseUrl)
+)
+val customBaseUrl = normalizeBaseUrl(
+    localProperties.getProperty("API_BASE_URL_CUSTOM", deviceBaseUrl)
+)
+val apiEnv = (localProperties.getProperty("API_ENV", "PRODUCTION")).trim().uppercase()
+val debugBaseUrl = when (apiEnv) {
+    "DEVICE" -> deviceBaseUrl
+    "CUSTOM" -> customBaseUrl
+    "PRODUCTION", "PROD" -> productionBaseUrl
+    else -> productionBaseUrl
 }
 
 android {
@@ -24,10 +56,12 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "BASE_URL", "\"https://aura-b7vm.onrender.com/\"")
+            buildConfigField("String", "BASE_URL", "\"$debugBaseUrl\"")
+            buildConfigField("String", "API_ENV", "\"PRODUCTION\"")
         }
         release {
-            buildConfigField("String", "BASE_URL", "\"https://aura-b7vm.onrender.com/\"")
+            buildConfigField("String", "BASE_URL", "\"$productionBaseUrl\"")
+            buildConfigField("String", "API_ENV", "\"PRODUCTION\"")
         }
     }
 
