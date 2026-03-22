@@ -1,7 +1,5 @@
 package com.aura.music.data.remote
 
-import com.aura.music.BuildConfig
-
 enum class ApiEnvironment {
     EMULATOR,
     DEVICE,
@@ -9,7 +7,13 @@ enum class ApiEnvironment {
 }
 
 object NetworkConfig {
-    val activeBaseUrl: String = BuildConfig.BASE_URL
+    const val activeBaseUrl: String = "https://aura-b7vm.onrender.com/"
+
+    init {
+        require(activeBaseUrl.startsWith("https://")) { "BASE URL must use HTTPS" }
+        require(activeBaseUrl.endsWith("/")) { "BASE URL must end with '/'" }
+    }
+
     fun description(): String = "baseUrl=$activeBaseUrl"
 }
 

@@ -16,6 +16,7 @@ import com.aura.music.data.repository.LanguagePreferencesRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -138,6 +139,18 @@ object ServiceLocator {
                 Log.i(TAG, "Status: ${response.status}")
                 Log.i(TAG, "Service: ${response.service}")
                 Log.i(TAG, "========================================")
+
+                // Force test API call with retry for Render cold starts.
+                repeat(2) { attempt ->
+                    try {
+                        val trendingResponse = musicApi!!.getTrending(limit = 1, uid = null)
+                        Log.i(TAG, "API_TEST /api/trending success attempt=${attempt + 1} count=${trendingResponse.count}")
+                        return@launch
+                    } catch (e: Exception) {
+                        Log.w(TAG, "API_TEST /api/trending failed attempt=${attempt + 1}: ${e.message}")
+                        delay(2000)
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "========================================")
                 Log.e(TAG, "Backend Health Check: FAILED")

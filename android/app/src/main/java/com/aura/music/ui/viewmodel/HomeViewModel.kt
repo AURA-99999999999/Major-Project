@@ -15,6 +15,7 @@ import com.aura.music.data.repository.FirestoreRepository
 import com.aura.music.data.mapper.toSongs
 import com.aura.music.player.MusicService
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -148,6 +149,28 @@ class HomeViewModel(
     init {
         observeAuthStateChanges()
         observeRecentlyPlayed()
+        runApiConnectivityTest()
+    }
+
+    private fun runApiConnectivityTest() {
+        viewModelScope.launch {
+            repeat(2) { attempt ->
+                try {
+                    val result = repository.getTrending(limit = 1)
+                    result
+                        .onSuccess { songs ->
+                            Log.d(TAG, "API_TEST success attempt=${attempt + 1} count=${songs.size}")
+                        }
+                        .onFailure { err ->
+                            Log.e(TAG, "API_TEST failed attempt=${attempt + 1}: ${err.message}")
+                        }
+                    return@launch
+                } catch (e: Exception) {
+                    Log.e(TAG, "API_TEST exception attempt=${attempt + 1}: ${e.message}", e)
+                    delay(2000)
+                }
+            }
+        }
     }
 
     /**
