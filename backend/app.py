@@ -95,9 +95,25 @@ except Exception as exc:
 # FRESH PICKS CONFIGURATION
 # ============================================
 FRESH_PICKS_CACHE_TTL_SECONDS = 10 * 60  # Cache fresh picks for 10 minutes
-FRESH_PICKS_INTERNATIONAL_QUERY = "International: India superhits top 50"
-FRESH_PICKS_MAX_RESULTS = 50  # Maximum songs to fetch per fresh picks request
+FRESH_PICKS_MAX_RESULTS = 15  # Maximum songs to return (hard limit)
+FRESH_PICKS_MAX_PLAYLIST_FETCHES = 2  # Max playlists to fetch per request
 _fresh_picks_cache: Dict[str, Any] = {}  # In-memory cache for fresh picks by language
+
+# English-specific queries to find best playlists
+FRESH_PICKS_ENGLISH_QUERIES = [
+    "international hits",
+    "english trending songs",
+    "global top songs",
+    "english pop hits",
+]
+
+# Language-specific queries for other languages
+FRESH_PICKS_LANGUAGE_QUERIES = {
+    "hindi": ["hindi trending songs", "hindi hits", "hindi top songs"],
+    "telugu": ["telugu trending songs", "telugu hits", "telugu top songs"],
+    "tamil": ["tamil trending songs", "tamil hits"],
+    "kannada": ["kannada trending songs", "kannada hits"],
+}
 
 
 # ============================================
@@ -445,101 +461,62 @@ def _to_minimal_fresh_pick(song: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _search_playlists_by_query(query: str, limit: int = 3) -> List[Dict[str, Any]]:
+def _search_playlists_by_query(query: str, limit: int = 3) -> List[Dict[str, str]]:
+    """Search for playlists and return list of playlist IDs using JioSaavn API."""
     if not query or not query.strip():
         return []
 
     try:
-        url = jio_api.JIOSAAVN_SEARCH_BASE + query
-        response = jio_api.session.get(url, timeout=jio_api.HTTP_TIMEOUT)
-        response_text = response.text.encode().decode("unicode-escape")
-        response_text = re.sub(r'\(From "([^"]+)"\)', r"(From '\\1')", response_text)
-
-        data = json.loads(response_text)
-        playlists_data = []
-        if isinstance(data.get("playlists"), dict):
-            playlists_data = data["playlists"].get("data", [])
-        elif isinstance(data.get("playlists"), list):
-            playlists_data = data["playlists"]
-
-        return playlists_data[:limit]
+        playlists = jio_api.search_playlists_jiosaavn(query, limit=limit)
+        return playlists
     except Exception as exc:
         logger.warning("Fresh picks playlist search failed for '%s': %s", query, exc)
         return []
 
 
-def _extract_playlist_url(playlist: Dict[str, Any]) -> str:
-    if not isinstance(playlist, dict):
-        return ""
-
-    # Autocomplete payload typically exposes url; some responses may include perma_url.
-    return str(playlist.get("url") or playlist.get("perma_url") or "").strip()
-
-
-def _pick_first_playlist_url(query: str, preferred_language: str | None = None) -> str:
-    playlists = _search_playlists_by_query(query, limit=3)
-
-    normalized_pref = str(preferred_language or "").strip().lower()
-    if normalized_pref:
-        best_url = ""
-        best_score = -1
-        for playlist in playlists:
-            playlist_url = _extract_playlist_url(playlist)
-            if not playlist_url:
-                continue
-
-            haystack = " ".join([
-                str(playlist.get("title") or ""),
-                str(playlist.get("url") or ""),
-                str(playlist.get("perma_url") or ""),
-                str(playlist.get("subtitle") or ""),
-            ]).lower()
-
-            if normalized_pref == "english":
-                score = 0
-                if "international" in haystack or "english" in haystack:
-                    score = 3
-
-                if score > best_score:
-                    best_score = score
-                    best_url = playlist_url
-            else:
-                if normalized_pref in haystack:
-                    return playlist_url
-
-        if normalized_pref == "english":
-            if best_score > 0 and best_url:
-                return best_url
-            return ""
-
-    for playlist in playlists:
-        playlist_url = _extract_playlist_url(playlist)
-        if playlist_url:
-            return playlist_url
-    return ""
-
-
-def _fetch_playlist_song_dtos(playlist_url: str) -> List[Dict[str, Any]]:
-    if not playlist_url:
+def _fetch_playlist_songs_by_id(playlist_id: str, limit: int = 15) -> List[Dict[str, Any]]:
+    """Fetch songs from playlist by ID and return as song DTOs."""
+    if not playlist_id or not playlist_id.strip():
         return []
+    
     try:
-        raw_songs = jiosaavn_service.get_playlist_songs_from_url(playlist_url)[:50]
-        return [_to_song_dto(song) for song in raw_songs]
+        playlist_data = jio_api.get_playlist_details(playlist_id)
+        if not playlist_data:
+            logger.warning("No playlist data for ID '%s'", playlist_id)
+            return []
+        
+        songs = playlist_data.get('songs', [])
+        if not isinstance(songs, list):
+            logger.warning("Songs in playlist '%s' is not a list: %s", playlist_id, type(songs))
+            songs = []
+        
+        logger.debug(f"Converting {len(songs)} songs to DTOs, limit={limit}")
+        
+        # Convert to DTOs and return
+        song_dtos = []
+        for i, song in enumerate(songs[:limit]):
+            try:
+                dto = _to_song_dto(song)
+                song_dtos.append(dto)
+            except Exception as song_exc:
+                logger.debug(f"Failed to convert song {i} to DTO: {song_exc}")
+                continue
+        
+        logger.debug(f"Converted {len(song_dtos)} DTOs from playlist '{playlist_id}'")
+        return song_dtos
     except Exception as exc:
-        logger.warning("Fresh picks playlist fetch failed for '%s': %s", playlist_url, exc)
+        logger.error("Fresh picks playlist fetch failed for ID '%s': %s", playlist_id, exc)
         return []
 
 
-def _fresh_picks_queries_for_language(language: str) -> List[str]:
+def _get_fresh_picks_queries_for_language(language: str) -> List[str]:
+    """Get playlist search queries for the given language."""
     normalized = str(language or "").strip().lower()
-    if normalized == "english":
-        # English uses the dedicated international query first.
-        # Fallback search improves discovery of the same international playlist.
-        return [
-            FRESH_PICKS_INTERNATIONAL_QUERY,
-            "english: India superhits top 50",
-        ]
-    return [f"{normalized}: India superhits top 50"]
+    
+    if normalized == "english" or normalized == "eng" or normalized == "en":
+        return FRESH_PICKS_ENGLISH_QUERIES
+    
+    return FRESH_PICKS_LANGUAGE_QUERIES.get(normalized, [f"{normalized} trending songs", f"{normalized} hits"])
 
 
 def _song_matches_preferred_language(song_language: str, preferred_language: str) -> bool:
@@ -560,6 +537,16 @@ def _song_matches_preferred_language(song_language: str, preferred_language: str
 
 
 def _compute_fresh_picks(user_languages: List[str], limit: int) -> List[Dict[str, Any]]:
+    """
+    Compute fresh picks using playlist-first JioSaavn approach.
+    
+    Strategy:
+    1. For each language, search for playlists matching language-specific queries
+    2. Fetch songs from up to 2 playlists per language (enforced budget)
+    3. Filter songs by matching language tags
+    4. Merge results with round-robin for balanced representation
+    5. Return up to FRESH_PICKS_MAX_RESULTS songs
+    """
     normalized_languages = _normalize_user_languages(user_languages)
     if not normalized_languages:
         return []
@@ -567,40 +554,62 @@ def _compute_fresh_picks(user_languages: List[str], limit: int) -> List[Dict[str
     songs_by_language: Dict[str, List[Dict[str, Any]]] = {lang: [] for lang in normalized_languages}
     per_language_seen_ids: Dict[str, set[str]] = {lang: set() for lang in normalized_languages}
 
-    # One playlist search + one playlist fetch per selected language.
+    # Playlist-first approach: search for playlists, then fetch songs
     for language in normalized_languages:
-        playlist_url = ""
-        for query in _fresh_picks_queries_for_language(language):
-            playlist_url = _pick_first_playlist_url(query, preferred_language=language)
-            if playlist_url:
+        playlist_fetch_budget = FRESH_PICKS_MAX_PLAYLIST_FETCHES
+        
+        # Try each query for this language
+        for query in _get_fresh_picks_queries_for_language(language):
+            if playlist_fetch_budget <= 0:
+                break
+            
+            # Search for playlists matching this query
+            playlists = _search_playlists_by_query(query, limit=5)
+            if not playlists:
+                continue
+            
+            # Fetch songs from each playlist (respect budget)
+            for playlist in playlists:
+                if playlist_fetch_budget <= 0:
+                    break
+                
+                playlist_id = str(playlist.get('id', '')).strip()
+                if not playlist_id:
+                    continue
+                
+                # Fetch songs from this playlist
+                songs = _fetch_playlist_songs_by_id(playlist_id, limit=10)
+                playlist_fetch_budget -= 1
+                
+                # Add songs to language bucket
+                for song in songs:
+                    song_id = str(song.get("videoId") or song.get("id") or "").strip()
+                    if not song_id:
+                        continue
+                    
+                    song_language = str(song.get("language") or "").strip().lower()
+                    
+                    # Skip if language doesn't match
+                    if not _song_matches_preferred_language(song_language, language):
+                        continue
+                    
+                    # Skip if already seen
+                    if song_id in per_language_seen_ids[language]:
+                        continue
+                    
+                    per_language_seen_ids[language].add(song_id)
+                    songs_by_language[language].append(song)
+            
+            # If we have enough songs from this query, stop searching
+            if len(songs_by_language[language]) >= 10:
                 break
 
-        if not playlist_url:
-            continue
-
-        songs = _fetch_playlist_song_dtos(playlist_url)
-        for song in songs:
-            song_id = str(song.get("videoId") or song.get("id") or "").strip()
-            if not song_id:
-                continue
-
-            song_language = str(song.get("language") or "").strip().lower()
-            # Keep each language bucket pure, with English alias handling.
-            if not _song_matches_preferred_language(song_language, language):
-                continue
-
-            if song_id in per_language_seen_ids[language]:
-                continue
-
-            per_language_seen_ids[language].add(song_id)
-            songs_by_language[language].append(song)
-
+    # Merge songs with round-robin for balanced representation
     final_count = max(10, min(limit, FRESH_PICKS_MAX_RESULTS))
     final_songs: List[Dict[str, Any]] = []
     global_seen_ids: set[str] = set()
     cursor = {lang: 0 for lang in normalized_languages}
 
-    # Deterministic round-robin merge so multiple selected languages are represented.
     while len(final_songs) < final_count:
         added_in_round = False
         for language in normalized_languages:

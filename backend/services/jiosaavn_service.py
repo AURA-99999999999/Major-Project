@@ -449,6 +449,47 @@ def search_all_categories(query: str, limit: int = 20) -> Dict[str, Any]:
         return {"songs": [], "albums": [], "playlists": []}
 
 
+def search_playlists_jiosaavn(query: str, limit: int = 5) -> List[Dict[str, str]]:
+    """
+    Search for playlists using JioSaavn API and return playlist IDs and metadata.
+    
+    Returns list of dicts with 'id', 'title', 'subtitle' keys.
+    """
+    if not query or not query.strip():
+        return []
+    
+    logger.info(f"Searching JioSaavn playlists for: {query}")
+    
+    try:
+        url = JIOSAAVN_SEARCH_BASE + query
+        response = session.get(url, timeout=HTTP_TIMEOUT)
+        data = _parse_json_response(response.text, f"search_playlists:{query}")
+        if not isinstance(data, dict):
+            return []
+        
+        playlists_data = []
+        if isinstance(data.get('playlists'), dict):
+            playlists_data = data['playlists'].get('data', [])
+        elif isinstance(data.get('playlists'), list):
+            playlists_data = data['playlists']
+        
+        result = []
+        for playlist in playlists_data[:limit]:
+            if isinstance(playlist, dict) and 'id' in playlist:
+                result.append({
+                    'id': str(playlist.get('id', '')),
+                    'title': str(playlist.get('title', '')),
+                    'subtitle': str(playlist.get('subtitle', '')),
+                    'image': str(playlist.get('image', '')),
+                })
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to search playlists in JioSaavn for '{query}': {e}")
+        return []
+
+
 def get_song_details(song_id: str, include_lyrics: bool = False) -> Optional[Dict[str, Any]]:
     """Get detailed song information by ID."""
     if not song_id:
