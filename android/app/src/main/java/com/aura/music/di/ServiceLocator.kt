@@ -75,6 +75,7 @@ object ServiceLocator {
 
             // Initialize Retrofit with base URL from BuildConfig
             val baseUrl = NetworkConfig.activeBaseUrl
+            Log.d("API", "Calling: $baseUrl")
             safeLog {
                 Log.i(TAG, "========================================")
                 Log.i(TAG, "Initializing Network Client")

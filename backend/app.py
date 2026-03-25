@@ -4,6 +4,7 @@
 
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
+import argparse
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ import re
 import sys
 import time
 from typing import Any, Dict, List
-from config import BASE_URL, PORT
+from config import PORT
 
 from services.jiosaavn_service import JioSaavnService
 import services.jiosaavn_service as jio_api
@@ -98,6 +99,15 @@ FRESH_PICKS_CACHE_TTL_SECONDS = 10 * 60  # Cache fresh picks for 10 minutes
 FRESH_PICKS_MAX_RESULTS = 15  # Maximum songs to return (hard limit)
 FRESH_PICKS_MAX_PLAYLIST_FETCHES = 2  # Max playlists to fetch per request
 _fresh_picks_cache: Dict[str, Any] = {}  # In-memory cache for fresh picks by language
+cache: Dict[str, Any] = {}
+
+
+def get_cached(key: str) -> Any:
+    return cache.get(key)
+
+
+def set_cache(key: str, value: Any) -> None:
+    cache[key] = value
 
 # English-specific queries to find best playlists
 FRESH_PICKS_ENGLISH_QUERIES = [
@@ -641,7 +651,7 @@ def _get_fresh_picks(user_languages: List[str], limit: int) -> List[Dict[str, An
         return []
 
     cache_key = _fresh_picks_cache_key(normalized_languages)
-    cached = _fresh_picks_cache.get(cache_key)
+    cached = get_cached(cache_key)
     now = time.time()
 
     if (
@@ -652,13 +662,21 @@ def _get_fresh_picks(user_languages: List[str], limit: int) -> List[Dict[str, An
         cached_songs = _filter_fresh_picks_by_languages(cached.get("songs", []), normalized_languages)
         return cached_songs[:limit]
 
-    songs = _compute_fresh_picks(user_languages=normalized_languages, limit=FRESH_PICKS_MAX_RESULTS)
-    songs = _filter_fresh_picks_by_languages(songs, normalized_languages)
-    _fresh_picks_cache[cache_key] = {
-        "timestamp": now,
-        "languages": normalized_languages,
-        "songs": songs,
-    }
+    try:
+        songs = _compute_fresh_picks(user_languages=normalized_languages, limit=FRESH_PICKS_MAX_RESULTS)
+        songs = _filter_fresh_picks_by_languages(songs, normalized_languages)
+    except Exception as exc:
+        logger.error("Fresh picks compute failed: %s", exc, exc_info=True)
+        return []
+
+    set_cache(
+        cache_key,
+        {
+            "timestamp": now,
+            "languages": normalized_languages,
+            "songs": songs,
+        },
+    )
     return songs[:limit]
 
 
@@ -779,6 +797,7 @@ def _enrich_tracking_song(song: Dict[str, Any], mapped: Dict[str, Any]) -> Dict[
 def log_incoming_request():
     g.request_start = time.perf_counter()
     query_string = request.query_string.decode("utf-8") if request.query_string else ""
+    print(f"[API] {request.method} {request.path}")
     logger.info(
         "[API] IN  %s %s%s",
         request.method,
@@ -1918,5 +1937,9 @@ def add_song_to_user_playlist(playlist_id):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    parser = argparse.ArgumentParser(description="Run AURA Flask backend")
+    parser.add_argument("--host", default="0.0.0.0", help="Host interface to bind")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 5000)), help="Port to bind")
+    args = parser.parse_args()
+
+    app.run(host=args.host, port=args.port, debug=False)

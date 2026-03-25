@@ -6,6 +6,7 @@ Implements direct calls to JioSaavn API without needing a separate Flask server.
 import base64
 import json
 import logging
+import os
 import re
 import warnings
 from typing import Any, Dict, List, Optional
@@ -29,14 +30,15 @@ JIOSAAVN_LYRICS_BASE = "https://www.jiosaavn.com/api.php?__call=lyrics.getLyrics
 SAAVN_SUMIT_BASE = "https://saavn.sumit.co/api"
 
 # Network tuning for flaky upstream endpoints.
-HTTP_TIMEOUT = 5
+HTTP_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "5"))
+HTTP_RETRIES = int(os.getenv("REQUEST_RETRIES", "2"))
 
 # Shared session for connection pooling
 session = requests.Session()
 _retry = Retry(
-    total=2,
-    connect=2,
-    read=2,
+    total=HTTP_RETRIES,
+    connect=HTTP_RETRIES,
+    read=HTTP_RETRIES,
     backoff_factor=0.5,
     status_forcelist=(429, 500, 502, 503, 504),
     allowed_methods=frozenset(["GET"]),
