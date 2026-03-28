@@ -463,7 +463,10 @@ def generate_candidates(profile: Dict) -> List[Dict]:
         try:
             for future in concurrent.futures.as_completed(futures, timeout=6.0):
                 try:
-                    for song in future.result():
+                    results = future.result()
+                    print(f"DEBUG: Candidate query search returned {len(results)} songs")
+                    logger.debug(f"Candidate query search returned {len(results)} songs")
+                    for song in results:
                         sid = str(song.get("id") or "")
                         if sid and sid not in seen_ids:
                             all_candidates.append(song)
@@ -741,8 +744,14 @@ def get_recommendations(
 
         # ---- Warm path ----
         candidates = generate_candidates(profile)
+        print(f"DEBUG: After generate_candidates - pool size: {len(candidates)}")
+        logger.debug(f"After generate_candidates - pool size: {len(candidates)}")
+        
         candidates = resolve_canonical_tracks(candidates)
+        print(f"DEBUG: After resolve_canonical_tracks - pool size: {len(candidates)}")
+        
         candidates = filter_from_movie_variants(candidates, profile.get("user_song_names"))
+        print(f"DEBUG: After filter_from_movie_variants - pool size: {len(candidates)}")
 
         # Hard-filter already-played songs before scoring
         played_ids = profile.get("played_ids", set())
@@ -772,6 +781,8 @@ def get_recommendations(
         scored = score_candidates(candidates, profile)
         # Pass diversity caps through for fallback filling
         recs = apply_diversity(scored, limit=limit)
+        print(f"DEBUG: Final recommendations - {len(recs)} songs returned")
+        logger.debug(f"Final recommendations - {len(recs)} songs returned")
         if not recs and scored:
             recs = [dict(song) for song in scored[:limit]]
         recs = album_aware_shuffle(recs)

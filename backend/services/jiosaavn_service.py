@@ -16,7 +16,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from services.canonical_track_resolver import resolve_canonical_tracks
-from utils.jiosaavn_client import JIOSAAVN_API_URL, jiosaavn_request
 
 logger = logging.getLogger(__name__)
 
@@ -49,134 +48,48 @@ session.mount("https://", _adapter)
 session.mount("http://", _adapter)
 
 
-def _web_search_params(query: str, limit: int) -> Dict[str, str]:
-    bounded_limit = max(1, min(int(limit or 20), 50))
-    return {
-        "__call": "search.getResults",
-        "q": query,
-        "p": "1",
-        "n": str(bounded_limit),
-        "api_version": "4",
-        "_format": "json",
-    }
-
-
-def _coerce_web_payload(payload: Any) -> Dict[str, Any]:
-    """Normalize api.php payloads that may arrive as nested JSON strings."""
-    current = payload
-    for _ in range(3):
-        if isinstance(current, dict):
-            return current
-        if isinstance(current, str):
-            text = current.strip()
-            if not text:
-                return {}
-            try:
-                current = json.loads(text)
-                continue
-            except Exception:
-                try:
-                    decoded = text.encode("utf-8", errors="ignore").decode("unicode_escape", errors="ignore")
-                    current = json.loads(decoded)
-                    continue
-                except Exception:
-                    return {}
-        break
-    return current if isinstance(current, dict) else {}
-
-
-def _extract_web_song_results(payload: Any) -> List[Dict[str, Any]]:
-    payload_obj = _coerce_web_payload(payload)
-    if not isinstance(payload_obj, dict):
-        return []
-
-    results = payload_obj.get("results")
-    if isinstance(results, dict):
-        songs = results.get("songs")
-        if isinstance(songs, dict):
-            songs_data = songs.get("data")
-            if isinstance(songs_data, list):
-                return [item for item in songs_data if isinstance(item, dict)]
-        if isinstance(songs, list):
-            return [item for item in songs if isinstance(item, dict)]
-
-    # Fallback for variant payloads seen on older endpoints.
-    songs = payload_obj.get("songs")
-    if isinstance(songs, dict):
-        songs_data = songs.get("data")
-        if isinstance(songs_data, list):
-            return [item for item in songs_data if isinstance(item, dict)]
-    elif isinstance(songs, list):
-        return [item for item in songs if isinstance(item, dict)]
-
-    data_obj = payload_obj.get("data")
-    if isinstance(data_obj, list):
-        return [item for item in data_obj if isinstance(item, dict)]
-    if isinstance(data_obj, dict):
-        nested_results = data_obj.get("results")
-        if isinstance(nested_results, list):
-            return [item for item in nested_results if isinstance(item, dict)]
-
-    return []
-
-
-def _map_web_song_to_internal(song: Dict[str, Any]) -> Dict[str, Any]:
-    if not isinstance(song, dict):
-        return {}
-
-    album = song.get("album")
-    album_name = ""
-    if isinstance(album, dict):
-        album_name = str(album.get("name") or "").strip()
-    elif album:
-        album_name = str(album).strip()
-
-    artists = song.get("artists")
-    primary_artists = song.get("primary_artists")
-    if isinstance(artists, list) and artists and not primary_artists:
-        artist_names = []
-        for item in artists:
-            if isinstance(item, dict):
-                name = str(item.get("name") or item.get("artist") or "").strip()
-            else:
-                name = str(item or "").strip()
-            if name:
-                artist_names.append(name)
-        primary_artists = ", ".join(artist_names)
-
-    mapped = dict(song)
-    mapped["id"] = str(song.get("id") or song.get("songid") or "")
-    mapped["title"] = str(song.get("title") or song.get("song") or song.get("name") or "")
-    mapped["song"] = mapped["title"]
-    mapped["primary_artists"] = str(primary_artists or song.get("artist") or song.get("singers") or "")
-    mapped["artist"] = mapped["primary_artists"]
-    mapped["album"] = album_name
-    mapped["language"] = str(song.get("language") or "")
-    mapped["duration"] = str(song.get("duration") or "")
-
-    image = song.get("image")
-    if isinstance(image, list):
-        best = image[-1] if image else {}
-        mapped["image"] = str(best.get("link") or best.get("url") or "")
-    else:
-        mapped["image"] = str(image or "")
-
-    stream_url = song.get("stream_url") or song.get("media_url") or song.get("url") or ""
-    mapped["stream_url"] = str(stream_url)
-    mapped["media_url"] = str(song.get("media_url") or stream_url)
-    return mapped
-
-
 def search_songs_web(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """Search for songs using JioSaavn autocomplete API endpoint (working stable implementation)."""
     if not query or not query.strip():
         return []
-
-    payload = jiosaavn_request(JIOSAAVN_API_URL, params=_web_search_params(query, limit))
-    if payload is None:
+    
+    logger.debug(f"Searching songs for: {query} (limit={limit})")
+    try:
+        url = JIOSAAVN_SEARCH_BASE + query
+        response_text = _fetch_text(url)
+        data = _parse_json_response(response_text or "", f"search_songs_web:{query}")
+        if not isinstance(data, dict):
+            logger.warning(f"No valid response for search_songs_web query: {query}")
+            return []
+        
+        songs_data = []
+        if isinstance(data.get('songs'), dict):
+            songs_data = data['songs'].get('data', [])
+        elif isinstance(data.get('songs'), list):
+            songs_data = data['songs']
+        
+        logger.debug(f"search_songs_web returned {len(songs_data)} raw songs for: {query}")
+        
+        # Fetch full song details for each result for better data
+        full_songs = []
+        for song in songs_data[:limit]:
+            if not isinstance(song, dict):
+                continue
+            song_id = song.get('id')
+            if song_id:
+                full_song = get_song_details(song_id)
+                if full_song:
+                    full_songs.append(full_song)
+                else:
+                    # Fallback to formatted raw song if details fetch fails
+                    full_songs.append(_format_song(dict(song), include_lyrics=False))
+        
+        logger.debug(f"search_songs_web enriched {len(full_songs)} songs for: {query}")
+        return full_songs
+        
+    except Exception as e:
+        logger.error(f"search_songs_web failed for '{query}': {e}", exc_info=True)
         return []
-
-    songs = _extract_web_song_results(payload)
-    return [_map_web_song_to_internal(song) for song in songs if isinstance(song, dict)]
 
 
 def _fetch_text(url: str) -> Optional[str]:
@@ -540,41 +453,34 @@ def search_all_categories(query: str, limit: int = 20, language: Optional[str] =
         return {"songs": [], "albums": [], "playlists": []}
     
     logger.info(f"Searching all categories in JioSaavn for: {query}")
-    use_web_client = str(language or "").strip().lower() == "english"
     
     try:
         songs_data: List[Dict[str, Any]] = []
         albums_data: List[Dict[str, Any]] = []
         playlists_data: List[Dict[str, Any]] = []
 
-        if use_web_client:
-            logger.debug("Using JioSaavn web-client session for english multi-search query=%s", query)
-            payload = jiosaavn_request(JIOSAAVN_API_URL, params=_web_search_params(query, limit))
-            if payload is None:
-                logger.debug("English web-client multi-search request failed for query=%s", query)
-                return {"songs": [], "albums": [], "playlists": []}
-            songs_data = _extract_web_song_results(payload)
-        else:
-            url = JIOSAAVN_SEARCH_BASE + query
-            response_text = _fetch_text(url)
-            data = _parse_json_response(response_text or "", f"search_all_categories:{query}")
-            if not isinstance(data, dict):
-                return {"songs": [], "albums": [], "playlists": []}
+        # Use standard JIOSAAVN_SEARCH_BASE endpoint for all languages (working stable implementation)
+        url = JIOSAAVN_SEARCH_BASE + query
+        response_text = _fetch_text(url)
+        data = _parse_json_response(response_text or "", f"search_all_categories:{query}")
+        if not isinstance(data, dict):
+            logger.warning(f"Invalid response for search_all_categories query: {query}")
+            return {"songs": [], "albums": [], "playlists": []}
 
-            if isinstance(data.get('songs'), dict):
-                songs_data = data['songs'].get('data', [])
-            elif isinstance(data.get('songs'), list):
-                songs_data = data['songs']
+        if isinstance(data.get('songs'), dict):
+            songs_data = data['songs'].get('data', [])
+        elif isinstance(data.get('songs'), list):
+            songs_data = data['songs']
 
-            if isinstance(data.get('albums'), dict):
-                albums_data = data['albums'].get('data', [])
-            elif isinstance(data.get('albums'), list):
-                albums_data = data['albums']
+        if isinstance(data.get('albums'), dict):
+            albums_data = data['albums'].get('data', [])
+        elif isinstance(data.get('albums'), list):
+            albums_data = data['albums']
 
-            if isinstance(data.get('playlists'), dict):
-                playlists_data = data['playlists'].get('data', [])
-            elif isinstance(data.get('playlists'), list):
-                playlists_data = data['playlists']
+        if isinstance(data.get('playlists'), dict):
+            playlists_data = data['playlists'].get('data', [])
+        elif isinstance(data.get('playlists'), list):
+            playlists_data = data['playlists']
         
         # Fetch full song details for each result with fallback to raw song.
         full_songs = []
