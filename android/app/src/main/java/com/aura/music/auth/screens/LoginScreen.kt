@@ -12,9 +12,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import android.util.Log
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -33,6 +38,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.aura.music.R
 import com.aura.music.auth.state.AuthState
@@ -56,7 +62,9 @@ fun LoginScreen(
 ) {
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var showPassword by rememberSaveable { mutableStateOf(false) }
     var showForgotPasswordDialog by rememberSaveable { mutableStateOf(false) }
+    var googleSignInError by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     val webClientId = stringResource(R.string.default_web_client_id)
 
@@ -67,11 +75,28 @@ fun LoginScreen(
         try {
             val task: Task<GoogleSignInAccount> = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             val account = task.getResult(ApiException::class.java)
-            account?.idToken?.let { idToken ->
-                onGoogleSignIn(idToken)
+            
+            if (account?.idToken != null) {
+                Log.d(TAG_GOOGLE_SIGNIN, "Google Sign-In account selected: ${account.email}")
+                onGoogleSignIn(account.idToken!!)
+                googleSignInError = ""
+            } else {
+                val error = "No ID token received from Google Sign-In"
+                Log.e(TAG_GOOGLE_SIGNIN, error)
+                googleSignInError = error
             }
         } catch (e: ApiException) {
-            // Silently handle cancellation or error
+            val errorMsg = when (e.statusCode) {
+                12500 -> "Google Play services version is too old"
+                12501 -> "User cancelled the sign-in flow"
+                12502 -> "One of the network errors occurred"
+                else -> "Google Sign-In failed: ${e.message}"
+            }
+            Log.e(TAG_GOOGLE_SIGNIN, "Google Sign-In error (${e.statusCode}): ${e.message}", e)
+            googleSignInError = errorMsg
+        } catch (e: Exception) {
+            Log.e(TAG_GOOGLE_SIGNIN, "Unexpected Google Sign-In error: ${e.message}", e)
+            googleSignInError = "An unexpected error occurred during Google Sign-In"
         }
     }
 
@@ -117,7 +142,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Password
+            // Password with visibility toggle
             OutlinedTextField(
                 value = password,
                 onValueChange = { newValue ->
@@ -125,10 +150,22 @@ fun LoginScreen(
                 },
                 label = { Text("Password") },
                 modifier = Modifier.fillMaxWidth(),
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
                 singleLine = true,
-                enabled = authState !is AuthState.Loading
+                enabled = authState !is AuthState.Loading,
+                trailingIcon = {
+                    IconButton(
+                        onClick = { showPassword = !showPassword },
+                        enabled = authState !is AuthState.Loading
+                    ) {
+                        Icon(
+                            imageVector = if (showPassword) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                            contentDescription = if (showPassword) "Hide password" else "Show password",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -165,6 +202,18 @@ fun LoginScreen(
                 )
             }
 
+            // Google Sign-In error message
+            if (googleSignInError.isNotBlank()) {
+                Text(
+                    text = "Sign-In Error: $googleSignInError",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                )
+            }
+
             // Login button
             Button(
                 onClick = { onLogin(email, password) },
@@ -190,12 +239,23 @@ fun LoginScreen(
             // Google Sign-In button
             Button(
                 onClick = {
+                    googleSignInError = ""
                     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                         .requestIdToken(webClientId)
                         .requestEmail()
                         .build()
                     val googleSignInClient = GoogleSignIn.getClient(context, gso)
-                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                    
+                    // Sign out first to force account picker on ALL devices
+                    // This prevents auto-login to default account
+                    googleSignInClient.signOut().addOnCompleteListener {
+                        Log.d(TAG_GOOGLE_SIGNIN, "Signed out from any previous session, launching account picker")
+                        googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                    }.addOnFailureListener { exception ->
+                        Log.w(TAG_GOOGLE_SIGNIN, "SignOut failed but continuing: ${exception.message}")
+                        // Even if sign out fails, still launch sign in
+                        googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -240,4 +300,6 @@ fun LoginScreen(
         }
     )
 }
+
+private const val TAG_GOOGLE_SIGNIN = "GoogleSignIn"
 
