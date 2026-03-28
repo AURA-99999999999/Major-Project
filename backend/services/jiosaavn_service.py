@@ -16,7 +16,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from services.canonical_track_resolver import resolve_canonical_tracks
-from utils.proxy_manager import fetch_with_proxy
+from utils.jiosaavn_client import JIOSAAVN_API_URL, jiosaavn_request
 
 logger = logging.getLogger(__name__)
 
@@ -56,26 +56,46 @@ def _is_english_language(language: Optional[str], query: str = "") -> bool:
     return "english" in str(query or "").strip().lower()
 
 
-def _fetch_text(url: str, use_proxy: bool = False) -> Optional[str]:
+def _english_search_params(query: str, limit: int) -> Dict[str, str]:
+    bounded_limit = max(1, min(int(limit or 20), 50))
+    return {
+        "__call": "search.getResults",
+        "q": query,
+        "p": "1",
+        "n": str(bounded_limit),
+        "api_version": "4",
+        "_format": "json",
+    }
+
+
+def _extract_english_results(payload: Any) -> List[Dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+
+    for key in ("results", "data"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+
+    data_obj = payload.get("data")
+    if isinstance(data_obj, dict):
+        nested_results = data_obj.get("results")
+        if isinstance(nested_results, list):
+            return [item for item in nested_results if isinstance(item, dict)]
+
+    return []
+
+
+def _fetch_text(url: str) -> Optional[str]:
     try:
-        if use_proxy:
-            response = fetch_with_proxy(url)
-            if response is None:
-                return None
-            return response.text
         response = session.get(url, timeout=HTTP_TIMEOUT)
         return response.text
     except Exception:
         return None
 
 
-def _fetch_json(url: str, use_proxy: bool = False) -> Optional[Any]:
+def _fetch_json(url: str) -> Optional[Any]:
     try:
-        if use_proxy:
-            response = fetch_with_proxy(url)
-            if response is None:
-                return None
-            return response.json()
         response = session.get(url, timeout=HTTP_TIMEOUT)
         return response.json()
     except Exception:
@@ -371,7 +391,7 @@ def search_songs(
         return []
     
     logger.info(f"Searching JioSaavn directly for: {query}")
-    use_proxy = _is_english_language(language, query)
+    use_web_client = _is_english_language(language, query)
     
     try:
         # Handle direct URLs
@@ -395,19 +415,25 @@ def search_songs(
                         return resolve_canonical_tracks(playlist['songs'])[:limit]
             return []
         
-        # Search using autocomplete API
-        url = JIOSAAVN_SEARCH_BASE + query
-        response_text = _fetch_text(url, use_proxy=use_proxy)
-        data = _parse_json_response(response_text or "", f"search_songs:{query}")
-        if not isinstance(data, dict):
-            return []
-        
-        # Extract songs from response
-        songs_data = []
-        if isinstance(data.get('songs'), dict):
-            songs_data = data['songs'].get('data', [])
-        elif isinstance(data.get('songs'), list):
-            songs_data = data['songs']
+        songs_data: List[Dict[str, Any]] = []
+        if use_web_client:
+            logger.debug("Using JioSaavn web-client session for english search query=%s", query)
+            payload = jiosaavn_request(JIOSAAVN_API_URL, params=_english_search_params(query, limit))
+            if payload is None:
+                logger.debug("English web-client search request failed for query=%s", query)
+                return []
+            songs_data = _extract_english_results(payload)
+        else:
+            url = JIOSAAVN_SEARCH_BASE + query
+            response_text = _fetch_text(url)
+            data = _parse_json_response(response_text or "", f"search_songs:{query}")
+            if not isinstance(data, dict):
+                return []
+
+            if isinstance(data.get('songs'), dict):
+                songs_data = data['songs'].get('data', [])
+            elif isinstance(data.get('songs'), list):
+                songs_data = data['songs']
         
         if not include_full_data:
             return resolve_canonical_tracks(songs_data)[:limit]
@@ -438,34 +464,41 @@ def search_all_categories(query: str, limit: int = 20, language: Optional[str] =
         return {"songs": [], "albums": [], "playlists": []}
     
     logger.info(f"Searching all categories in JioSaavn for: {query}")
-    use_proxy = _is_english_language(language, query)
+    use_web_client = _is_english_language(language, query)
     
     try:
-        # Search using autocomplete API
-        url = JIOSAAVN_SEARCH_BASE + query
-        response_text = _fetch_text(url, use_proxy=use_proxy)
-        data = _parse_json_response(response_text or "", f"search_all_categories:{query}")
-        if not isinstance(data, dict):
-            return {"songs": [], "albums": [], "playlists": []}
-        
-        # Extract all sections from the response
-        songs_data = []
-        if isinstance(data.get('songs'), dict):
-            songs_data = data['songs'].get('data', [])
-        elif isinstance(data.get('songs'), list):
-            songs_data = data['songs']
-        
-        albums_data = []
-        if isinstance(data.get('albums'), dict):
-            albums_data = data['albums'].get('data', [])
-        elif isinstance(data.get('albums'), list):
-            albums_data = data['albums']
-        
-        playlists_data = []
-        if isinstance(data.get('playlists'), dict):
-            playlists_data = data['playlists'].get('data', [])
-        elif isinstance(data.get('playlists'), list):
-            playlists_data = data['playlists']
+        songs_data: List[Dict[str, Any]] = []
+        albums_data: List[Dict[str, Any]] = []
+        playlists_data: List[Dict[str, Any]] = []
+
+        if use_web_client:
+            logger.debug("Using JioSaavn web-client session for english multi-search query=%s", query)
+            payload = jiosaavn_request(JIOSAAVN_API_URL, params=_english_search_params(query, limit))
+            if payload is None:
+                logger.debug("English web-client multi-search request failed for query=%s", query)
+                return {"songs": [], "albums": [], "playlists": []}
+            songs_data = _extract_english_results(payload)
+        else:
+            url = JIOSAAVN_SEARCH_BASE + query
+            response_text = _fetch_text(url)
+            data = _parse_json_response(response_text or "", f"search_all_categories:{query}")
+            if not isinstance(data, dict):
+                return {"songs": [], "albums": [], "playlists": []}
+
+            if isinstance(data.get('songs'), dict):
+                songs_data = data['songs'].get('data', [])
+            elif isinstance(data.get('songs'), list):
+                songs_data = data['songs']
+
+            if isinstance(data.get('albums'), dict):
+                albums_data = data['albums'].get('data', [])
+            elif isinstance(data.get('albums'), list):
+                albums_data = data['albums']
+
+            if isinstance(data.get('playlists'), dict):
+                playlists_data = data['playlists'].get('data', [])
+            elif isinstance(data.get('playlists'), list):
+                playlists_data = data['playlists']
         
         # Fetch full song details for each result with fallback to raw song.
         full_songs = []
@@ -499,11 +532,13 @@ def search_playlists_jiosaavn(query: str, limit: int = 5, language: Optional[str
         return []
     
     logger.info(f"Searching JioSaavn playlists for: {query}")
-    use_proxy = _is_english_language(language, query)
+    use_web_client = _is_english_language(language, query)
     
     try:
         url = JIOSAAVN_SEARCH_BASE + query
-        response_text = _fetch_text(url, use_proxy=use_proxy)
+        if use_web_client:
+            logger.debug("Using JioSaavn web-client session for english playlist search query=%s", query)
+        response_text = _fetch_text(url)
         data = _parse_json_response(response_text or "", f"search_playlists:{query}")
         if not isinstance(data, dict):
             return []
@@ -541,11 +576,9 @@ def get_song_details(
         return None
     
     logger.info(f"Fetching song details directly for ID: {song_id}")
-    use_proxy = _is_english_language(language)
-    
     try:
         url = JIOSAAVN_SONG_DETAILS_BASE + song_id
-        response_text = _fetch_text(url, use_proxy=use_proxy)
+        response_text = _fetch_text(url)
         data = _parse_json_response(response_text or "", f"song_details:{song_id}")
         if not isinstance(data, dict):
             return None
@@ -572,11 +605,9 @@ def get_album_details(
         return None
     
     logger.info(f"Fetching album details directly for ID: {album_id}")
-    use_proxy = _is_english_language(language)
-    
     try:
         url = JIOSAAVN_ALBUM_DETAILS_BASE + album_id
-        response_text = _fetch_text(url, use_proxy=use_proxy)
+        response_text = _fetch_text(url)
         if not response_text:
             return None
 
@@ -601,11 +632,9 @@ def get_playlist_details(
         return None
     
     logger.info(f"Fetching playlist details directly for ID: {playlist_id}")
-    use_proxy = _is_english_language(language)
-    
     try:
         url = JIOSAAVN_PLAYLIST_DETAILS_BASE + playlist_id
-        response_text = _fetch_text(url, use_proxy=use_proxy)
+        response_text = _fetch_text(url)
         if not response_text:
             return None
 
