@@ -68,9 +68,9 @@ object ServiceLocator {
                 .addInterceptor(AppInterceptor())
                 .addInterceptor(loggingInterceptor)
                 .retryOnConnectionFailure(true)
-                .connectTimeout(60, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
-                .writeTimeout(60, TimeUnit.SECONDS)
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
                 .build()
 
             // Initialize Retrofit with base URL from BuildConfig
@@ -129,7 +129,7 @@ object ServiceLocator {
 
     /**
      * Performs a health check request to verify backend connectivity
-     * This confirms the Android app can reach the local backend server
+        * This confirms the Android app can reach the deployed backend server
      */
     private fun performHealthCheck() {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {

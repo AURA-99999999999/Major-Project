@@ -4,10 +4,6 @@ plugins {
     id("com.google.devtools.ksp")
     id("com.google.gms.google-services")
 }
-// LOCAL BACKEND FOR DEBUGGING:
-// For Android Emulator: http://10.0.2.2:5000/
-// For Physical Device: Change to http://<YOUR_LOCAL_IP>:5000/
-val localBaseUrl = "http://192.168.1.6:5000/"
 val productionBaseUrl = "https://aura-b7vm.onrender.com/"
 
 android {
@@ -29,15 +25,13 @@ android {
 
     buildTypes {
         debug {
-            // LOCAL BACKEND for debugging with emulator/physical device
-            buildConfigField("String", "BASE_URL", "\"$localBaseUrl\"")
-            buildConfigField("String", "API_ENV", "\"LOCAL_DEVICE\"")
+            buildConfigField("String", "BASE_URL", "\"$productionBaseUrl\"")
+            buildConfigField("String", "API_ENV", "\"PRODUCTION\"")
             lint {
                 checkReleaseBuilds = false
             }
         }
         release {
-            // PRODUCTION backend
             buildConfigField("String", "BASE_URL", "\"$productionBaseUrl\"")
             buildConfigField("String", "API_ENV", "\"PRODUCTION\"")
             isMinifyEnabled = false

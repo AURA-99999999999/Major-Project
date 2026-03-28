@@ -1,7 +1,7 @@
 package com.aura.music
 
 object Config {
-	const val BASE_URL: String = "http://192.168.1.6:5000/"
+	const val BASE_URL: String = "https://aura-b7vm.onrender.com/"
 }
 
 object ApiConfig {

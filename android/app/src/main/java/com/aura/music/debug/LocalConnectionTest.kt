@@ -9,7 +9,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import okhttp3.logging.HttpLoggingInterceptor
 
 /**
- * LocalConnectionTest - Debug utility for testing connection to local backend
+ * LocalConnectionTest - Debug utility for testing backend connectivity
  * 
  * Usage:
  * ```kotlin
@@ -20,12 +20,12 @@ object LocalConnectionTest {
     private const val TAG = "LocalConnectionTest"
     
     /**
-     * Test connection to local backend and return detailed status
+     * Test connection to backend and return detailed status
      */
     fun testLocalBackendConnection(): String {
         return buildString {
             appendLine("========================================")
-            appendLine("LOCAL BACKEND CONNECTION TEST")
+            appendLine("BACKEND CONNECTION TEST")
             appendLine("========================================")
             appendLine("")
             
@@ -47,12 +47,10 @@ object LocalConnectionTest {
             // 3. Check URL format
             appendLine("3. URL Validation:")
             val isHttps = NetworkConfig.activeBaseUrl.startsWith("https://")
-            val isHttp = NetworkConfig.activeBaseUrl.startsWith("http://")
             val hasTrailingSlash = NetworkConfig.activeBaseUrl.endsWith("/")
             
-            appendLine("   ✓ Starts with http/https: ${isHttp || isHttps}")
+            appendLine("   ✓ Starts with https: $isHttps")
             appendLine("   ✓ Has trailing slash: $hasTrailingSlash")
-            appendLine("   ✓ Is HTTP (local): $isHttp")
             appendLine("   ✓ Is HTTPS (production): $isHttps")
             appendLine("")
             
@@ -64,15 +62,8 @@ object LocalConnectionTest {
             
             // 5. Recommendations
             appendLine("5. Recommendations:")
-            if (NetworkConfig.isLocal()) {
-                appendLine("   ✓ DEBUG MODE - Connected to local backend")
-                appendLine("   ✓ Ensure Flask is running: python app.py")
-                appendLine("   ✓ For emulator: Flask should be on http://localhost:5000")
-                appendLine("   ✓ For device: Flask should be on http://<local-ip>:5000")
-            } else {
-                appendLine("   ✓ PRODUCTION MODE - Connected to Render backend")
-                appendLine("   ✓ Using: ${NetworkConfig.activeBaseUrl}")
-            }
+            appendLine("   ✓ PRODUCTION MODE - Connected to Render backend")
+            appendLine("   ✓ Using: ${NetworkConfig.activeBaseUrl}")
             appendLine("")
             appendLine("========================================")
         }.also { 
@@ -90,8 +81,8 @@ object LocalConnectionTest {
         
         val okHttpClient = OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
-            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .build()
         
         return Retrofit.Builder()
@@ -105,7 +96,7 @@ object LocalConnectionTest {
      * Get environment summary for UI display
      */
     fun getEnvironmentSummary(): String = buildString {
-        append("Env: ${if (NetworkConfig.isLocal()) "LOCAL" else "PROD"} | ")
+        append("Env: PROD | ")
         append("URL: ${NetworkConfig.activeBaseUrl}")
     }
 }
