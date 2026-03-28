@@ -16,6 +16,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from services.canonical_track_resolver import resolve_canonical_tracks
+from utils.proxy_manager import fetch_with_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,39 @@ _retry = Retry(
 _adapter = HTTPAdapter(max_retries=_retry, pool_connections=20, pool_maxsize=20)
 session.mount("https://", _adapter)
 session.mount("http://", _adapter)
+
+
+def _is_english_language(language: Optional[str], query: str = "") -> bool:
+    normalized_language = str(language or "").strip().lower()
+    if normalized_language:
+        return normalized_language == "english"
+    return "english" in str(query or "").strip().lower()
+
+
+def _fetch_text(url: str, use_proxy: bool = False) -> Optional[str]:
+    try:
+        if use_proxy:
+            response = fetch_with_proxy(url)
+            if response is None:
+                return None
+            return response.text
+        response = session.get(url, timeout=HTTP_TIMEOUT)
+        return response.text
+    except Exception:
+        return None
+
+
+def _fetch_json(url: str, use_proxy: bool = False) -> Optional[Any]:
+    try:
+        if use_proxy:
+            response = fetch_with_proxy(url)
+            if response is None:
+                return None
+            return response.json()
+        response = session.get(url, timeout=HTTP_TIMEOUT)
+        return response.json()
+    except Exception:
+        return None
 
 
 # ========================================
@@ -271,8 +305,7 @@ def _format_playlist(playlist_data: Dict[str, Any], include_lyrics: bool = False
 def _extract_song_id_from_url(url: str) -> Optional[str]:
     """Extract song ID from JioSaavn URL."""
     try:
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        text = response.text
+        text = _fetch_text(url) or ""
         
         # Try first pattern
         if '"pid":"' in text:
@@ -292,8 +325,7 @@ def _extract_song_id_from_url(url: str) -> Optional[str]:
 def _extract_album_id_from_url(url: str) -> Optional[str]:
     """Extract album ID from JioSaavn URL."""
     try:
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        text = response.text
+        text = _fetch_text(url) or ""
         
         # Try first pattern
         if '"album_id":"' in text:
@@ -312,8 +344,7 @@ def _extract_album_id_from_url(url: str) -> Optional[str]:
 def _extract_playlist_id_from_url(url: str) -> Optional[str]:
     """Extract playlist ID from JioSaavn URL."""
     try:
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        text = response.text
+        text = _fetch_text(url) or ""
         
         # Try first pattern
         if '"type":"playlist","id":"' in text:
@@ -329,12 +360,18 @@ def _extract_playlist_id_from_url(url: str) -> Optional[str]:
         return None
 
 
-def search_songs(query: str, limit: int = 20, include_full_data: bool = True) -> List[Dict[str, Any]]:
+def search_songs(
+    query: str,
+    limit: int = 20,
+    include_full_data: bool = True,
+    language: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Search for songs using JioSaavn API directly."""
     if not query or not query.strip():
         return []
     
     logger.info(f"Searching JioSaavn directly for: {query}")
+    use_proxy = _is_english_language(language, query)
     
     try:
         # Handle direct URLs
@@ -342,26 +379,26 @@ def search_songs(query: str, limit: int = 20, include_full_data: bool = True) ->
             if '/song/' in query:
                 song_id = _extract_song_id_from_url(query)
                 if song_id:
-                    song = get_song_details(song_id)
+                    song = get_song_details(song_id, language=language)
                     return [song] if song else []
             elif '/album/' in query:
                 album_id = _extract_album_id_from_url(query)
                 if album_id:
-                    album = get_album_details(album_id)
+                    album = get_album_details(album_id, language=language)
                     if album and isinstance(album.get('songs'), list):
                         return resolve_canonical_tracks(album['songs'])[:limit]
             elif '/playlist/' in query or '/featured/' in query:
                 playlist_id = _extract_playlist_id_from_url(query)
                 if playlist_id:
-                    playlist = get_playlist_details(playlist_id)
+                    playlist = get_playlist_details(playlist_id, language=language)
                     if playlist and isinstance(playlist.get('songs'), list):
                         return resolve_canonical_tracks(playlist['songs'])[:limit]
             return []
         
         # Search using autocomplete API
         url = JIOSAAVN_SEARCH_BASE + query
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        data = _parse_json_response(response.text, f"search_songs:{query}")
+        response_text = _fetch_text(url, use_proxy=use_proxy)
+        data = _parse_json_response(response_text or "", f"search_songs:{query}")
         if not isinstance(data, dict):
             return []
         
@@ -382,7 +419,7 @@ def search_songs(query: str, limit: int = 20, include_full_data: bool = True) ->
         for song in songs_data[:limit]:
             song_id = song.get('id')
             if song_id:
-                full_song = get_song_details(song_id)
+                full_song = get_song_details(song_id, language=language)
                 if full_song:
                     full_songs.append(full_song)
                 else:
@@ -395,18 +432,19 @@ def search_songs(query: str, limit: int = 20, include_full_data: bool = True) ->
         return []
 
 
-def search_all_categories(query: str, limit: int = 20) -> Dict[str, Any]:
+def search_all_categories(query: str, limit: int = 20, language: Optional[str] = None) -> Dict[str, Any]:
     """Search for songs, albums, and playlists using JioSaavn API."""
     if not query or not query.strip():
         return {"songs": [], "albums": [], "playlists": []}
     
     logger.info(f"Searching all categories in JioSaavn for: {query}")
+    use_proxy = _is_english_language(language, query)
     
     try:
         # Search using autocomplete API
         url = JIOSAAVN_SEARCH_BASE + query
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        data = _parse_json_response(response.text, f"search_all_categories:{query}")
+        response_text = _fetch_text(url, use_proxy=use_proxy)
+        data = _parse_json_response(response_text or "", f"search_all_categories:{query}")
         if not isinstance(data, dict):
             return {"songs": [], "albums": [], "playlists": []}
         
@@ -434,7 +472,7 @@ def search_all_categories(query: str, limit: int = 20) -> Dict[str, Any]:
         for song in songs_data[:limit]:
             song_id = song.get('id')
             if song_id:
-                full_song = get_song_details(song_id)
+                full_song = get_song_details(song_id, language=language)
                 if full_song:
                     full_songs.append(full_song)
                 else:
@@ -451,7 +489,7 @@ def search_all_categories(query: str, limit: int = 20) -> Dict[str, Any]:
         return {"songs": [], "albums": [], "playlists": []}
 
 
-def search_playlists_jiosaavn(query: str, limit: int = 5) -> List[Dict[str, str]]:
+def search_playlists_jiosaavn(query: str, limit: int = 5, language: Optional[str] = None) -> List[Dict[str, str]]:
     """
     Search for playlists using JioSaavn API and return playlist IDs and metadata.
     
@@ -461,11 +499,12 @@ def search_playlists_jiosaavn(query: str, limit: int = 5) -> List[Dict[str, str]
         return []
     
     logger.info(f"Searching JioSaavn playlists for: {query}")
+    use_proxy = _is_english_language(language, query)
     
     try:
         url = JIOSAAVN_SEARCH_BASE + query
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        data = _parse_json_response(response.text, f"search_playlists:{query}")
+        response_text = _fetch_text(url, use_proxy=use_proxy)
+        data = _parse_json_response(response_text or "", f"search_playlists:{query}")
         if not isinstance(data, dict):
             return []
         
@@ -492,17 +531,22 @@ def search_playlists_jiosaavn(query: str, limit: int = 5) -> List[Dict[str, str]
         return []
 
 
-def get_song_details(song_id: str, include_lyrics: bool = False) -> Optional[Dict[str, Any]]:
+def get_song_details(
+    song_id: str,
+    include_lyrics: bool = False,
+    language: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """Get detailed song information by ID."""
     if not song_id:
         return None
     
     logger.info(f"Fetching song details directly for ID: {song_id}")
+    use_proxy = _is_english_language(language)
     
     try:
         url = JIOSAAVN_SONG_DETAILS_BASE + song_id
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        data = _parse_json_response(response.text, f"song_details:{song_id}")
+        response_text = _fetch_text(url, use_proxy=use_proxy)
+        data = _parse_json_response(response_text or "", f"song_details:{song_id}")
         if not isinstance(data, dict):
             return None
         
@@ -518,21 +562,25 @@ def get_song_details(song_id: str, include_lyrics: bool = False) -> Optional[Dic
         return None
 
 
-def get_album_details(album_id: str, include_lyrics: bool = False) -> Optional[Dict[str, Any]]:
+def get_album_details(
+    album_id: str,
+    include_lyrics: bool = False,
+    language: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """Get detailed album information by ID."""
     if not album_id:
         return None
     
     logger.info(f"Fetching album details directly for ID: {album_id}")
+    use_proxy = _is_english_language(language)
     
     try:
         url = JIOSAAVN_ALBUM_DETAILS_BASE + album_id
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        
-        if response.status_code != 200:
+        response_text = _fetch_text(url, use_proxy=use_proxy)
+        if not response_text:
             return None
-        
-        data = _parse_json_response(response.text, f"album_details:{album_id}")
+
+        data = _parse_json_response(response_text, f"album_details:{album_id}")
         if not isinstance(data, dict):
             return None
         
@@ -543,21 +591,25 @@ def get_album_details(album_id: str, include_lyrics: bool = False) -> Optional[D
         return None
 
 
-def get_playlist_details(playlist_id: str, include_lyrics: bool = False) -> Optional[Dict[str, Any]]:
+def get_playlist_details(
+    playlist_id: str,
+    include_lyrics: bool = False,
+    language: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """Get detailed playlist information by ID."""
     if not playlist_id:
         return None
     
     logger.info(f"Fetching playlist details directly for ID: {playlist_id}")
+    use_proxy = _is_english_language(language)
     
     try:
         url = JIOSAAVN_PLAYLIST_DETAILS_BASE + playlist_id
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        
-        if response.status_code != 200:
+        response_text = _fetch_text(url, use_proxy=use_proxy)
+        if not response_text:
             return None
-        
-        data = _parse_json_response(response.text, f"playlist_details:{playlist_id}")
+
+        data = _parse_json_response(response_text, f"playlist_details:{playlist_id}")
         if not isinstance(data, dict):
             return None
         
@@ -577,8 +629,7 @@ def get_lyrics(song_id: str) -> Dict[str, Any]:
     
     try:
         url = JIOSAAVN_LYRICS_BASE + song_id
-        response = session.get(url, timeout=HTTP_TIMEOUT)
-        data = response.json()
+        data = _fetch_json(url)
         
         if isinstance(data, dict) and 'lyrics' in data:
             return data
@@ -590,7 +641,7 @@ def get_lyrics(song_id: str) -> Dict[str, Any]:
         return {}
 
 
-def get_playlist_songs(playlist_url: str, limit: int = 50) -> List[Dict[str, Any]]:
+def get_playlist_songs(playlist_url: str, limit: int = 50, language: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get playlist songs from URL."""
     if not playlist_url or not playlist_url.strip():
         return []
@@ -604,7 +655,7 @@ def get_playlist_songs(playlist_url: str, limit: int = 50) -> List[Dict[str, Any
         return []
     
     # Get playlist details
-    playlist_data = get_playlist_details(playlist_id)
+    playlist_data = get_playlist_details(playlist_id, language=language)
     if not playlist_data:
         return []
     
@@ -616,7 +667,7 @@ def get_playlist_songs(playlist_url: str, limit: int = 50) -> List[Dict[str, Any
     return []
 
 
-def get_album_songs(album_url: str, limit: int = 50) -> List[Dict[str, Any]]:
+def get_album_songs(album_url: str, limit: int = 50, language: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get album songs from URL."""
     if not album_url or not album_url.strip():
         return []
@@ -630,7 +681,7 @@ def get_album_songs(album_url: str, limit: int = 50) -> List[Dict[str, Any]]:
         return []
     
     # Get album details
-    album_data = get_album_details(album_id)
+    album_data = get_album_details(album_id, language=language)
     if not album_data:
         return []
     
@@ -767,25 +818,25 @@ def get_mood_playlists(mood: str, limit: int = 20) -> List[Dict[str, Any]]:
 class JioSaavnService:
     """Service wrapper that delegates to module-level functions."""
 
-    def search_all_categories(self, query: str, limit: int = 20) -> Dict[str, Any]:
-        return search_all_categories(query, limit)
+    def search_all_categories(self, query: str, limit: int = 20, language: Optional[str] = None) -> Dict[str, Any]:
+        return search_all_categories(query, limit, language=language)
     
-    def search_songs(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
-        return search_songs(query, limit)
+    def search_songs(self, query: str, limit: int = 20, language: Optional[str] = None) -> List[Dict[str, Any]]:
+        return search_songs(query, limit, language=language)
     
-    def get_song_details(self, song_url: str) -> Dict[str, Any]:
-        result = get_song_details(song_url)
+    def get_song_details(self, song_url: str, language: Optional[str] = None) -> Dict[str, Any]:
+        result = get_song_details(song_url, language=language)
         return result if result else {}
     
-    def get_playlist_songs(self, playlist_url: str, limit: int = 50) -> List[Dict[str, Any]]:
-        return get_playlist_songs(playlist_url, limit)
+    def get_playlist_songs(self, playlist_url: str, limit: int = 50, language: Optional[str] = None) -> List[Dict[str, Any]]:
+        return get_playlist_songs(playlist_url, limit, language=language)
     
     def get_playlist_songs_from_url(self, playlist_url: str) -> List[Dict[str, Any]]:
         """Backward-compatible alias."""
         return get_playlist_songs(playlist_url)
     
-    def get_album_songs(self, album_url: str, limit: int = 50) -> List[Dict[str, Any]]:
-        return get_album_songs(album_url, limit)
+    def get_album_songs(self, album_url: str, limit: int = 50, language: Optional[str] = None) -> List[Dict[str, Any]]:
+        return get_album_songs(album_url, limit, language=language)
     
     def get_lyrics(self, query: str) -> Dict[str, Any]:
         return get_lyrics(query)
