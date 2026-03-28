@@ -9,10 +9,8 @@ logger = logging.getLogger(__name__)
 JIOSAAVN_API_URL = "https://www.jiosaavn.com/api.php"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0",
     "Accept": "application/json",
-    "Accept-Language": "en-IN,en;q=0.9",
-    "Origin": "https://www.jiosaavn.com",
     "Referer": "https://www.jiosaavn.com/",
 }
 

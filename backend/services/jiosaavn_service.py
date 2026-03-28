@@ -49,14 +49,7 @@ session.mount("https://", _adapter)
 session.mount("http://", _adapter)
 
 
-def _is_english_language(language: Optional[str], query: str = "") -> bool:
-    normalized_language = str(language or "").strip().lower()
-    if normalized_language:
-        return normalized_language == "english"
-    return "english" in str(query or "").strip().lower()
-
-
-def _english_search_params(query: str, limit: int) -> Dict[str, str]:
+def _web_search_params(query: str, limit: int) -> Dict[str, str]:
     bounded_limit = max(1, min(int(limit or 20), 50))
     return {
         "__call": "search.getResults",
@@ -68,22 +61,97 @@ def _english_search_params(query: str, limit: int) -> Dict[str, str]:
     }
 
 
-def _extract_english_results(payload: Any) -> List[Dict[str, Any]]:
+def _extract_web_song_results(payload: Any) -> List[Dict[str, Any]]:
     if not isinstance(payload, dict):
         return []
 
-    for key in ("results", "data"):
-        value = payload.get(key)
-        if isinstance(value, list):
-            return [item for item in value if isinstance(item, dict)]
+    results = payload.get("results")
+    if isinstance(results, dict):
+        songs = results.get("songs")
+        if isinstance(songs, dict):
+            songs_data = songs.get("data")
+            if isinstance(songs_data, list):
+                return [item for item in songs_data if isinstance(item, dict)]
+        if isinstance(songs, list):
+            return [item for item in songs if isinstance(item, dict)]
+
+    # Fallback for variant payloads seen on older endpoints.
+    songs = payload.get("songs")
+    if isinstance(songs, dict):
+        songs_data = songs.get("data")
+        if isinstance(songs_data, list):
+            return [item for item in songs_data if isinstance(item, dict)]
+    elif isinstance(songs, list):
+        return [item for item in songs if isinstance(item, dict)]
 
     data_obj = payload.get("data")
+    if isinstance(data_obj, list):
+        return [item for item in data_obj if isinstance(item, dict)]
     if isinstance(data_obj, dict):
         nested_results = data_obj.get("results")
         if isinstance(nested_results, list):
             return [item for item in nested_results if isinstance(item, dict)]
 
     return []
+
+
+def _map_web_song_to_internal(song: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(song, dict):
+        return {}
+
+    album = song.get("album")
+    album_name = ""
+    if isinstance(album, dict):
+        album_name = str(album.get("name") or "").strip()
+    elif album:
+        album_name = str(album).strip()
+
+    artists = song.get("artists")
+    primary_artists = song.get("primary_artists")
+    if isinstance(artists, list) and artists and not primary_artists:
+        artist_names = []
+        for item in artists:
+            if isinstance(item, dict):
+                name = str(item.get("name") or item.get("artist") or "").strip()
+            else:
+                name = str(item or "").strip()
+            if name:
+                artist_names.append(name)
+        primary_artists = ", ".join(artist_names)
+
+    mapped = dict(song)
+    mapped["id"] = str(song.get("id") or song.get("songid") or "")
+    mapped["title"] = str(song.get("title") or song.get("song") or song.get("name") or "")
+    mapped["song"] = mapped["title"]
+    mapped["primary_artists"] = str(primary_artists or song.get("artist") or song.get("singers") or "")
+    mapped["artist"] = mapped["primary_artists"]
+    mapped["album"] = album_name
+    mapped["language"] = str(song.get("language") or "")
+    mapped["duration"] = str(song.get("duration") or "")
+
+    image = song.get("image")
+    if isinstance(image, list):
+        best = image[-1] if image else {}
+        mapped["image"] = str(best.get("link") or best.get("url") or "")
+    else:
+        mapped["image"] = str(image or "")
+
+    stream_url = song.get("stream_url") or song.get("media_url") or song.get("url") or ""
+    mapped["stream_url"] = str(stream_url)
+    mapped["media_url"] = str(song.get("media_url") or stream_url)
+    return mapped
+
+
+def search_songs_web(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    if not query or not query.strip():
+        return []
+
+    payload = jiosaavn_request(JIOSAAVN_API_URL, params=_web_search_params(query, limit))
+    if payload is None:
+        return []
+
+    songs = _extract_web_song_results(payload)
+    return [_map_web_song_to_internal(song) for song in songs if isinstance(song, dict)]
 
 
 def _fetch_text(url: str) -> Optional[str]:
@@ -391,7 +459,6 @@ def search_songs(
         return []
     
     logger.info(f"Searching JioSaavn directly for: {query}")
-    use_web_client = _is_english_language(language, query)
     
     try:
         # Handle direct URLs
@@ -415,25 +482,9 @@ def search_songs(
                         return resolve_canonical_tracks(playlist['songs'])[:limit]
             return []
         
-        songs_data: List[Dict[str, Any]] = []
-        if use_web_client:
-            logger.debug("Using JioSaavn web-client session for english search query=%s", query)
-            payload = jiosaavn_request(JIOSAAVN_API_URL, params=_english_search_params(query, limit))
-            if payload is None:
-                logger.debug("English web-client search request failed for query=%s", query)
-                return []
-            songs_data = _extract_english_results(payload)
-        else:
-            url = JIOSAAVN_SEARCH_BASE + query
-            response_text = _fetch_text(url)
-            data = _parse_json_response(response_text or "", f"search_songs:{query}")
-            if not isinstance(data, dict):
-                return []
-
-            if isinstance(data.get('songs'), dict):
-                songs_data = data['songs'].get('data', [])
-            elif isinstance(data.get('songs'), list):
-                songs_data = data['songs']
+        songs_data = search_songs_web(query, limit)
+        if not songs_data:
+            return []
         
         if not include_full_data:
             return resolve_canonical_tracks(songs_data)[:limit]
@@ -464,7 +515,7 @@ def search_all_categories(query: str, limit: int = 20, language: Optional[str] =
         return {"songs": [], "albums": [], "playlists": []}
     
     logger.info(f"Searching all categories in JioSaavn for: {query}")
-    use_web_client = _is_english_language(language, query)
+    use_web_client = str(language or "").strip().lower() == "english"
     
     try:
         songs_data: List[Dict[str, Any]] = []
@@ -473,11 +524,11 @@ def search_all_categories(query: str, limit: int = 20, language: Optional[str] =
 
         if use_web_client:
             logger.debug("Using JioSaavn web-client session for english multi-search query=%s", query)
-            payload = jiosaavn_request(JIOSAAVN_API_URL, params=_english_search_params(query, limit))
+            payload = jiosaavn_request(JIOSAAVN_API_URL, params=_web_search_params(query, limit))
             if payload is None:
                 logger.debug("English web-client multi-search request failed for query=%s", query)
                 return {"songs": [], "albums": [], "playlists": []}
-            songs_data = _extract_english_results(payload)
+            songs_data = _extract_web_song_results(payload)
         else:
             url = JIOSAAVN_SEARCH_BASE + query
             response_text = _fetch_text(url)
@@ -532,7 +583,7 @@ def search_playlists_jiosaavn(query: str, limit: int = 5, language: Optional[str
         return []
     
     logger.info(f"Searching JioSaavn playlists for: {query}")
-    use_web_client = _is_english_language(language, query)
+    use_web_client = str(language or "").strip().lower() == "english"
     
     try:
         url = JIOSAAVN_SEARCH_BASE + query
