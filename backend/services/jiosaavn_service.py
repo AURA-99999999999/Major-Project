@@ -61,11 +61,36 @@ def _web_search_params(query: str, limit: int) -> Dict[str, str]:
     }
 
 
+def _coerce_web_payload(payload: Any) -> Dict[str, Any]:
+    """Normalize api.php payloads that may arrive as nested JSON strings."""
+    current = payload
+    for _ in range(3):
+        if isinstance(current, dict):
+            return current
+        if isinstance(current, str):
+            text = current.strip()
+            if not text:
+                return {}
+            try:
+                current = json.loads(text)
+                continue
+            except Exception:
+                try:
+                    decoded = text.encode("utf-8", errors="ignore").decode("unicode_escape", errors="ignore")
+                    current = json.loads(decoded)
+                    continue
+                except Exception:
+                    return {}
+        break
+    return current if isinstance(current, dict) else {}
+
+
 def _extract_web_song_results(payload: Any) -> List[Dict[str, Any]]:
-    if not isinstance(payload, dict):
+    payload_obj = _coerce_web_payload(payload)
+    if not isinstance(payload_obj, dict):
         return []
 
-    results = payload.get("results")
+    results = payload_obj.get("results")
     if isinstance(results, dict):
         songs = results.get("songs")
         if isinstance(songs, dict):
@@ -76,7 +101,7 @@ def _extract_web_song_results(payload: Any) -> List[Dict[str, Any]]:
             return [item for item in songs if isinstance(item, dict)]
 
     # Fallback for variant payloads seen on older endpoints.
-    songs = payload.get("songs")
+    songs = payload_obj.get("songs")
     if isinstance(songs, dict):
         songs_data = songs.get("data")
         if isinstance(songs_data, list):
@@ -84,7 +109,7 @@ def _extract_web_song_results(payload: Any) -> List[Dict[str, Any]]:
     elif isinstance(songs, list):
         return [item for item in songs if isinstance(item, dict)]
 
-    data_obj = payload.get("data")
+    data_obj = payload_obj.get("data")
     if isinstance(data_obj, list):
         return [item for item in data_obj if isinstance(item, dict)]
     if isinstance(data_obj, dict):

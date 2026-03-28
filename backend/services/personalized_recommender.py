@@ -758,13 +758,22 @@ def get_recommendations(
             )
 
         if not candidates:
-            logger.warning("No unplayed candidates for uid=%s — returning empty", uid)
-            cache.set(cache_key, [], ttl=CACHE_TTL_COLD)
-            return []
+            logger.warning("No unplayed candidates for uid=%s — using language fallback", uid)
+            prefs = profile.get("lang_prefs") or lang_fallback or []
+            fallback_recs = _cold_start(
+                prefs,
+                limit,
+                played_ids=played_ids,
+                user_song_names=profile.get("user_song_names"),
+            )
+            cache.set(cache_key, fallback_recs, ttl=CACHE_TTL_COLD)
+            return fallback_recs
 
         scored = score_candidates(candidates, profile)
         # Pass diversity caps through for fallback filling
         recs = apply_diversity(scored, limit=limit)
+        if not recs and scored:
+            recs = [dict(song) for song in scored[:limit]]
         recs = album_aware_shuffle(recs)
         recs = recs[:limit]
         # Add display_name and display_artists fields for UI
